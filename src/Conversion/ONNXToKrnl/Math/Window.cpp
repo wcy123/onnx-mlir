@@ -12,6 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Windows MSVC doesn't define M_PI in math.h
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include "src/Conversion/ONNXToKrnl/ONNXToKrnlCommon.hpp"
 #include "src/Dialect/Krnl/KrnlHelper.hpp"
 #include "src/Dialect/Mlir/DialectBuilder.hpp"
