@@ -40,12 +40,13 @@ module {
 
 ```mlir
 module {
-  func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %state: !hip.handle) -> tensor<1x64x112x112xf32> {
+  func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %handle: !hip.handle) -> tensor<1x64x112x112xf32> {
     %0 = "onnx.Constant"() {value = dense<1.0> : tensor<64x3x7x7xf32>} : () -> tensor<64x3x7x7xf32>
     %1 = "onnx.Constant"() {value = dense<0.5> : tensor<64xf32>} : () -> tensor<64xf32>
 
     // ONNX Conv → HIP Conv (MIOpen backend)
-    %2 = hip.conv(%state, %arg0, %0, %1) {
+    // %handle: !hip.handle points to State struct (miopenHandle, stream, weights, etc.)
+    %2 = hip.conv(%handle, %arg0, %0, %1) {
       kernel_shape = [7, 7],
       strides = [2, 2],
       pads = [3, 3, 3, 3],
@@ -59,8 +60,8 @@ module {
 ```
 
 **Changes**:
-- `"onnx.Conv"(...)` → `hip.conv(%state, ...)`
-- State handle added as function parameter
+- `"onnx.Conv"(...)` → `hip.conv(%handle, ...)`
+- `%handle: !hip.handle` added as function parameter (points to State struct)
 - Attributes unchanged
 
 ---
@@ -78,11 +79,12 @@ module {
   llvm.func @hipMalloc(i64) -> !llvm.ptr
   llvm.func @hipFree(!llvm.ptr)
 
-  func.func @main_graph(%arg0: !llvm.ptr, %state: !llvm.ptr) -> !llvm.ptr {
-    // Extract miopenHandle from state (offset 8 bytes)
+  func.func @main_graph(%arg0: !llvm.ptr, %handle: !llvm.ptr) -> !llvm.ptr {
+    // %handle points to State struct { stream, miopenHandle, hipblasHandle, gpu_weights }
+    // Extract miopenHandle from State (offset 8 bytes)
     %c8 = llvm.mlir.constant(8 : i64) : i64
-    %handle_ptr = llvm.getelementptr %state[%c8] : (!llvm.ptr, i64) -> !llvm.ptr
-    %miopen_handle = llvm.load %handle_ptr : !llvm.ptr -> !llvm.ptr
+    %handle_field_ptr = llvm.getelementptr %handle[%c8] : (!llvm.ptr, i64) -> !llvm.ptr
+    %miopen_handle = llvm.load %handle_field_ptr : !llvm.ptr -> !llvm.ptr
 
     // Allocate GPU memory for output (1×64×112×112×4 bytes)
     %output_size = llvm.mlir.constant(3211264 : i64) : i64
@@ -137,11 +139,13 @@ module {
 
 **Key transformations**:
 1. `hip.conv()` → Direct MIOpen API calls
-2. State extraction: `GEP %state[8]` + `load` → miopenHandle
+2. Extract miopenHandle: `GEP %handle[8]` + `load` → miopenHandle
 3. GPU memory allocation: `hipMalloc(3MB)`
 4. Descriptor setup: input/weight/output tensor shapes
 5. Convolution execution: `miopenConvolutionForward(...)`
 6. Resource cleanup
+
+**Note**: `%handle: !hip.handle` is the variable name. It points to the State struct.
 
 ---
 
@@ -154,8 +158,8 @@ inference_compute:
     push rbp
     mov rbp, rsp
 
-    ; Extract miopenHandle from state
-    mov rax, [rdi+8]        ; state->miopenHandle
+    ; Extract miopenHandle from State struct
+    mov rax, [rdi+8]        ; handle->miopenHandle (offset 8)
 
     ; Call miopenConvolutionForward
     mov rdi, rax            ; handle
