@@ -286,32 +286,42 @@ hip.destroy_handle(%handle) : !hip.handle
 ```
 
 **MIOpen DNN operations (implemented in lib/HipDialect/HipOps.td):**
+
+All HIP operations use **in-place semantics** (destination-passing style):
+
 ```mlir
-// Convolution
-%output = hip.conv(%handle, %input, %weights, %bias)
-          {kernel_shape = [3, 3], strides = [1, 1],
-           pads = [1, 1, 1, 1], dilations = [1, 1], group = 1}
-          : (memref<?x?x?x?xf32, 1>, memref<?x?x?x?xf32, 1>, memref<?xf32, 1>)
-          -> memref<?x?x?x?xf32, 1>
+// Convolution (in-place: output buffer passed as argument)
+%output = hip.alloc(%handle) : memref<1x64x224x224xf32, 1>
+hip.conv(%handle, %input, %weights, %bias, %output)
+         {kernel_shape = [3, 3], strides = [1, 1],
+          pads = [1, 1, 1, 1], dilations = [1, 1], group = 1}
+         : (!hip.context, memref<1x3x224x224xf32, 1>,
+            memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
+            memref<1x64x224x224xf32, 1>)
 
-// Matrix multiplication (GEMM)
-%C = hip.gemm(%handle, %A, %B)
-     {transA = 0, transB = 0, alpha = 1.0, beta = 0.0}
-     : (memref<?x?xf32, 1>, memref<?x?xf32, 1>)
-     -> memref<?x?xf32, 1>
+// Matrix multiplication (GEMM) - in-place
+%result = hip.alloc(%handle) : memref<MxNxf32, 1>
+hip.gemm(%handle, %A, %B, %result)
+         {transA = 0, transB = 0, alpha = 1.0, beta = 0.0}
+         : (!hip.context, memref<MxKxf32, 1>, memref<KxNxf32, 1>,
+            memref<MxNxf32, 1>)
 
-// Max pooling
-%output = hip.maxpool(%handle, %input)
-          {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
-          : memref<?x?x?x?xf32, 1> -> memref<?x?x?x?xf32, 1>
+// Max pooling - in-place
+%output = hip.alloc(%handle) : memref<1x64x56x56xf32, 1>
+hip.maxpool(%handle, %input, %output)
+            {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
+            : (!hip.context, memref<1x64x112x112xf32, 1>,
+               memref<1x64x56x56xf32, 1>)
 
-// Average pooling
-%output = hip.avgpool(%handle, %input)
-          {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
-          : memref<?x?x?x?xf32, 1> -> memref<?x?x?x?xf32, 1>
+// Average pooling - in-place
+%output = hip.alloc(%handle) : memref<1x64x56x56xf32, 1>
+hip.avgpool(%handle, %input, %output)
+            {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
+            : (!hip.context, memref<1x64x112x112xf32, 1>,
+               memref<1x64x56x56xf32, 1>)
 ```
 
-Each operation lowers to corresponding MIOpen or hipBLASLt API calls in `HipToLLVM.cpp`.
+**Design:** Operations take output buffer as argument (in-place semantics), matching MIOpen/hipBLAS API semantics directly. Each operation lowers to corresponding MIOpen or hipBLASLt API calls in `HipToLLVM.cpp`.
 
 **Future operations** (to be added as needed):
 - Batch normalization: `hip.batchnorm`

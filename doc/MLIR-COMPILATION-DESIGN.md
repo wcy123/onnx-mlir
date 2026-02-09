@@ -108,16 +108,18 @@ module {
   func.func @main(%state: !hip.context,  // NEW: state parameter added
                    %arg0: memref<1x3x224x224xf32>) -> memref<1x64x224x224xf32> {
 
-    // ONNX operations replaced with HIP operations (inline)
-    %0 = hip.conv(%state, %arg0, @conv_weight, @conv_bias) {
+    // ONNX operations replaced with HIP operations (inline, in-place semantics)
+    %0 = hip.alloc(%state) : memref<1x64x224x224xf32>
+    hip.conv(%state, %arg0, @conv_weight, @conv_bias, %0) {
       kernel_shape = [3, 3],
       strides = [1, 1],
       pads = [1, 1, 1, 1],
       dilations = [1, 1],
       group = 1
-    } : (!hip.context, memref<...>, ...) -> memref<1x64x224x224xf32>
+    } : (!hip.context, memref<...>, ..., memref<1x64x224x224xf32>)
 
-    %1 = hip.relu(%state, %0) : (!hip.context, memref<...>) -> memref<...>
+    %1 = hip.alloc(%state) : memref<1x64x224x224xf32>
+    hip.relu(%state, %0, %1) : (!hip.context, memref<...>, memref<...>)
 
     return %1 : memref<1x64x224x224xf32>
   }
@@ -240,11 +242,15 @@ def Hip_ContextType : DialectType<HipDialect, "context"> {
 **Usage in IR:**
 ```mlir
 // Context is first parameter of every HIP function
-func @main_graph(%ctx: !hip.context, %input: tensor<...>) {
-  // Passed to all operations
-  %output = hip.conv(%ctx, %input, %weights, %bias) {...}
-  %result = hip.gemm(%ctx, %output, %matrix) {...}
-  return %result
+func @main_graph(%ctx: !hip.context, %input: memref<...>) -> memref<...> {
+  // HIP operations use in-place semantics (output as argument)
+  %output = hip.alloc(%ctx) : memref<...>
+  hip.conv(%ctx, %input, %weights, %bias, %output) {...}
+
+  %result = hip.alloc(%ctx) : memref<...>
+  hip.gemm(%ctx, %output, %matrix, %result) {...}
+
+  return %result : memref<...>
 }
 ```
 
