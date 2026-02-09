@@ -98,7 +98,7 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     Value state = entryBlock.getArgument(0);
 
     // Verify it's a handle type (in Phase 1, state is represented as !hip.handle)
-    if (!state.getType().isa<hip::HandleType>()) {
+    if (!isa<hip::HandleType>(state.getType())) {
       return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.handle (expected state)");
     }
 
@@ -106,22 +106,29 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // The hip.conv operation will use this state to access miopenHandle during HIP→LLVM lowering
     Value handle = state;
 
-    // Create HIP Conv operation using builder
-    auto hipConv = rewriter.create<hip::ConvOp>(
-        loc,                   // Location
-        outputType,            // Result type
-        handle,                // HIP handle from function argument
-        X,                     // Input
-        W,                     // Weights
-        B,                     // Bias (may be empty)
-        kernelShapeAttr,       // kernel_shape
-        stridesAttr,           // strides
-        padsAttr,              // pads
-        dilationsAttr,         // dilations
-        groupAttr);            // group
+    // Create HIP Conv operation using OpBuilder
+    // Prepare operands - handle required bias as optional
+    SmallVector<Value, 4> operands = {handle, X, W};
+    if (B) {
+      operands.push_back(B);
+    }
+
+    // Prepare attributes (unwrap optional values)
+    SmallVector<NamedAttribute, 5> attributes;
+    attributes.push_back(rewriter.getNamedAttr("kernel_shape", kernelShapeAttr.value()));
+    attributes.push_back(rewriter.getNamedAttr("strides", stridesAttr.value()));
+    attributes.push_back(rewriter.getNamedAttr("pads", padsAttr.value()));
+    attributes.push_back(rewriter.getNamedAttr("dilations", dilationsAttr.value()));
+    attributes.push_back(rewriter.getNamedAttr("group", groupAttr));
+
+    // Build the operation with OperationState
+    OperationState opState(loc, hip::ConvOp::getOperationName(),
+                          operands, {outputType}, attributes);
+
+    Operation *hipConvOp = rewriter.create(opState);
 
     // Replace the ONNX Conv with HIP Conv result
-    rewriter.replaceOp(convOp, hipConv.getResult());
+    rewriter.replaceOp(convOp, hipConvOp->getResult(0));
 
     return success();
   }
