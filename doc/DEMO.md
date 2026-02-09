@@ -44,30 +44,41 @@ func.func @main(%input: tensor<1x3x224x224xf32>,
 
 **Status**: ✅ **Working** (tested and verified)
 
-**Real output**:
+**Real output** (from working implementation):
 
 ```mlir
 func.func @main(%arg0: !hip.context,
                 %arg1: memref<1x3x224x224xf32, 1>,
                 %arg2: memref<64x3x3x3xf32, 1>,
-                %arg3: memref<64xf32, 1>) -> memref<1x64x224x224xf32, 1> {
+                %arg3: memref<64xf32, 1>,
+                %arg4: memref<1x64x224x224xf32, 1>) -> i32 {
+  // Allocate intermediate buffer (Phase 1)
   %0 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
+
+  // Execute convolution in-place (writes to %0)
   hip.conv(%arg0, %arg1, %arg2, %arg3, %0)
     {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3],
      pads = [1, 1, 1, 1], strides = [1, 1]}
     : (!hip.context, memref<1x3x224x224xf32, 1>,
        memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
        memref<1x64x224x224xf32, 1>)
-  return %0 : memref<1x64x224x224xf32, 1>
+
+  // Copy result to output argument (destination-passing)
+  memref.copy %0, %arg4 : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
+
+  // Return success status
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }
 ```
 
 **Transformations applied**:
 
-1. **Function signature**:
+1. **Function signature** (destination-passing style):
    - Added `%arg0: !hip.context` as first parameter (GPU runtime state)
    - Converted inputs: `tensor<...>` → `memref<..., 1>` (GPU address space 1)
-   - Converted return type: `tensor<...>` → `memref<..., 1>`
+   - **Added output argument**: `%arg4: memref<1x64x224x224xf32, 1>` (destination-passing)
+   - **Changed return type**: `tensor<...>` → `i32` (status code, 0 = success)
 
 2. **Type conversion** (OnnxToHipTypeConverter):
    - All tensor types converted to memref with GPU address space
@@ -91,7 +102,8 @@ func.func @main(%arg0: !hip.context,
 **Design notes**:
 - `!hip.context` is an opaque type representing GPU runtime state
 - In Phase 1, context is used as-is; handle extraction happens in HIP→LLVM lowering
-- Functions return memref (value semantics), but operations use in-place semantics
+- **Functions use destination-passing**: outputs as arguments, return i32 status
+- **Operations use in-place semantics**: output buffer as argument, no return value
 
 **Test file**: `tools/hip-opt/test_conv_inplace.mlir`
 
@@ -355,22 +367,24 @@ clang test.o -shared -L/opt/rocm/lib -lMIOpen -lhip -o test.dll
 
 ## Design Summary
 
-### Three-Level Semantics
+### Consistent Destination-Passing Design
 
 **HIP Dialect Operations**: In-place (destination-passing)
 - Operations take output buffer as argument, no return value
 - Example: `hip.conv(%ctx, %input, %weights, %bias, %output)`
 - Matches MIOpen/hipBLAS API design
 
-**HIP Dialect Functions**: Value semantics
-- Functions return memref results
-- Example: `func.func @main(...) -> memref<1x64x224x224xf32, 1>`
-- Simpler interface for MLIR users
+**HIP Dialect Functions**: Destination-passing
+- Functions take output arguments, return i32 status code
+- Example: `func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32`
+- No function returns memref - all outputs via destination-passing
 
 **C Interface**: Destination-passing (after lowering to LLVM)
 - Outputs passed via pointers in span_t
 - Example: `int inference_compute(void* state, span_t inputs, span_t outputs)`
 - Standard C ABI for DLL exports
+
+**Design principle**: No memory returned from functions at any level - all outputs written to caller-provided buffers.
 
 ### Memory Management (Phase 1)
 
