@@ -68,11 +68,11 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 
     // Get state from function argument
     // The compiled function signature is:
-    //   func @inference_compute(%state: !hip.handle, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32
+    //   func @inference_compute(%state: !hip.context, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32
     //
     // Phase 1 Design:
-    // - We use !hip.handle type for state parameter (simple, type-safe at HIP dialect level)
-    // - The !hip.handle actually points to the State struct (documented semantic)
+    // - We use !hip.context type for state parameter (simple, type-safe at HIP dialect level)
+    // - The !hip.context actually points to the State struct (documented semantic)
     // - Handle extraction (to get miopenHandle/hipblasHandle) happens in HIP→LLVM lowering
     //
     // State struct layout (used by HipToLLVM.cpp):
@@ -89,7 +89,7 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
       return rewriter.notifyMatchFailure(convOp, "Not inside a function");
     }
 
-    // First argument should be the state (typed as !hip.handle for now)
+    // First argument should be the state (typed as !hip.context for now)
     auto &entryBlock = funcOp.getBody().front();
     if (entryBlock.getNumArguments() == 0) {
       return rewriter.notifyMatchFailure(convOp, "Function has no arguments (expected state as first arg)");
@@ -97,9 +97,9 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 
     Value state = entryBlock.getArgument(0);
 
-    // Verify it's a handle type (in Phase 1, state is represented as !hip.handle)
-    if (!isa<hip::HandleType>(state.getType())) {
-      return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.handle (expected state)");
+    // Verify it's a handle type (in Phase 1, state is represented as !hip.context)
+    if (!isa<hip::ContextType>(state.getType())) {
+      return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.context (expected state)");
     }
 
     // Pass state directly to hip.conv

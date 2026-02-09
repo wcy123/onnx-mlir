@@ -9,10 +9,20 @@ class Hip_Type<string name, string typeMnemonic>
   let mnemonic = typeMnemonic;
 }
 
-def Hip_HandleType : Hip_Type<"Handle", "handle"> {
-  let summary = "HIP runtime handle type";
+def Hip_ContextType : Hip_Type<"Context", "context"> {
+  let summary = "Opaque HIP execution context";
   let description = [{
-    Represents an opaque HIP runtime handle used for managing HIP operations.
+    Represents runtime state including stream, library handles (MIOpen,
+    hipBLASLT), and GPU memory. Lowered to !llvm.ptr during HIP→LLVM conversion.
+
+    The context is an opaque pointer to a runtime-managed struct that contains:
+    - HIP stream for asynchronous execution
+    - Library handles (miopenHandle_t, hipblasLtHandle_t, etc.)
+    - GPU pointers to uploaded weights
+    - Cached descriptors and workspace buffers
+
+    This type is intentionally opaque to separate high-level IR from low-level
+    implementation details, enabling easy extension without IR changes.
   }];
 }
 

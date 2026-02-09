@@ -182,9 +182,9 @@ struct ConvertHipToLLVMPass
     LowerToLLVMOptions options(ctx);
     LLVMTypeConverter typeConverter(ctx, options);
 
-    // Convert !hip.handle to !llvm.ptr
+    // Convert !hip.context to !llvm.ptr
     typeConverter.addConversion(
-        [ctx](HandleType type) -> Type {
+        [ctx](ContextType type) -> Type {
           return LLVM::LLVMPointerType::get(ctx, 0);
         });
 

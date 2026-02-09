@@ -20,7 +20,7 @@ def Hip_CreateHandleOp : Hip_Op<"create_handle", []> {
     ```
   }];
   
-  let results = (outs Hip_HandleType:$handle);
+  let results = (outs Hip_ContextType:$handle);
   let assemblyFormat = "`(` `)` attr-dict `:` type($handle)";
 }
 
@@ -35,7 +35,7 @@ def Hip_DestroyHandleOp : Hip_Op<"destroy_handle", []> {
     ```
   }];
   
-  let arguments = (ins Hip_HandleType:$handle);
+  let arguments = (ins Hip_ContextType:$handle);
   let assemblyFormat = "`(` $handle `)` attr-dict `:` type($handle)";
 }
 
@@ -51,7 +51,7 @@ def Hip_AllocOp : Hip_Op<"alloc", []> {
   }];
   
   let arguments = (ins 
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     Variadic<Index>:$dynamicSizes
   );
   let results = (outs AnyMemRef:$memref);
@@ -73,7 +73,7 @@ def Hip_FreeOp : Hip_Op<"free", []> {
   }];
 
   let arguments = (ins
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     AnyMemRef:$memref
   );
 
@@ -109,7 +109,7 @@ def Hip_ConvOp : Hip_Op<"conv", []> {
   }];
 
   let arguments = (ins
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     AnyMemRef:$input,
     AnyMemRef:$weights,
     Optional<AnyMemRef>:$bias,
@@ -149,7 +149,7 @@ def Hip_GemmOp : Hip_Op<"gemm", []> {
   }];
 
   let arguments = (ins
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     AnyMemRef:$A,
     AnyMemRef:$B,
     Optional<AnyMemRef>:$C,
@@ -185,7 +185,7 @@ def Hip_MaxPoolOp : Hip_Op<"maxpool", []> {
   }];
 
   let arguments = (ins
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     AnyMemRef:$input,
     I64ArrayAttr:$kernel_shape,
     I64ArrayAttr:$strides,
@@ -218,7 +218,7 @@ def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
   }];
 
   let arguments = (ins
-    Hip_HandleType:$handle,
+    Hip_ContextType:$handle,
     AnyMemRef:$input,
     I64ArrayAttr:$kernel_shape,
     I64ArrayAttr:$strides,
