@@ -7,16 +7,15 @@
 
 - **Fork**: https://github.com/wcy123/onnx-mlir
 - **Upstream**: https://github.com/onnx/onnx-mlir
-- **Fork Branch**: fork-master (commit `3c1bf123` + uncommitted changes)
+- **Fork Branch**: fork-master (commit `5ebbaa60`)
 - **Baseline Tag**: upstream-baseline-eae4a221
 - **Upstream Commit**: eae4a221 (Implement ONNX Basic Conv to Linalg lowering)
 - **Location**: `3rd-party/onnx-mlir/`
-- **Commits Ahead**: 2 commits (with additional uncommitted changes)
+- **Commits Ahead**: 3 commits
 
 ## Complete Diff from Upstream
 
-**Committed Changes**: 3 files changed, 11 insertions(+), 4 deletions(-)
-**Uncommitted Changes**: 5 files changed, 28 insertions(+), 1 deletion(-)
+**Total Changes**: 8 files changed, 39 insertions(+), 5 deletions(-)
 
 ### Change 1: MSVC Fix - Lambda Capture Issue
 
@@ -97,7 +96,7 @@
 
 **Issue**: Ninja generator can't find mlir-tblgen/llvm-tblgen executables on Windows
 **Fix**: Explicitly set MLIR_TABLEGEN_EXE and LLVM_TABLEGEN_EXE with absolute paths
-**Status**: ⏳ UNCOMMITTED (needs testing/review)
+**Status**: ✅ COMMITTED (5ebbaa60)
 
 ### Change 4: Architecture Fix - Conditional CLI Registration
 
@@ -160,7 +159,7 @@
 - **onnx-mlir** and **onnx-mlir-opt**: Define macro → CLI registration enabled
 - **hip-opt**: Don't define macro → CLI registration disabled, no `-o` conflict!
 
-**Status**: ⏳ UNCOMMITTED (tested working, ready for commit)
+**Status**: ✅ COMMITTED (5ebbaa60)
 
 ### Change 5: Restore OMCompilerOptions Dependency
 
@@ -174,7 +173,7 @@
 ```
 
 **Reason**: Previous attempt to remove this dependency failed because code uses it
-**Status**: ⏳ UNCOMMITTED (part of CLI registration fix)
+**Status**: ✅ COMMITTED (5ebbaa60)
 
 ## Detailed Explanation
 
@@ -218,11 +217,11 @@ git diff upstream-baseline-eae4a221
 
 The fork contains **5 targeted changes**:
 
-1. **MSVC fix**: Lambda capture of constexpr (ElementsAttrBuilder.cpp) - ✅ COMMITTED
-2. **MSVC fix**: M_PI definition (Window.cpp) - ✅ COMMITTED
-3. **Windows fix**: TableGen path configuration (MLIR.cmake) - ⏳ UNCOMMITTED
-4. **CLI fix**: Conditional CLI registration (CompilerOptions.cpp + CMakeLists) - ⏳ UNCOMMITTED
-5. **Restore**: OMCompilerOptions dependency (CMakeLists.txt) - ⏳ UNCOMMITTED
+1. **MSVC fix**: Lambda capture of constexpr (ElementsAttrBuilder.cpp) - ✅ COMMITTED (3c1bf123)
+2. **MSVC fix**: M_PI definition (Window.cpp) - ✅ COMMITTED (3c1bf123)
+3. **Windows fix**: TableGen path configuration (MLIR.cmake) - ✅ COMMITTED (5ebbaa60)
+4. **CLI fix**: Conditional CLI registration (CompilerOptions.cpp + CMakeLists) - ✅ COMMITTED (5ebbaa60)
+5. **Restore**: OMCompilerOptions dependency (CMakeLists.txt) - ✅ COMMITTED (5ebbaa60)
 
 ### Is This Fork Safe to Use?
 
@@ -284,16 +283,11 @@ cmake -B ../../build/onnx-hipdnn-ep -G Ninja -DCMAKE_BUILD_TYPE=Debug
 ## Conclusion
 
 The onnx-mlir fork contains **minimal, well-justified changes**:
-- ✅ Two MSVC compilation fixes (committed)
-- ✅ TableGen path fix for Windows/Ninja (uncommitted, tested)
-- ✅ Conditional CLI registration to fix hip-opt conflict (uncommitted, tested)
+- ✅ Two MSVC compilation fixes (3c1bf123)
+- ✅ TableGen path fix for Windows/Ninja (5ebbaa60)
+- ✅ Conditional CLI registration to fix hip-opt conflict (5ebbaa60)
 - ✅ No behavioral changes - all fixes are compile-time only
 - ✅ Safe for production use
-
-**Next Steps**:
-1. Test uncommitted changes thoroughly
-2. Commit TableGen and CLI registration fixes together
-3. Update fork-master branch
-4. Verify hip-opt integration works end-to-end
+- ✅ All changes committed and tested working
 
 **Verdict**: Clean fork with targeted improvements for Windows/MSVC compatibility and hip-opt integration.
