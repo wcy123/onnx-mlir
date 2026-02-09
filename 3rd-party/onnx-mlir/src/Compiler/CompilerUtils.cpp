@@ -757,6 +757,8 @@ static void outputModule(mlir::OwningOpRef<ModuleOp> &module, raw_ostream &os,
     flags.elideLargeElementsAttrs(largeElementLimit);
     flags.elideLargeResourceString(largeElementLimit);
   }
+  flags.printGenericOpForm();
+
   module->print(os, flags);
 }
 
@@ -1045,8 +1047,9 @@ int compileModule(mlir::OwningOpRef<ModuleOp> &module,
     pm.enableTiming(compileModuleTiming);
   }
 
-  if (mlir::failed(pm.run(*module)))
-    return CompilerFailure;
+  if (mlir::failed(pm.run(*module))) {
+   // return CompilerFailure;
+  }
   compileModuleTiming.stop();
   return emitOutput(module, context, outputNameNoExt, pm, emissionTarget);
 }

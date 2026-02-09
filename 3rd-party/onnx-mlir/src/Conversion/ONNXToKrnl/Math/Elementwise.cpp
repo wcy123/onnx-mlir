@@ -1370,7 +1370,7 @@ Value emitPostProcessingFor<ONNXMeanOp>(ConversionPatternRewriter &rewriter,
 
 // Keep in sync with with KrnlBuilder::roundEven algorithm.
 template <>
-GenOpMix getGenOpMix<ONNXRoundOp>(Type t, Operation *op) {
+inline GenOpMix getGenOpMix<ONNXRoundOp>(Type t, Operation *op) {
   // Custom?
   Type inputType = op->getOperand(0).getType();
   if (VectorMachineSupport::requireCustomASM(
