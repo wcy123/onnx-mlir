@@ -40,11 +40,11 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // Get location for error reporting
     auto loc = convOp.getLoc();
 
-    // Use adaptor for operands (provides converted types from TypeConverter)
-    // OpAdaptor automatically uses TypeConverter to convert tensor → memref<..., 1>
-    Value X = adaptor.getX();      // Input: tensor<1x3x224x224xf32> → memref<1x3x224x224xf32, 1>
-    Value W = adaptor.getW();      // Weight: tensor<64x3x3x3xf32> → memref<64x3x3x3xf32, 1>
-    Value B = adaptor.getB();      // Bias: tensor<64xf32> → memref<64xf32, 1> (optional)
+    // Get operands from adaptor
+    // OpAdaptor provides operands after type conversion (tensor → memref)
+    Value X = adaptor.getX();
+    Value W = adaptor.getW();
+    Value B = adaptor.getB();
 
     // ✅ Type-safe attribute access (compile-time checked)
     auto kernelShape = convOp.getKernelShape();
@@ -173,6 +173,26 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Func Return Conversion Pattern
+//===----------------------------------------------------------------------===//
+// Convert func.return to use converted operand types (memref instead of tensor)
+
+struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      func::ReturnOp returnOp,
+      OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+    // Replace return with converted operands
+    // OpAdaptor provides operands after type conversion (tensor → memref)
+    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp, adaptor.getOperands());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Type Converter: Tensor → MemRef (GPU Address Space)
 //===----------------------------------------------------------------------===//
 //
@@ -193,6 +213,7 @@ class OnnxToHipTypeConverter : public TypeConverter {
 public:
   OnnxToHipTypeConverter() {
     // Rule 1: Convert RankedTensorType to MemRefType with GPU address space
+    // This rule MUST be added first before the identity conversion
     addConversion([](RankedTensorType type) -> Type {
       // Extract tensor properties
       auto shape = type.getShape();
@@ -207,30 +228,50 @@ public:
                             memSpace);
     });
 
-    // Rule 2: Keep all other types unchanged (e.g., !hip.context, i64, f32)
-    addConversion([](Type type) { return type; });
+    // Rule 2: Keep MemRefType unchanged (already converted or GPU types)
+    addConversion([](MemRefType type) -> Type {
+      return type;
+    });
+
+    // Rule 3: Keep HIP types unchanged
+    addConversion([](hip::ContextType type) -> Type {
+      return type;
+    });
+
+    // Rule 4: Keep scalar types unchanged (i64, f32, etc.)
+    // Only convert types not covered by specific rules above
+    addConversion([](Type type) -> std::optional<Type> {
+      // If it's a tensor type that wasn't handled by Rule 1, fail
+      if (isa<TensorType>(type)) {
+        return std::nullopt;  // Conversion failed
+      }
+      // For all other types, keep unchanged
+      return type;
+    });
 
     // Register materialization hooks (required by MLIR infrastructure)
     // These handle edge cases where type conversions need temporary values
 
     // Source materialization: Create a value of the original type from converted type
-    // (e.g., when a pattern needs the original tensor type temporarily)
+    // (e.g., when converting memref back to tensor for unconverted operations)
     addSourceMaterialization([](OpBuilder &builder, Type resultType,
                                 ValueRange inputs, Location loc) -> Value {
       if (inputs.size() != 1)
         return nullptr;
-      // For now, just return the input (no-op materialization)
-      // This is safe because we're doing a one-way conversion (tensor→memref)
-      return inputs[0];
+      // Create unrealized_conversion_cast to bridge type mismatch
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
     });
 
     // Target materialization: Create a value of the converted type from original type
-    // (e.g., when replacing an operation's result)
+    // (e.g., when an operation needs a converted type but gets unconverted input)
     addTargetMaterialization([](OpBuilder &builder, Type resultType,
                                 ValueRange inputs, Location loc) -> Value {
       if (inputs.size() != 1)
         return nullptr;
-      return inputs[0];
+      // Create unrealized_conversion_cast to bridge type mismatch
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
+          .getResult(0);
     });
   }
 };
@@ -318,8 +359,17 @@ public:
     // Mark HIP dialect as legal
     target.addLegalDialect<hip::HipDialect>();
 
-    // Mark Func dialect as legal (we don't convert function ops)
+    // Mark HIP dialect as legal
+    target.addLegalDialect<hip::HipDialect>();
+
+    // Mark Func dialect as legal EXCEPT func.return which we need to convert
     target.addLegalDialect<func::FuncDialect>();
+    target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
+      // func.return is legal only if all operands are already converted types
+      return llvm::all_of(op.getOperandTypes(), [&](Type type) {
+        return typeConverter.isLegal(type);
+      });
+    });
 
     // Mark MemRef dialect as legal (we generate memref.dim for dynamic shapes)
     target.addLegalDialect<memref::MemRefDialect>();
@@ -333,6 +383,7 @@ public:
     // Step 4: Set up rewrite patterns (pass typeConverter to patterns)
     RewritePatternSet patterns(context);
     patterns.add<ConvToHipPattern>(typeConverter, context);
+    patterns.add<ReturnOpConversion>(typeConverter, context);
 
     // Step 5: Apply conversion
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
