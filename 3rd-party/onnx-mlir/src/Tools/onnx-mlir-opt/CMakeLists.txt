@@ -6,6 +6,9 @@ add_onnx_mlir_executable(onnx-mlir-opt
   onnx-mlir-opt.cpp
   RegisterPasses.cpp
 
+  DEFINE PRIVATE
+  ONNX_MLIR_ENABLE_CLI_REGISTRATION
+
   LINK_LIBS PRIVATE
   ${OMLibs}
   OMCompilerDialects

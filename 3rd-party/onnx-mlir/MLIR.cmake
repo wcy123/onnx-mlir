@@ -25,25 +25,26 @@ else()
   list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
   list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 
-  # Set TableGen executables with absolute paths (Windows MSVC fix)
-  # Visual Studio MSBuild doesn't inherit PATH, so we need absolute paths.
+  include(TableGen)
+  include(AddLLVM)
+  include(AddMLIR)
+
+  # Set TableGen executables with absolute paths for Windows
+  # Try LLVM_TOOLS_BINARY_DIR first (FetchContent), then CMAKE_INSTALL_PREFIX/bin (pre-installed)
   if(EXISTS "${LLVM_TOOLS_BINARY_DIR}/mlir-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
     set(MLIR_TABLEGEN_EXE "${LLVM_TOOLS_BINARY_DIR}/mlir-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
-  elseif(EXISTS "${MLIR_TOOLS_DIR}/mlir-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
-    set(MLIR_TABLEGEN_EXE "${MLIR_TOOLS_DIR}/mlir-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
   else()
-    find_program(MLIR_TABLEGEN_EXE mlir-tblgen HINTS "${MLIR_TOOLS_DIR}" "${LLVM_TOOLS_BINARY_DIR}")
+    set(MLIR_TABLEGEN_EXE "${CMAKE_INSTALL_PREFIX}/bin/mlir-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
   endif()
 
   if(EXISTS "${LLVM_TOOLS_BINARY_DIR}/llvm-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
     set(LLVM_TABLEGEN_EXE "${LLVM_TOOLS_BINARY_DIR}/llvm-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
   else()
-    find_program(LLVM_TABLEGEN_EXE llvm-tblgen HINTS "${LLVM_TOOLS_DIR}" "${LLVM_TOOLS_BINARY_DIR}")
+    set(LLVM_TABLEGEN_EXE "${CMAKE_INSTALL_PREFIX}/bin/llvm-tblgen${CMAKE_EXECUTABLE_SUFFIX}")
   endif()
 
-  include(TableGen)
-  include(AddLLVM)
-  include(AddMLIR)
+  message(STATUS "Found mlir-tblgen: ${MLIR_TABLEGEN_EXE}")
+  message(STATUS "Found llvm-tblgen: ${LLVM_TABLEGEN_EXE}")
 
   include(HandleLLVMOptions)
 
