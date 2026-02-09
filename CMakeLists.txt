@@ -5,9 +5,28 @@
 cmake_minimum_required(VERSION 3.29)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 project(
-  morphizen-mlir
+  onnx-hipdnn-ep
   VERSION 1.0.0
   LANGUAGES C CXX)
+
+# Build options
+option(BUILD_HIP_DIALECT "Build HIP MLIR dialect library" ON)
+option(BUILD_HIP_OPT_TOOL "Build hip-opt standalone tool" OFF)
+option(BUILD_MLIR_COMPILER "Build MLIR compiler (Level-1 Pass)" ON)
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deps.cmake)
-add_subdirectory(level-1-pass-mlir-compiler)
+
+# Component builds
+if(BUILD_HIP_DIALECT)
+  add_subdirectory(lib/HipDialect)
+endif()
+
+if(BUILD_HIP_OPT_TOOL)
+  add_subdirectory(tools/hip-opt)
+endif()
+
+if(BUILD_MLIR_COMPILER)
+  add_subdirectory(level-1-pass-mlir-compiler)
+endif()
+
 add_subdirectory(test)

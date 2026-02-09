@@ -145,12 +145,14 @@ bool ElementsAttrBuilder::allEqual(
       btypeOfMlirType(lhs.getElementType()), [lhs, n](auto btype) {
         using cpptype = CppType<btype>;
         constexpr BType TAG = toBType<cpptype>;
-        auto nEquals = [n, TAG](cpptype x) { return n.narrow<TAG>() == x; };
+        // MSVC fix: capture TAG as const instead of constexpr
+        const BType TAG_CONST = TAG;
+        auto nEquals = [n, TAG_CONST](cpptype x) { return n.narrow<TAG_CONST>() == x; };
         if (auto disposable = mlir::dyn_cast<DisposableElementsAttr>(lhs)) {
           if (disposable.isTransformedOrCast()) {
             ArrayBuffer<WideNum> nums = disposable.getBufferAsWideNums();
-            return llvm::all_of(nums.get(), [n, TAG](WideNum m) {
-              return n.narrow<TAG>() == m.narrow<TAG>();
+            return llvm::all_of(nums.get(), [n, TAG_CONST](WideNum m) {
+              return n.narrow<TAG_CONST>() == m.narrow<TAG_CONST>();
             });
           } else {
             auto values = castArrayRef<cpptype>(disposable.getBufferBytes());

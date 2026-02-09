@@ -1,0 +1,22 @@
+#ifndef HIP_PASSES_H
+#define HIP_PASSES_H
+
+#include "mlir/Pass/Pass.h"
+#include <memory>
+
+namespace mlir {
+namespace hip {
+
+/// Create a pass to convert ONNX operations to HIP dialect.
+std::unique_ptr<Pass> createConvertOnnxToHipPass();
+
+/// Create a pass to convert HIP operations to LLVM dialect.
+std::unique_ptr<Pass> createConvertHipToLLVMPass();
+
+/// Register all HIP passes.
+void registerHipPasses();
+
+} // namespace hip
+} // namespace mlir
+
+#endif // HIP_PASSES_H

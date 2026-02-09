@@ -108,30 +108,29 @@ endif()
 
 message(STATUS "LLVM/MLIR configuration complete")
 
-# Configure onnx-mlir
-option(BUILD_ONNX_MLIR "Build onnx-mlir for typed ONNX dialect" OFF)
+# Configure onnx-mlir (REQUIRED for ONNX→HIP lowering)
+message(STATUS "Configuring onnx-mlir")
 
-if(BUILD_ONNX_MLIR)
-  message(STATUS "Configuring onnx-mlir")
-  message(WARNING "onnx-mlir build is disabled - requires submodule initialization")
-  message(WARNING "To enable: cd 3rd-party/onnx-mlir && git submodule update --init --recursive")
-
-  # Check if onnx-mlir submodule exists
-  if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rd-party/onnx-mlir/CMakeLists.txt")
-    message(FATAL_ERROR "onnx-mlir submodule not found. Run: git submodule update --init --recursive")
-  endif()
-
-  # onnx-mlir build options
-  set(ONNX_MLIR_BUILD_TESTS OFF CACHE BOOL "Build onnx-mlir tests")
-  set(ONNX_MLIR_ENABLE_WERROR OFF CACHE BOOL "Enable -Werror in onnx-mlir")
-  set(ONNX_MLIR_BUILD_RUNTIME OFF CACHE BOOL "Build onnx-mlir runtime (we only need dialect)")
-  set(ONNX_MLIR_BUILD_COMPILER_STATIC_LIBS OFF CACHE BOOL "Build static libs")
-
-  # Add onnx-mlir subdirectory
-  add_subdirectory(3rd-party/onnx-mlir EXCLUDE_FROM_ALL)
-
-  message(STATUS "onnx-mlir configuration complete")
+# Check if onnx-mlir submodule exists
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rd-party/onnx-mlir/CMakeLists.txt")
+  message(FATAL_ERROR "onnx-mlir submodule not found. Run: git submodule update --init --recursive")
 endif()
+
+# onnx-mlir build options
+set(ONNX_MLIR_BUILD_TESTS OFF CACHE BOOL "Build onnx-mlir tests")
+set(ONNX_MLIR_ENABLE_WERROR OFF CACHE BOOL "Enable -Werror in onnx-mlir")
+set(ONNX_MLIR_BUILD_RUNTIME OFF CACHE BOOL "Build onnx-mlir runtime (we only need dialect)")
+
+# Add onnx-mlir subdirectory
+add_subdirectory(3rd-party/onnx-mlir EXCLUDE_FROM_ALL)
+
+# Fix missing dependencies in onnx-mlir (minimal modification)
+# OMONNXOps needs PassesKrnl.h.inc to be generated first
+if(TARGET OMONNXOps AND TARGET OMTransformsKrnlPassIncGen)
+  add_dependencies(OMONNXOps OMTransformsKrnlPassIncGen)
+endif()
+
+message(STATUS "onnx-mlir configuration complete")
 
 # Function to get git version info for a component
 function(vaip_add_version_info)

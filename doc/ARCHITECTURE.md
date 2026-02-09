@@ -199,6 +199,8 @@ pm.addPass(createCanonicalizerPass());
 pm.run(module);
 ```
 
+**For detailed MLIR module structure and lowering design, see [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md).**
+
 ---
 
 ## Component Integration
@@ -368,43 +370,94 @@ options.AddConfigEntry("ep.context_embed_mode", "1");
 ### Custom Op Execution
 
 ```cpp
-// Simplified pseudocode
+// Simplified pseudocode showing EPContext → DLL loading → inference execution
 class HipDnnCustomOp {
-  void Initialize(const OrtCustomOpApi* api,
-                  OrtKernelInfo* info) {
+private:
+  HMEMORYMODULE dll_module_;
+  void* inference_state_;
+
+  // Function pointers from compiled DLL
+  int (*inference_init_)(void** out_state);
+  int (*inference_compute_)(void* state, span_t inputs, span_t outputs);
+  int (*inference_cleanup_)(void* state);
+
+public:
+  void Initialize(const OrtCustomOpApi* api, OrtKernelInfo* info) {
     // 1. Get EPContext attribute
     auto epcontext_data = GetEPContextAttribute(info);
 
-    // 2. Load DLL from memory
+    // 2. Load DLL from memory (using MemoryModule)
     dll_module_ = MemoryLoadLibrary(epcontext_data.dll_bytes);
+    if (!dll_module_) {
+      throw std::runtime_error("Failed to load DLL from EPContext");
+    }
 
-    // 3. Resolve entry point
-    inference_func_ = (InferenceFunc)MemoryGetProcAddress(
-        dll_module_, "hip_inference_entry");
+    // 3. Resolve entry points (3 functions per interface spec)
+    inference_init_ = (decltype(inference_init_))
+        MemoryGetProcAddress(dll_module_, "inference_init");
+    inference_compute_ = (decltype(inference_compute_))
+        MemoryGetProcAddress(dll_module_, "inference_compute");
+    inference_cleanup_ = (decltype(inference_cleanup_))
+        MemoryGetProcAddress(dll_module_, "inference_cleanup");
+
+    if (!inference_init_ || !inference_compute_ || !inference_cleanup_) {
+      throw std::runtime_error("Failed to resolve DLL entry points");
+    }
 
     // 4. Validate GPU architecture
     if (!ValidateGPUArchitecture(epcontext_data.target_arch)) {
-      LOG(ERROR) << "Architecture mismatch!";
+      throw std::runtime_error("GPU architecture mismatch");
+    }
+
+    // 5. Initialize inference state (creates GPU resources)
+    int ret = inference_init_(&inference_state_);
+    if (ret != INFERENCE_SUCCESS) {
+      throw std::runtime_error("Inference initialization failed");
     }
   }
 
   void Compute(OrtKernelContext* context) {
-    // Execute pre-compiled inference function
-    inference_func_(
-        GetInputTensors(context),
-        GetOutputTensors(context)
-    );
+    // Prepare input/output tensors
+    tensor_t inputs[1] = {
+      {.data = GetInputPointer(context, 0),
+       .shape = GetInputShape(context, 0),
+       .rank = GetInputRank(context, 0)}
+    };
+    tensor_t outputs[1] = {
+      {.data = GetOutputPointer(context, 0),
+       .shape = GetOutputShape(context, 0),
+       .rank = GetOutputRank(context, 0)}
+    };
+
+    span_t inputs_span = {.data = inputs, .count = 1};
+    span_t outputs_span = {.data = outputs, .count = 1};
+
+    // Execute pre-compiled inference (synchronous)
+    int ret = inference_compute_(inference_state_, inputs_span, outputs_span);
+    if (ret != INFERENCE_SUCCESS) {
+      throw std::runtime_error("Inference compute failed");
+    }
   }
 
   ~HipDnnCustomOp() {
-    MemoryFreeLibrary(dll_module_);
-  }
+    // Cleanup GPU resources
+    if (inference_cleanup_ && inference_state_) {
+      inference_cleanup_(inference_state_);
+    }
 
-private:
-  HMEMORYMODULE dll_module_;
-  InferenceFunc inference_func_;
+    // Unload DLL
+    if (dll_module_) {
+      MemoryFreeLibrary(dll_module_);
+    }
+  }
 };
 ```
+
+**Key Points:**
+- Uses the 3-function interface: `inference_init()`, `inference_compute()`, `inference_cleanup()`
+- DLL loaded entirely from memory (no disk I/O)
+- GPU resources initialized once, reused across inferences
+- See "Compiled Function Interface Design" section for complete interface specification
 
 ---
 
