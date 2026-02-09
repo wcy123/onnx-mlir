@@ -11,7 +11,7 @@ find_package(glog CONFIG REQUIRED)
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
 
-set(LIB_NAME morphizen-level1-pass-mlir)
+set(LIB_NAME morphizen-level1-pass-mlir-compiler)
 add_library(${LIB_NAME} STATIC src/pass_main.cpp)
 target_link_libraries(${LIB_NAME} PUBLIC
 	morphizen::morphizen-core-static
@@ -27,7 +27,7 @@ target_include_directories(${LIB_NAME} PRIVATE
 	${LLVM_INCLUDE_DIRS}
 	${MLIR_INCLUDE_DIRS}
 )
-target_compile_definitions(${LIB_NAME} PRIVATE -DOUTPUT_NAME="morphizen-level1-pass-mlir")
+target_compile_definitions(${LIB_NAME} PRIVATE -DOUTPUT_NAME="morphizen-level1-pass-mlir-compiler")
 target_link_libraries(${morphizen_ONNXRUNTIME_MORPHIZEN_EP_TARGET} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${LIB_NAME}>")
 set_target_properties(${LIB_NAME} PROPERTIES
 	FOLDER "mlir"

@@ -172,17 +172,8 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rd-party/morphizen/CMakeLists.txt")
 endif()
 message(STATUS "Using MorphiZen from git submodule: 3rd-party/morphizen")
 
-set(morphizen_ENABLE_UNIT_TEST ON CACHE BOOL "enable vaip unit test or not")
-if(morphizen_ENABLE_UNIT_TEST)
-  include(CTest)
-  enable_testing()
-endif()
-
 set(MORPHIZEN_JSON_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/etc/morphizen_config.json")
-
 # MorphiZen options (only non-default values)
-set(morphizen_ENABLE_RYZENAI_BIN_METADATA OFF CACHE BOOL "Disable ryzenai_bin_metadata submodule" FORCE)
 set(morphizen_OUTPUT_NAME "onnxruntime_morphizen_ep" CACHE STRING "Output name of MorphiZen library" FORCE)
-
 # Add morphizen subdirectory (after all options are set)
 add_subdirectory(3rd-party/morphizen)

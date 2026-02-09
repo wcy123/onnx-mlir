@@ -9,5 +9,5 @@ project(
   VERSION 1.0.0
   LANGUAGES C CXX)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deps.cmake)
-add_subdirectory(level-1-pass-mlir)
+add_subdirectory(level-1-pass-mlir-compiler)
 add_subdirectory(test)

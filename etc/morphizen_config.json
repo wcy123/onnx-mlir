@@ -6,7 +6,7 @@
     },
     {
       "name": "mlir-pass",
-      "plugin": "morphizen-level1-pass-mlir"
+      "plugin": "morphizen-level1-pass-mlir-compiler"
     }
   ],
   "target": "mlir-target",

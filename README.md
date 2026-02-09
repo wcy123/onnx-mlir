@@ -4,11 +4,24 @@ Licensed under the MIT License.
 -->
 # onnx-hipdnn-ep
 
-A MLIR integration project for the MorphiZen framework.
+**MLIR-based AOT Compilation Integration for AMD ROCm**
 
 ## Overview
 
-This project provides a level-1 MLIR pass for the MorphiZen framework. It serves as a template for MLIR-based graph transformations without pattern matching or protobuf dependencies.
+This is an integration branch combining:
+- **PR #1**: ONNX → MLIR conversion (MorphiZen framework)
+- **PR #4**: HIP MLIR dialect (hip-opt)
+
+The goal is to create a unified MLIR compilation pipeline for ONNX Runtime HipDNN Execution Provider with ahead-of-time compilation and EPContext caching.
+
+**Note:** This is a work-in-progress integration branch (`mlir-integration`). See `../notes/presentation-summary.md` for architecture design.
+
+## Current Status
+
+✅ PR #1 baseline integrated (ONNX → MLIR parsing)
+⏳ PR #4 hip-opt integration (in progress)
+⏳ Pattern-based lowering (ONNX-MLIR → HIP dialect)
+⏳ Native compilation pipeline
 
 ## Project Structure
 
@@ -22,7 +35,7 @@ onnx-hipdnn-ep/
 │   └── deps.cmake              # Dependency management
 ├── 3rd-party/                  # Third-party dependencies
 │   └── morphizen/              # MorphiZen (git submodule)
-├── level-1-pass-mlir/          # MLIR pass implementation
+├── level-1-pass-mlir-compiler/ # MLIR compiler (ONNX → MLIR → HIP → LLVM)
 │   ├── CMakeLists.txt          # Pass build configuration
 │   └── src/
 │       └── pass_main.cpp       # Main pass implementation with MLIR parsing
