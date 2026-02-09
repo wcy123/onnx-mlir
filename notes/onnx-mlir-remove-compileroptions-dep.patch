@@ -1,0 +1,29 @@
+--- a/3rd-party/onnx-mlir/src/Dialect/Mlir/CMakeLists.txt
++++ b/3rd-party/onnx-mlir/src/Dialect/Mlir/CMakeLists.txt
+@@ -12,7 +12,7 @@ add_onnx_mlir_library(OMMlirDialects
+   OMSpecializedKernelOpInterface
+
+   LINK_LIBS PUBLIC
+-  OMCompilerOptions
++  # OMCompilerOptions  # REMOVED: Core dialect utilities should not depend on CLI options
+   MLIRMathDialect
+   MLIRAffineDialect
+   MLIRSCFDialect
+@@ -21,3 +21,10 @@ add_onnx_mlir_library(OMMlirDialects
+   MLIRShapeDialect
+   )
+
++# Also remove the #include from source files if present
++--- a/3rd-party/onnx-mlir/src/Dialect/Mlir/DialectBuilder.cpp
+++++ b/3rd-party/onnx-mlir/src/Dialect/Mlir/DialectBuilder.cpp
++@@ -1,5 +1,5 @@
++ #include "src/Dialect/ONNX/DialectBuilder.hpp"
++-#include "src/Compiler/CompilerOptions.hpp"
+++// #include "src/Compiler/CompilerOptions.hpp"  // REMOVED: Not actually used
++
++--- a/3rd-party/onnx-mlir/src/Dialect/Mlir/VectorMachineSupport.cpp
+++++ b/3rd-party/onnx-mlir/src/Dialect/Mlir/VectorMachineSupport.cpp
++@@ -1,5 +1,5 @@
++ #include "src/Dialect/Mlir/VectorMachineSupport.hpp"
++-#include "src/Compiler/CompilerOptions.hpp"
+++// #include "src/Compiler/CompilerOptions.hpp"  // REMOVED: Not actually used

@@ -87,9 +87,12 @@ def Hip_FreeOp : Hip_Op<"free", []> {
 //===----------------------------------------------------------------------===//
 
 def Hip_ConvOp : Hip_Op<"conv", []> {
-  let summary = "2D convolution operation using MIOpen";
+  let summary = "2D convolution operation using MIOpen (in-place)";
   let description = [{
     Performs 2D convolution using MIOpen (miopenConvolutionForward).
+
+    Uses destination-passing style: output buffer is provided as argument,
+    operation writes result in-place.
 
     Attributes:
     - kernel_shape: Array of kernel dimensions [H, W]
@@ -100,11 +103,13 @@ def Hip_ConvOp : Hip_Op<"conv", []> {
 
     Example:
     ```mlir
-    %output = hip.conv(%handle, %input, %weights, %bias)
-              {kernel_shape = [3, 3], strides = [1, 1],
-               pads = [1, 1, 1, 1], dilations = [1, 1], group = 1}
-              : (memref<?x?x?x?xf32, 1>, memref<?x?x?x?xf32, 1>, memref<?xf32, 1>)
-              -> memref<?x?x?x?xf32, 1>
+    %output = hip.alloc(%handle) : memref<1x64x112x112xf32, 1>
+    hip.conv(%handle, %input, %weights, %bias, %output)
+             {kernel_shape = [3, 3], strides = [1, 1],
+              pads = [1, 1, 1, 1], dilations = [1, 1], group = 1}
+             : (!hip.context, memref<1x3x224x224xf32, 1>,
+                memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
+                memref<1x64x112x112xf32, 1>)
     ```
   }];
 
@@ -113,38 +118,41 @@ def Hip_ConvOp : Hip_Op<"conv", []> {
     AnyMemRef:$input,
     AnyMemRef:$weights,
     Optional<AnyMemRef>:$bias,
+    AnyMemRef:$output,
     I64ArrayAttr:$kernel_shape,
     I64ArrayAttr:$strides,
     I64ArrayAttr:$pads,
     I64ArrayAttr:$dilations,
     I64Attr:$group
   );
-  let results = (outs AnyMemRef:$output);
+  let results = (outs);
 
   let assemblyFormat = [{
-    `(` $handle `,` $input `,` $weights (`,` $bias^)? `)` attr-dict
-    `:` `(` type($input) `,` type($weights) (`,` type($bias)^)? `)` `->` type($output)
+    `(` $handle `,` $input `,` $weights (`,` $bias^)? `,` $output `)` attr-dict
+    `:` `(` type($handle) `,` type($input) `,` type($weights) (`,` type($bias)^)? `,` type($output) `)`
   }];
 }
 
 def Hip_GemmOp : Hip_Op<"gemm", []> {
-  let summary = "General matrix multiplication using hipBLASLt";
+  let summary = "General matrix multiplication using hipBLASLt (in-place)";
   let description = [{
-    Performs matrix multiplication: C = alpha * A * B + beta * C
+    Performs matrix multiplication: result = alpha * A * B + beta * C
     using hipBLASLt (miopenGEMM or hipblasLtMatmul).
+
+    Uses destination-passing style: output buffer is provided as argument.
 
     Attributes:
     - transA: Whether to transpose matrix A (0 or 1)
     - transB: Whether to transpose matrix B (0 or 1)
     - alpha: Scalar multiplier for A*B (default 1.0)
-    - beta: Scalar multiplier for C (default 1.0)
+    - beta: Scalar multiplier for C (default 0.0, if C is provided)
 
     Example:
     ```mlir
-    %C = hip.gemm(%handle, %A, %B)
-         {transA = 0, transB = 0, alpha = 1.0, beta = 0.0}
-         : (memref<?x?xf32, 1>, memref<?x?xf32, 1>)
-         -> memref<?x?xf32, 1>
+    %result = hip.alloc(%handle) : memref<MxNxf32, 1>
+    hip.gemm(%handle, %A, %B, %result)
+            {transA = 0, transB = 0, alpha = 1.0, beta = 0.0}
+            : (!hip.context, memref<MxKxf32, 1>, memref<KxNxf32, 1>, memref<MxNxf32, 1>)
     ```
   }];
 
@@ -152,24 +160,26 @@ def Hip_GemmOp : Hip_Op<"gemm", []> {
     Hip_ContextType:$handle,
     AnyMemRef:$A,
     AnyMemRef:$B,
-    Optional<AnyMemRef>:$C,
+    AnyMemRef:$result,
     I64Attr:$transA,
     I64Attr:$transB,
     F32Attr:$alpha,
     F32Attr:$beta
   );
-  let results = (outs AnyMemRef:$result);
+  let results = (outs);
 
   let assemblyFormat = [{
-    `(` $handle `,` $A `,` $B (`,` $C^)? `)` attr-dict
-    `:` `(` type($A) `,` type($B) (`,` type($C)^)? `)` `->` type($result)
+    `(` $handle `,` $A `,` $B `,` $result `)` attr-dict
+    `:` `(` type($handle) `,` type($A) `,` type($B) `,` type($result) `)`
   }];
 }
 
 def Hip_MaxPoolOp : Hip_Op<"maxpool", []> {
-  let summary = "Max pooling operation using MIOpen";
+  let summary = "Max pooling operation using MIOpen (in-place)";
   let description = [{
     Performs max pooling using MIOpen (miopenPoolingForward with max mode).
+
+    Uses destination-passing style: output buffer is provided as argument.
 
     Attributes:
     - kernel_shape: Array of pooling window dimensions [H, W]
@@ -178,31 +188,35 @@ def Hip_MaxPoolOp : Hip_Op<"maxpool", []> {
 
     Example:
     ```mlir
-    %output = hip.maxpool(%handle, %input)
-              {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
-              : memref<?x?x?x?xf32, 1> -> memref<?x?x?x?xf32, 1>
+    %output = hip.alloc(%handle) : memref<1x64x56x56xf32, 1>
+    hip.maxpool(%handle, %input, %output)
+               {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
+               : (!hip.context, memref<1x64x112x112xf32, 1>, memref<1x64x56x56xf32, 1>)
     ```
   }];
 
   let arguments = (ins
     Hip_ContextType:$handle,
     AnyMemRef:$input,
+    AnyMemRef:$output,
     I64ArrayAttr:$kernel_shape,
     I64ArrayAttr:$strides,
     I64ArrayAttr:$pads
   );
-  let results = (outs AnyMemRef:$output);
+  let results = (outs);
 
   let assemblyFormat = [{
-    `(` $handle `,` $input `)` attr-dict
-    `:` type($input) `->` type($output)
+    `(` $handle `,` $input `,` $output `)` attr-dict
+    `:` `(` type($handle) `,` type($input) `,` type($output) `)`
   }];
 }
 
 def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
-  let summary = "Average pooling operation using MIOpen";
+  let summary = "Average pooling operation using MIOpen (in-place)";
   let description = [{
     Performs average pooling using MIOpen (miopenPoolingForward with average mode).
+
+    Uses destination-passing style: output buffer is provided as argument.
 
     Attributes:
     - kernel_shape: Array of pooling window dimensions [H, W]
@@ -211,24 +225,26 @@ def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
 
     Example:
     ```mlir
-    %output = hip.avgpool(%handle, %input)
-              {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
-              : memref<?x?x?x?xf32, 1> -> memref<?x?x?x?xf32, 1>
+    %output = hip.alloc(%handle) : memref<1x64x56x56xf32, 1>
+    hip.avgpool(%handle, %input, %output)
+               {kernel_shape = [2, 2], strides = [2, 2], pads = [0, 0, 0, 0]}
+               : (!hip.context, memref<1x64x112x112xf32, 1>, memref<1x64x56x56xf32, 1>)
     ```
   }];
 
   let arguments = (ins
     Hip_ContextType:$handle,
     AnyMemRef:$input,
+    AnyMemRef:$output,
     I64ArrayAttr:$kernel_shape,
     I64ArrayAttr:$strides,
     I64ArrayAttr:$pads
   );
-  let results = (outs AnyMemRef:$output);
+  let results = (outs);
 
   let assemblyFormat = [{
-    `(` $handle `,` $input `)` attr-dict
-    `:` type($input) `->` type($output)
+    `(` $handle `,` $input `,` $output `)` attr-dict
+    `:` `(` type($handle) `,` type($input) `,` type($output) `)`
   }];
 }
 

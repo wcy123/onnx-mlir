@@ -201,6 +201,8 @@ pm.run(module);
 
 **For detailed MLIR module structure and lowering design, see [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md).**
 
+**For memory management strategy (critical for performance), see [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md).**
+
 ---
 
 ## Component Integration

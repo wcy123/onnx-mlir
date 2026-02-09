@@ -12,6 +12,8 @@
 
 #include "HipDialect.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -24,7 +26,7 @@ using namespace mlir;
 namespace {
 
 //===----------------------------------------------------------------------===//
-// ONNX Conv → HIP Conv Conversion Pattern
+// ONNX Conv → HIP Conv Conversion Pattern (In-Place Semantics)
 //===----------------------------------------------------------------------===//
 
 struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
@@ -38,10 +40,11 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // Get location for error reporting
     auto loc = convOp.getLoc();
 
-    // ✅ Type-safe operand access (self-documenting)
-    Value X = convOp.getX();      // Input tensor: [N, C_in, H, W]
-    Value W = convOp.getW();      // Weight tensor: [C_out, C_in/group, Kh, Kw]
-    Value B = convOp.getB();      // Bias tensor: [C_out] (optional)
+    // Use adaptor for operands (provides converted types from TypeConverter)
+    // OpAdaptor automatically uses TypeConverter to convert tensor → memref<..., 1>
+    Value X = adaptor.getX();      // Input: tensor<1x3x224x224xf32> → memref<1x3x224x224xf32, 1>
+    Value W = adaptor.getW();      // Weight: tensor<64x3x3x3xf32> → memref<64x3x3x3xf32, 1>
+    Value B = adaptor.getB();      // Bias: tensor<64xf32> → memref<64xf32, 1> (optional)
 
     // ✅ Type-safe attribute access (compile-time checked)
     auto kernelShape = convOp.getKernelShape();
@@ -63,8 +66,21 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     auto dilationsAttr = dilations;
     auto groupAttr = rewriter.getI64IntegerAttr(group);
 
-    // Get output type (already computed by ONNX shape inference)
-    auto outputType = convOp.getResult().getType();
+    // Get output type from ONNX operation (tensor type)
+    auto onnxOutputType = convOp.getResult().getType();
+
+    // Convert output type: tensor<...> → memref<..., 1> (GPU address space)
+    auto outputMemRefType = getTypeConverter()->convertType(onnxOutputType);
+    if (!outputMemRefType) {
+      return rewriter.notifyMatchFailure(
+          convOp, "Failed to convert output tensor type to memref");
+    }
+
+    // Verify the converted type is actually a MemRefType
+    if (!isa<MemRefType>(outputMemRefType)) {
+      return rewriter.notifyMatchFailure(
+          convOp, "Converted output type is not a MemRefType");
+    }
 
     // Get state from function argument
     // The compiled function signature is:
@@ -106,12 +122,33 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // The hip.conv operation will use this state to access miopenHandle during HIP→LLVM lowering
     Value handle = state;
 
-    // Create HIP Conv operation using OpBuilder
-    // Prepare operands - handle required bias as optional
-    SmallVector<Value, 4> operands = {handle, X, W};
+    // ⭐ IN-PLACE SEMANTICS (Phase 1: Naive inline allocation)
+    // Allocate output buffer on GPU using hip.alloc
+    // Phase 2 TODO: Hoist this allocation to inference_init() for 4-12x speedup
+    // Phase 3 TODO: Use memory pooling to reduce memory footprint by 60-70%
+
+    // Extract dynamic sizes if the output memref has dynamic dimensions
+    SmallVector<Value> dynamicSizes;
+    auto memRefType = cast<MemRefType>(outputMemRefType);
+    for (int64_t i = 0; i < memRefType.getRank(); ++i) {
+      if (memRefType.isDynamicDim(i)) {
+        // Get dimension size from input (assumes ONNX shape inference succeeded)
+        Value dimSize = rewriter.create<memref::DimOp>(loc, X, i);
+        dynamicSizes.push_back(dimSize);
+      }
+    }
+
+    // Allocate GPU memory for output
+    auto outputBuffer = rewriter.create<hip::AllocOp>(
+        loc, outputMemRefType, handle, dynamicSizes);
+
+    // Create HIP Conv operation (in-place: writes to pre-allocated output buffer)
+    // Signature: hip.conv(%handle, %input, %weights, %bias?, %output)
+    SmallVector<Value, 5> operands = {handle, X, W};
     if (B) {
       operands.push_back(B);
     }
+    operands.push_back(outputBuffer.getResult());  // ⭐ Output buffer as argument
 
     // Prepare attributes (unwrap optional values)
     SmallVector<NamedAttribute, 5> attributes;
@@ -121,16 +158,80 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     attributes.push_back(rewriter.getNamedAttr("dilations", dilationsAttr.value()));
     attributes.push_back(rewriter.getNamedAttr("group", groupAttr));
 
-    // Build the operation with OperationState
+    // Build the in-place operation (no results!)
     OperationState opState(loc, hip::ConvOp::getOperationName(),
-                          operands, {outputType}, attributes);
+                          operands, {}, attributes);  // ⭐ Empty result types
 
-    Operation *hipConvOp = rewriter.create(opState);
+    rewriter.create(opState);
 
-    // Replace the ONNX Conv with HIP Conv result
-    rewriter.replaceOp(convOp, hipConvOp->getResult(0));
+    // ⭐ Replace ONNX Conv result with the allocated output buffer
+    // Users of the original ONNX result will now use the output buffer
+    rewriter.replaceOp(convOp, outputBuffer.getResult());
 
     return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// Type Converter: Tensor → MemRef (GPU Address Space)
+//===----------------------------------------------------------------------===//
+//
+// TypeConverter provides systematic type conversion for dialect lowering.
+// It converts ONNX tensor types to HIP memref types with GPU address space.
+//
+// Example conversion:
+//   tensor<1x3x224x224xf32> → memref<1x3x224x224xf32, 1>
+//                                                     ↑
+//                                        Address space 1 = GPU memory
+//
+// Why address space 1?
+// - Address space 0: CPU memory (default for memref)
+// - Address space 1: GPU memory (AMD ROCm convention)
+// - This ensures correct memory allocation (hipMalloc vs malloc)
+//
+class OnnxToHipTypeConverter : public TypeConverter {
+public:
+  OnnxToHipTypeConverter() {
+    // Rule 1: Convert RankedTensorType to MemRefType with GPU address space
+    addConversion([](RankedTensorType type) -> Type {
+      // Extract tensor properties
+      auto shape = type.getShape();
+      auto elementType = type.getElementType();
+
+      // Create memref type with address space 1 (GPU memory)
+      // Use default (identity) layout and GPU memory space
+      auto memSpace = IntegerAttr::get(
+          IntegerType::get(type.getContext(), 64), 1);
+      return MemRefType::get(shape, elementType,
+                            AffineMap(),  // Default (identity) layout
+                            memSpace);
+    });
+
+    // Rule 2: Keep all other types unchanged (e.g., !hip.context, i64, f32)
+    addConversion([](Type type) { return type; });
+
+    // Register materialization hooks (required by MLIR infrastructure)
+    // These handle edge cases where type conversions need temporary values
+
+    // Source materialization: Create a value of the original type from converted type
+    // (e.g., when a pattern needs the original tensor type temporarily)
+    addSourceMaterialization([](OpBuilder &builder, Type resultType,
+                                ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1)
+        return nullptr;
+      // For now, just return the input (no-op materialization)
+      // This is safe because we're doing a one-way conversion (tensor→memref)
+      return inputs[0];
+    });
+
+    // Target materialization: Create a value of the converted type from original type
+    // (e.g., when replacing an operation's result)
+    addTargetMaterialization([](OpBuilder &builder, Type resultType,
+                                ValueRange inputs, Location loc) -> Value {
+      if (inputs.size() != 1)
+        return nullptr;
+      return inputs[0];
+    });
   }
 };
 
@@ -148,11 +249,70 @@ public:
     return "Convert ONNX dialect operations to HIP dialect operations";
   }
 
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<hip::HipDialect>();
+    registry.insert<func::FuncDialect>();
+    registry.insert<memref::MemRefDialect>();  // Needed for memref.dim
+  }
+
   void runOnOperation() override {
     auto func = getOperation();
     MLIRContext *context = &getContext();
 
-    // Set up conversion target
+    // Step 1: Set up TypeConverter (tensor → memref with GPU address space)
+    OnnxToHipTypeConverter typeConverter;
+
+    // Step 2: Add %ctx: !hip.context parameter to function if not present
+    // Do this BEFORE conversion so patterns see the correct function signature
+    auto &entryBlock = func.getBody().front();
+    bool hasContext = false;
+    if (entryBlock.getNumArguments() > 0) {
+      // Check if first argument is already a context
+      if (isa<hip::ContextType>(entryBlock.getArgument(0).getType())) {
+        hasContext = true;
+      }
+    }
+
+    if (!hasContext) {
+      // Insert context parameter as first argument
+      OpBuilder builder(context);
+      auto contextType = hip::ContextType::get(context);
+
+      // Insert block argument at position 0
+      entryBlock.insertArgument(0u, contextType, func.getLoc());
+
+      // Update function type to include new parameter
+      auto funcType = func.getFunctionType();
+      SmallVector<Type, 4> newInputs;
+      newInputs.push_back(contextType);
+
+      // Convert remaining input types through TypeConverter
+      for (Type inputType : funcType.getInputs()) {
+        Type convertedType = typeConverter.convertType(inputType);
+        newInputs.push_back(convertedType ? convertedType : inputType);
+      }
+
+      // Convert result types through TypeConverter
+      SmallVector<Type, 4> newResults;
+      for (Type resultType : funcType.getResults()) {
+        Type convertedType = typeConverter.convertType(resultType);
+        newResults.push_back(convertedType ? convertedType : resultType);
+      }
+
+      auto newFuncType = builder.getFunctionType(newInputs, newResults);
+      func.setFunctionType(newFuncType);
+
+      // Update block argument types (except context which we just added)
+      for (unsigned i = 1; i < entryBlock.getNumArguments(); ++i) {
+        Type oldType = entryBlock.getArgument(i).getType();
+        Type newType = typeConverter.convertType(oldType);
+        if (newType && newType != oldType) {
+          entryBlock.getArgument(i).setType(newType);
+        }
+      }
+    }
+
+    // Step 3: Set up conversion target
     ConversionTarget target(*context);
 
     // Mark HIP dialect as legal
@@ -161,17 +321,20 @@ public:
     // Mark Func dialect as legal (we don't convert function ops)
     target.addLegalDialect<func::FuncDialect>();
 
+    // Mark MemRef dialect as legal (we generate memref.dim for dynamic shapes)
+    target.addLegalDialect<memref::MemRefDialect>();
+
     // Mark ONNX Conv as illegal (must be lowered)
     target.addIllegalOp<ONNXConvOp>();
 
     // All other ONNX ops are legal for now (only converting Conv)
     target.addLegalDialect<ONNXDialect>();
 
-    // Set up rewrite patterns
+    // Step 4: Set up rewrite patterns (pass typeConverter to patterns)
     RewritePatternSet patterns(context);
-    patterns.add<ConvToHipPattern>(context);
+    patterns.add<ConvToHipPattern>(typeConverter, context);
 
-    // Apply conversion
+    // Step 5: Apply conversion
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }

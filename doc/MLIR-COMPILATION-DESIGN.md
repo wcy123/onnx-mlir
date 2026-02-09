@@ -634,6 +634,30 @@ def Hip_StateGetWeightOp : Hip_Op<"state.get_weight"> {
 
 **Decision:** Start with LLVM dialect (Phase 1), refine with high-level types later (Phase 2)
 
+### Memory Management Strategy
+
+**Critical Performance Consideration:** GPU memory allocation (`hipMalloc`) is expensive (~35ms per GB). Proper memory management is essential for fast inference.
+
+**Three-Phase Optimization Approach:**
+
+1. **Phase 1: Naive Inline Allocation** (Baseline)
+   - Allocate/free in `inference_compute()`
+   - Simple but slow (~20-65ms overhead per inference)
+   - Use only for initial implementation
+
+2. **Phase 2: Allocation Hoisting** ⭐ **CRITICAL**
+   - Move allocations to `inference_init()`
+   - Reuse pre-allocated buffers in `inference_compute()`
+   - **4-12x speedup** (overhead eliminated)
+   - **Priority: HIGH** - implement immediately
+
+3. **Phase 3: Memory Pooling** (Future)
+   - Single allocation with liveness-based reuse
+   - **60-70% memory savings** (ResNet50: 200MB → 55MB)
+   - Priority: Medium - when memory is constrained
+
+**See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed implementation strategy.**
+
 ### State Memory Management (Current Issue)
 
 **Problem:** Current design uses `llvm.alloca` for state in `inference_init`:
