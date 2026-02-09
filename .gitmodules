@@ -1,3 +1,6 @@
 [submodule "3rd-party/morphizen"]
 	path = 3rd-party/morphizen
 	url = https://github.com/ROCm/MorphiZen.git
+[submodule "3rd-party/onnx-mlir"]
+	path = 3rd-party/onnx-mlir
+	url = https://github.com/wcy123/onnx-mlir.git
