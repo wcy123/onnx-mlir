@@ -209,6 +209,17 @@ std::unique_ptr<Pass> createConvertHipToLLVMPass() {
 }
 
 void registerHipPasses() {
+  // Register all HIP-related conversion passes
+  // Note: Pass registration uses the getArgument() string from each pass class
+
+  // ConvertOnnxToHipPass (defined in OnnxToHip.cpp)
+  // Registered via: --convert-onnx-to-hip
+  registerPass([]() -> std::unique_ptr<Pass> {
+    return createConvertOnnxToHipPass();
+  });
+
+  // ConvertHipToLLVMPass (defined in this file)
+  // Registered via: --convert-hip-to-llvm
   PassRegistration<ConvertHipToLLVMPass>();
 }
 

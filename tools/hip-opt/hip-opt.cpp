@@ -7,6 +7,9 @@
 #include "HipDialect.h"
 #include "HipPasses.h"
 
+// Include ONNX dialect from onnx-mlir
+#include "src/Dialect/ONNX/ONNXDialect.hpp"
+
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   registry.insert<mlir::BuiltinDialect>();
@@ -14,6 +17,7 @@ int main(int argc, char **argv) {
   registry.insert<mlir::func::FuncDialect>();
   registry.insert<mlir::memref::MemRefDialect>();
   registry.insert<mlir::hip::HipDialect>();
+  registry.insert<mlir::ONNXDialect>();  // Register ONNX dialect for ONNX→HIP lowering
 
   mlir::hip::registerHipPasses();
 
