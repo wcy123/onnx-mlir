@@ -1,24 +1,25 @@
-// Test file: ONNX Conv → HIP Conv with in-place semantics
+// Test file: ONNX Conv → HIP Conv with destination-passing style
 //
 // This test demonstrates the conversion of a simple ONNX Conv operation
-// to HIP dialect with in-place semantics.
+// to HIP dialect with destination-passing function signature and in-place
+// operation semantics.
 //
 // DESIGN:
-// The final compiled function will have signature:
-//   int inference_compute(void* state, span_t inputs, span_t outputs)
+// - HIP dialect functions use destination-passing style:
+//   Outputs are passed as arguments, function returns i32 status code
+// - HIP dialect operations use in-place semantics:
+//   Operations take output buffer as argument, no return value
 //
-// Where:
-// - state: Points to State struct with GPU handles and pre-allocated buffers
-// - inputs: span_t containing input tensors (passed by caller)
-// - outputs: span_t containing pre-allocated output buffers (passed by caller)
+// Function signature transformation:
+//   BEFORE: func.func @main(%input: tensor<...>) -> tensor<...>
+//   AFTER:  func.func @main(%ctx: !hip.context,
+//                          %input: memref<..., 1>,
+//                          %output: memref<..., 1>) -> i32
 //
-// The function writes results to output buffers (in-place semantics),
-// does NOT return tensor values.
-//
-// For this simple test:
-// - Input function: ONNX operations with value semantics
-// - After ONNX→HIP conversion: HIP operations with in-place semantics
-// - After HIP→LLVM conversion: C interface with span_t parameters
+// Operation transformation:
+//   BEFORE: %result = "onnx.Conv"(...) -> tensor<...>
+//   AFTER:  hip.conv(%ctx, ..., %intermediate)  // in-place, no return
+//           memref.copy %intermediate, %output  // write to output argument
 //
 // In Phase 1 (current): Intermediate buffers allocated inline with hip.alloc
 // In Phase 2 (future): All buffers hoisted to inference_init for 4-12x speedup
@@ -45,27 +46,34 @@ module {
 
 // Expected result after --convert-onnx-to-hip:
 //
-// func.func @main(%ctx: !hip.context,
-//                 %input: memref<1x3x224x224xf32, 1>,
-//                 %weights: memref<64x3x3x3xf32, 1>,
-//                 %bias: memref<64xf32, 1>) -> memref<1x64x224x224xf32, 1> {
+// func.func @main(%arg0: !hip.context,
+//                 %arg1: memref<1x3x224x224xf32, 1>,
+//                 %arg2: memref<64x3x3x3xf32, 1>,
+//                 %arg3: memref<64xf32, 1>,
+//                 %arg4: memref<1x64x224x224xf32, 1>) -> i32 {
 //
-//   // Phase 1: Allocate output buffer inline (TODO Phase 2: hoist to init)
-//   %output = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+//   // Phase 1: Allocate intermediate buffer inline
+//   // TODO Phase 2: hoist to init and load from state
+//   %0 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
 //
-//   // HIP Conv operation (in-place semantics - writes to %output buffer)
-//   hip.conv(%ctx, %input, %weights, %bias, %output)
+//   // HIP Conv operation (in-place semantics - writes to %0 buffer)
+//   hip.conv(%arg0, %arg1, %arg2, %arg3, %0)
 //            {kernel_shape = [3, 3], strides = [1, 1],
 //             pads = [1, 1, 1, 1], dilations = [1, 1], group = 1}
 //            : (!hip.context, memref<1x3x224x224xf32, 1>,
 //               memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
 //               memref<1x64x224x224xf32, 1>)
 //
-//   return %output : memref<1x64x224x224xf32, 1>
+//   // Destination-passing: copy result to output argument
+//   memref.copy %0, %arg4 : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
+//
+//   // Return success status
+//   %c0_i32 = arith.constant 0 : i32
+//   return %c0_i32 : i32
 // }
 //
 // Design summary:
-// - Function signature: Returns memref (value semantics at HIP dialect level)
-// - HIP operations: Use in-place semantics (output buffer passed as argument)
-// - Later HIP→LLVM lowering transforms function to destination-passing style:
-//   func.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32
+// - Function signature: Destination-passing (outputs as arguments, return i32)
+// - HIP operations: In-place semantics (output buffer passed as argument)
+// - No function returns memref - all outputs via destination-passing
+// - Consistent design from HIP dialect through to final C interface

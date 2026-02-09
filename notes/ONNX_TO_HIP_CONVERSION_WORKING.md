@@ -1,13 +1,13 @@
 # ONNX→HIP Conversion Implementation - Working!
 
 **Date:** 2026-02-09
-**Status:** ✅ Working - Basic Conv operation conversion complete
+**Status:** ✅ Working - Destination-passing style with in-place operations
 
 ---
 
 ## Summary
 
-Successfully implemented ONNX to HIP dialect conversion with proper type conversion and in-place semantics. The conversion correctly transforms ONNX Conv operations to HIP Conv operations with GPU memory allocation.
+Successfully implemented ONNX to HIP dialect conversion with proper type conversion and destination-passing function semantics. The conversion correctly transforms ONNX Conv operations to HIP Conv operations with GPU memory allocation and in-place execution.
 
 ---
 
@@ -15,15 +15,22 @@ Successfully implemented ONNX to HIP dialect conversion with proper type convers
 
 ### Type Conversion
 - ✅ `tensor<1x3x224x224xf32>` → `memref<1x3x224x224xf32, 1>` (GPU address space)
-- ✅ Function signature conversion (inputs and results)
+- ✅ Function signature conversion (inputs converted, outputs as arguments)
 - ✅ Block argument type updates
-- ✅ Return value type conversion
+- ✅ Return value changed to i32 status code
+
+### Function Signature Transformation
+- ✅ Add `!hip.context` as first parameter
+- ✅ Convert input tensor types to memref types
+- ✅ **Add output arguments** (destination-passing style)
+- ✅ Change return type to i32 (status code)
 
 ### Operation Conversion
 - ✅ ONNX Conv → HIP Conv with in-place semantics
 - ✅ Context parameter insertion (!hip.context as first arg)
 - ✅ Attribute extraction (kernel_shape, strides, pads, dilations, group)
 - ✅ Output buffer allocation using hip.alloc
+- ✅ memref.copy to write results to output arguments
 
 ### Example
 
@@ -49,15 +56,25 @@ func.func @main(%input: tensor<1x3x224x224xf32>,
 func.func @main(%arg0: !hip.context,
                 %arg1: memref<1x3x224x224xf32, 1>,
                 %arg2: memref<64x3x3x3xf32, 1>,
-                %arg3: memref<64xf32, 1>) -> memref<1x64x224x224xf32, 1> {
+                %arg3: memref<64xf32, 1>,
+                %arg4: memref<1x64x224x224xf32, 1>) -> i32 {
+  // Allocate intermediate buffer (Phase 1)
   %0 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
+
+  // Execute convolution in-place (writes to %0)
   hip.conv(%arg0, %arg1, %arg2, %arg3, %0)
     {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3],
      pads = [1, 1, 1, 1], strides = [1, 1]}
     : (!hip.context, memref<1x3x224x224xf32, 1>,
        memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
        memref<1x64x224x224xf32, 1>)
-  return %0 : memref<1x64x224x224xf32, 1>
+
+  // Copy result to output argument (destination-passing)
+  memref.copy %0, %arg4 : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
+
+  // Return success status
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }
 ```
 
@@ -91,11 +108,6 @@ addConversion([](Type type) -> std::optional<Type> {
 });
 ```
 
-**Materialization:**
-- Uses `UnrealizedConversionCastOp` for source/target materialization
-- Required by MLIR conversion framework
-- Handles type mismatches during incremental conversion
-
 ### 2. ConvToHipPattern
 
 **Purpose:** Convert ONNX Conv to HIP Conv with in-place semantics
@@ -110,13 +122,39 @@ addConversion([](Type type) -> std::optional<Type> {
 7. Replace ONNX Conv result with allocated buffer
 
 **Key Design:**
-- Operations use in-place semantics (output as argument)
-- Functions use value semantics (return memref)
-- Allocation happens inline (Phase 1 - naive)
+- Operations use in-place semantics (output as argument, no return)
+- Phase 1: Allocate inline with hip.alloc
+- Phase 2 TODO: Use pre-allocated buffers from state
 
-### 3. ReturnOpConversion
+### 3. Function Signature Transformation
 
-**Purpose:** Convert func.return to use converted types
+**Purpose:** Transform function to destination-passing style
+
+**Implementation (in runOnOperation):**
+```cpp
+// Add context parameter
+entryBlock.insertArgument(0u, contextType, func.getLoc());
+
+// Convert input types
+for (Type inputType : funcType.getInputs()) {
+  Type convertedType = typeConverter.convertType(inputType);
+  newInputs.push_back(convertedType);
+}
+
+// Add output arguments (destination-passing!)
+for (Type resultType : funcType.getResults()) {
+  Type convertedType = typeConverter.convertType(resultType);
+  newInputs.push_back(convertedType);
+  entryBlock.addArgument(convertedType, func.getLoc());
+}
+
+// Return type is i32 (status code)
+newResults.push_back(builder.getI32Type());
+```
+
+### 4. ReturnOpConversion
+
+**Purpose:** Convert func.return to destination-passing style
 
 **Implementation:**
 ```cpp
@@ -124,26 +162,42 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
   LogicalResult matchAndRewrite(
       func::ReturnOp returnOp, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    // Replace with converted operands (tensor → memref)
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp, adaptor.getOperands());
+
+    auto funcOp = returnOp->getParentOfType<func::FuncOp>();
+    auto &entryBlock = funcOp.getBody().front();
+    unsigned numResults = returnOp.getNumOperands();
+    unsigned numArgs = entryBlock.getNumArguments();
+
+    // Copy return values to output arguments
+    for (unsigned i = 0; i < numResults; ++i) {
+      Value returnValue = adaptor.getOperands()[i];
+      Value outputArg = entryBlock.getArgument(numArgs - numResults + i);
+      rewriter.create<memref::CopyOp>(loc, returnValue, outputArg);
+    }
+
+    // Return success status (i32 0)
+    Value successStatus = rewriter.create<arith::ConstantOp>(
+        loc, i32Type, rewriter.getI32IntegerAttr(0));
+    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp, successStatus);
     return success();
   }
 };
 ```
 
-### 4. ConvertOnnxToHipPass
+### 5. ConvertOnnxToHipPass
 
 **Purpose:** Orchestrate the conversion
 
 **Steps:**
 1. Insert !hip.context as first function parameter
-2. Convert function signature types (inputs and results)
-3. Update block argument types
-4. Set up conversion target:
+2. Convert function signature types (inputs converted, outputs as arguments)
+3. Change return type to i32
+4. Update block argument types
+5. Set up conversion target:
    - Mark HIP dialect as legal
    - Mark func.return as dynamically legal (only if operands are legal types)
    - Mark ONNX Conv as illegal (must be lowered)
-5. Apply conversion patterns
+6. Apply conversion patterns
 
 **Legality Rules:**
 ```cpp
@@ -159,6 +213,27 @@ target.addIllegalOp<ONNXConvOp>();
 
 ---
 
+## Design: Destination-Passing at All Levels
+
+**ONNX dialect** (input):
+- Value semantics: functions return tensor results
+- Example: `func.func @main(...) -> tensor<...>`
+
+**HIP dialect** (after conversion):
+- Destination-passing: outputs as arguments, return i32 status
+- Example: `func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32`
+- Operations: in-place semantics (output buffer as argument)
+
+**LLVM dialect** (future):
+- Destination-passing: same concept with LLVM types
+- Example: `func.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32`
+
+**C interface** (final):
+- Destination-passing: outputs via span_t
+- Example: `int inference_compute(void* state, span_t inputs, span_t outputs)`
+
+---
+
 ## Testing
 
 **Test file:** `tools/hip-opt/test_conv_inplace.mlir`
@@ -168,7 +243,7 @@ target.addIllegalOp<ONNXConvOp>();
 hip-opt --convert-onnx-to-hip test_conv_inplace.mlir
 ```
 
-**Result:** Clean conversion, no errors, correct types and operations.
+**Result:** Clean conversion with destination-passing function signature, no errors.
 
 ---
 
@@ -176,10 +251,9 @@ hip-opt --convert-onnx-to-hip test_conv_inplace.mlir
 
 ### Immediate (High Priority)
 
-1. **Update HipToLLVM.cpp** for in-place hip.conv
-   - Current: Expects hip.conv to return result
-   - Needed: Handle hip.conv with output argument, no result
-   - Update miopenConvolutionForward call generation
+1. **Update HipToLLVM.cpp** for destination-passing functions
+   - Handle function signature (already takes %inputs, %outputs)
+   - No changes needed for operations (already in-place)
 
 2. **Add more operation patterns**
    - GemmToHipPattern (for matrix multiplication)
@@ -211,7 +285,13 @@ hip-opt --convert-onnx-to-hip test_conv_inplace.mlir
 
 ## Key Learnings
 
-### TypeConverter Rule Ordering Matters
+### Destination-Passing Transformation
+- Outputs become function arguments (not return values)
+- Return type changes to i32 (status code)
+- Operations still use in-place semantics (unchanged)
+- memref.copy writes intermediate results to output arguments
+
+### TypeConverter Rule Ordering
 - Specific conversions (RankedTensorType) must come BEFORE generic fallback
 - Otherwise the fallback rule matches everything and prevents conversion
 
@@ -222,7 +302,6 @@ hip-opt --convert-onnx-to-hip test_conv_inplace.mlir
 ### Materialization is Required
 - TypeConverter needs source/target materialization hooks
 - Use UnrealizedConversionCastOp for bridging type mismatches
-- The framework will resolve or error if casts remain after full conversion
 
 ### Dynamic Legality for Partial Conversion
 - Use `addDynamicallyLegalOp` when an operation is legal under certain conditions
@@ -234,10 +313,10 @@ hip-opt --convert-onnx-to-hip test_conv_inplace.mlir
 
 - **Implementation:** `lib/HipDialect/OnnxToHip.cpp`
 - **Test:** `tools/hip-opt/test_conv_inplace.mlir`
-- **Design:** `doc/MEMORY-MANAGEMENT.md` (In-Place Semantics Design section)
+- **Design:** `doc/MEMORY-MANAGEMENT.md` (Destination-Passing Design section)
 - **MLIR Dialect Conversion:** https://mlir.llvm.org/docs/DialectConversion/
 
 ---
 
-**Status:** ✅ ONNX→HIP conversion working for Conv operation
-**Next:** Update HipToLLVM.cpp for in-place operations
+**Status:** ✅ ONNX→HIP conversion working with destination-passing style
+**Next:** Update test files and documentation to match new design

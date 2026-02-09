@@ -18,12 +18,13 @@ GPU memory allocation is expensive (~35ms per GB). Optimizing allocation strateg
 **Key Design:**
 - **HIP dialect operations** use **in-place semantics**: Operations take output buffer as argument
   - Example: `hip.conv(%ctx, %input, %weights, %bias, %output)` - no return value
-- **HIP dialect functions** use **value semantics**: Functions return memref
-  - Example: `func.func @main(...) -> memref<1x64x224x224xf32, 1>`
+- **HIP dialect functions** use **destination-passing style**: Outputs passed as pointer arguments
+  - Example: `func.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32`
+  - Returns i32 status code (0 = success)
 - **Final C interface** uses **destination-passing style**: Outputs passed via span_t
   - Example: `int inference_compute(void* state, span_t inputs, span_t outputs)`
 
-This design allows HIP operations to use in-place semantics (matching MIOpen API) while keeping the HIP dialect function interface simple. The transformation to full destination-passing style happens during HIP→LLVM lowering.
+This design ensures consistent in-place semantics at all levels: operations write to pre-allocated buffers, functions receive output buffers from callers, and the C interface passes outputs via span_t. No memory is returned from functions - all outputs are written to caller-provided buffers.
 
 ---
 
