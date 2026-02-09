@@ -4,31 +4,35 @@
 
 ---
 
-## Step 1: Input - ONNX Conv in MLIR
+## Step 1: Input - ONNX-MLIR Model
 
-**File**: `demo_input.mlir`
+**File**: `demo_input.mlir` (output from onnx-mlir)
 ```mlir
 module {
-  func.func @inference_compute(%state: !hip.handle) -> memref<1x64x112x112xf32> {
-    // Input tensors (normally from model weights)
-    %input = memref.alloc() : memref<1x3x224x224xf32>
-    %weights = memref.alloc() : memref<64x3x7x7xf32>
-    %bias = memref.alloc() : memref<64xf32>
+  func.func @main_graph(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
+    // Weights and bias as constants (embedded in model)
+    %0 = "onnx.Constant"() {value = dense<1.0> : tensor<64x3x7x7xf32>} : () -> tensor<64x3x7x7xf32>
+    %1 = "onnx.Constant"() {value = dense<0.5> : tensor<64xf32>} : () -> tensor<64xf32>
 
-    // ONNX Conv operation
-    %output = "onnx.Conv"(%input, %weights, %bias) {
+    // Conv operation
+    %2 = "onnx.Conv"(%arg0, %0, %1) {
       kernel_shape = [7, 7],
       strides = [2, 2],
       pads = [3, 3, 3, 3],
       dilations = [1, 1],
       group = 1 : si64
-    } : (memref<1x3x224x224xf32>, memref<64x3x7x7xf32>, memref<64xf32>)
-      -> memref<1x64x112x112xf32>
+    } : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>, tensor<64xf32>) -> tensor<1x64x112x112xf32>
 
-    return %output : memref<1x64x112x112xf32>
+    return %2 : tensor<1x64x112x112xf32>
   }
 }
 ```
+
+**Key features**:
+- Function argument is input tensor (not state handle)
+- Weights/bias are `onnx.Constant` (embedded in model)
+- Uses `tensor<>` types (high-level), not `memref<>` (low-level)
+- Standard ONNX-MLIR format
 
 ---
 
@@ -42,29 +46,29 @@ hip-opt demo_input.mlir --convert-onnx-to-hip
 **Expected Output**: `demo_hip.mlir`
 ```mlir
 module {
-  func.func @inference_compute(%state: !hip.handle) -> memref<1x64x112x112xf32> {
-    %input = memref.alloc() : memref<1x3x224x224xf32>
-    %weights = memref.alloc() : memref<64x3x7x7xf32>
-    %bias = memref.alloc() : memref<64xf32>
+  func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: !hip.handle) -> tensor<1x64x112x112xf32> {
+    %0 = "onnx.Constant"() {value = dense<1.0> : tensor<64x3x7x7xf32>} : () -> tensor<64x3x7x7xf32>
+    %1 = "onnx.Constant"() {value = dense<0.5> : tensor<64xf32>} : () -> tensor<64xf32>
 
     // Lowered to HIP dialect - uses MIOpen backend
-    %output = hip.conv(%state, %input, %weights, %bias) {
+    %2 = hip.conv(%arg1, %arg0, %0, %1) {
       kernel_shape = [7, 7],
       strides = [2, 2],
       pads = [3, 3, 3, 3],
       dilations = [1, 1],
       group = 1 : i64
-    } : (memref<1x3x224x224xf32>, memref<64x3x7x7xf32>, memref<64xf32>)
-      -> memref<1x64x112x112xf32>
+    } : (tensor<1x3x224x224xf32>, tensor<64x3x7x7xf32>, tensor<64xf32>) -> tensor<1x64x112x112xf32>
 
-    return %output : memref<1x64x112x112xf32>
+    return %2 : tensor<1x64x112x112xf32>
   }
 }
 ```
 
 **What happened**:
-- `"onnx.Conv"(...)` → `hip.conv(%state, ...)`
-- State handle now explicitly passed (from function argument)
+- `"onnx.Conv"(...)` → `hip.conv(%arg1, ...)`
+- State handle added as function argument (will be passed at runtime)
+- Tensor types preserved (still high-level `tensor<>`, not lowered to `memref<>` yet)
+- Constants remain as-is (will be handled in later passes)
 - Attributes preserved: kernel_shape, strides, pads, dilations, group
 
 ---
@@ -144,47 +148,9 @@ module {
 
 ---
 
-## Actual Test Results
+## Current Status
 
-### Test 1: HIP → LLVM (Known Working)
-
-**Input**: `tools/hip-opt/test.mlir`
-```mlir
-func.func @test_hip_ops(%N: index) {
-  %handle = hip.create_handle() : !hip.handle
-  %x = hip.alloc(%handle, %N) : memref<?x128xf32, 1>
-  hip.free(%handle, %x) : memref<?x128xf32, 1>
-  hip.destroy_handle(%handle) : !hip.handle
-  return
-}
-```
-
-**Command**:
-```bash
-cd tools/hip-opt
-../../build/bin/Debug/hip-opt.exe test.mlir --convert-hip-to-llvm
-```
-
-**Output** (verified working):
-```mlir
-llvm.func @hipCreateHandle() -> !llvm.ptr
-llvm.func @hipMalloc(i64) -> !llvm.ptr
-llvm.func @hipFree(!llvm.ptr)
-llvm.func @hipDestroyHandle(!llvm.ptr)
-
-func.func @test_hip_ops(%arg0: index) {
-  %1 = llvm.call @hipCreateHandle() : () -> !llvm.ptr
-  %8 = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
-  [... memref construction ...]
-  llvm.call @hipFree(%mem) : (!llvm.ptr) -> ()
-  llvm.call @hipDestroyHandle(%1) : (!llvm.ptr) -> ()
-  return
-}
-```
-
-✅ **VERIFIED**: HIP operations successfully lower to LLVM IR with AMD runtime calls.
-
-### Test 2: ONNX → HIP (Implementation Status)
+### ONNX → HIP Conversion
 
 **Status**: Code compiles, but CLI tool has option conflict with onnx-mlir.
 
