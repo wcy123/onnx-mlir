@@ -105,7 +105,7 @@ module {
   llvm.mlir.global constant @conv_weight(...) : !llvm.array<...>
   llvm.mlir.global constant @conv_bias(...) : !llvm.array<...>
 
-  func.func @main(%state: !hip.handle,  // NEW: state parameter added
+  func.func @main(%state: !hip.context,  // NEW: state parameter added
                    %arg0: memref<1x3x224x224xf32>) -> memref<1x64x224x224xf32> {
 
     // ONNX operations replaced with HIP operations (inline)
@@ -115,9 +115,9 @@ module {
       pads = [1, 1, 1, 1],
       dilations = [1, 1],
       group = 1
-    } : (!hip.handle, memref<...>, ...) -> memref<1x64x224x224xf32>
+    } : (!hip.context, memref<...>, ...) -> memref<1x64x224x224xf32>
 
-    %1 = hip.relu(%state, %0) : (!hip.handle, memref<...>) -> memref<...>
+    %1 = hip.relu(%state, %0) : (!hip.context, memref<...>) -> memref<...>
 
     return %1 : memref<1x64x224x224xf32>
   }
@@ -127,7 +127,7 @@ module {
 **Key changes:**
 - Operations: `onnx.Conv` → `hip.conv`, `onnx.Relu` → `hip.relu`
 - Constants: Moved to `llvm.mlir.global`
-- State: Added `%state: !hip.handle` parameter
+- State: Added `%state: !hip.context` parameter
 - Inline: All operations still in one function
 
 ### Stage 3: After HIP → LLVM Lowering
@@ -181,10 +181,90 @@ module {
 ```
 
 **Key changes:**
-- Types: `!hip.handle` → `!llvm.ptr`, `memref<...>` → LLVM pointers
+- Types: `!hip.context` → `!llvm.ptr`, `memref<...>` → LLVM pointers
 - Operations: `hip.conv` → `llvm.call @miopenConvolutionForward`
 - State access: Explicit `getelementptr` + `load` to extract handles/weights
 - Signature: Matches C interface exactly
+
+---
+
+## HIP Context Type Design
+
+### Type: `!hip.context` (Opaque)
+
+The `!hip.context` type represents runtime execution state for HIP operations. It is designed as an **opaque type** following industry conventions (CUDA's `cudaStream_t`, HIP's `hipStream_t`, OpenCL's `cl_context`).
+
+**Definition in HipDialect.td:**
+```tablegen
+def Hip_ContextType : DialectType<HipDialect, "context"> {
+  let summary = "Opaque HIP execution context";
+  let description = [{
+    Represents runtime state including stream, library handles (MIOpen,
+    hipBLASLT), and GPU memory. Lowered to !llvm.ptr in HIP→LLVM conversion.
+
+    The context is an opaque pointer to a runtime-managed struct that contains:
+    - HIP stream for asynchronous execution
+    - Library handles (miopenHandle_t, hipblasLtHandle_t, etc.)
+    - GPU pointers to uploaded weights
+    - Cached descriptors and workspace buffers
+
+    This type is intentionally opaque to separate high-level IR from low-level
+    implementation details, enabling easy extension without IR changes.
+  }];
+}
+```
+
+**Design Rationale:**
+
+1. **Separation of Concerns**
+   - HIP dialect IR = high-level semantic operations
+   - Context internals = low-level runtime implementation
+   - IR doesn't encode "miopenHandle is at offset 8" - that's lowering detail
+
+2. **Extensibility**
+   - Adding new library support (e.g., rocFFT) only requires:
+     - Updating runtime struct definition
+     - Modifying HIP→LLVM lowering offset calculations
+   - No changes to HIP dialect IR or operation definitions
+
+3. **Type Safety Where It Matters**
+   - Operations verify context type: `hip.conv` requires `!hip.context`
+   - Can't accidentally pass wrong type
+   - Lowering extracts correct library handle based on operation
+
+4. **Industry Standard Pattern**
+   - Matches CUDA, HIP, OpenCL conventions
+   - Developers familiar with GPU programming recognize the pattern
+   - Natural mapping to C API expectations
+
+**Usage in IR:**
+```mlir
+// Context is first parameter of every HIP function
+func @main_graph(%ctx: !hip.context, %input: tensor<...>) {
+  // Passed to all operations
+  %output = hip.conv(%ctx, %input, %weights, %bias) {...}
+  %result = hip.gemm(%ctx, %output, %matrix) {...}
+  return %result
+}
+```
+
+**Lowering to LLVM:**
+```mlir
+// HIP dialect (before lowering)
+%result = hip.conv(%ctx, %input, ...) : (!hip.context, ...) -> ...
+
+// LLVM dialect (after lowering)
+// %ctx is now !llvm.ptr, extract miopenHandle at offset 8
+%miopen_ptr = llvm.getelementptr %ctx[0, 1] : (!llvm.ptr) -> !llvm.ptr
+%miopen = llvm.load %miopen_ptr : !llvm.ptr
+%result = llvm.call @miopenConvolutionForward(%miopen, ...) : ...
+```
+
+**Alternative Designs Considered (and rejected):**
+
+- **Structured type** `!hip.context<{stream, miopen, hipblas, weights}>`: Too rigid, exposes implementation
+- **Multiple parameters** `func(..., %stream, %miopen, %hipblas, ...)`: Doesn't scale, verbose
+- **Global state**: Not thread-safe, harder to reason about
 
 ---
 
