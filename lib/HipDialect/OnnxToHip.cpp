@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "HipDialect.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -165,7 +166,9 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     rewriter.create(opState);
 
     // ⭐ Replace ONNX Conv result with the allocated output buffer
-    // Users of the original ONNX result will now use the output buffer
+    // Phase 1: Allocate intermediate buffer inline (this buffer will be copied
+    // to the function's output argument by ReturnOpConversion)
+    // Phase 2 TODO: Use pre-allocated buffers from state instead
     rewriter.replaceOp(convOp, outputBuffer.getResult());
 
     return success();
@@ -175,7 +178,14 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 //===----------------------------------------------------------------------===//
 // Func Return Conversion Pattern
 //===----------------------------------------------------------------------===//
-// Convert func.return to use converted operand types (memref instead of tensor)
+// Convert func.return to return i32 status code (destination-passing style)
+//
+// Destination-passing design:
+// - Original ONNX: return %result : tensor<...>
+// - After conversion: Write to output argument, return i32 status
+//
+// The pattern finds where return values should be written (output arguments)
+// and generates stores, then returns status code 0 (success).
 
 struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -185,9 +195,46 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
       OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
 
-    // Replace return with converted operands
-    // OpAdaptor provides operands after type conversion (tensor → memref)
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp, adaptor.getOperands());
+    auto loc = returnOp.getLoc();
+
+    // Destination-passing: outputs are already written to output arguments
+    // by the operations (hip.conv, etc. use in-place semantics)
+    //
+    // For each return value, we need to copy it to the corresponding output argument.
+    // The output arguments are the last N arguments of the function, where N is
+    // the number of return values.
+
+    auto funcOp = returnOp->getParentOfType<func::FuncOp>();
+    if (!funcOp) {
+      return rewriter.notifyMatchFailure(returnOp, "Not inside a function");
+    }
+
+    auto &entryBlock = funcOp.getBody().front();
+    unsigned numResults = returnOp.getNumOperands();
+    unsigned numArgs = entryBlock.getNumArguments();
+
+    // Output arguments are the last numResults arguments
+    // (context + inputs + outputs)
+    if (numArgs < numResults) {
+      return rewriter.notifyMatchFailure(
+          returnOp, "Function has fewer arguments than return values");
+    }
+
+    // Copy return values to output arguments
+    for (unsigned i = 0; i < numResults; ++i) {
+      Value returnValue = adaptor.getOperands()[i];
+      Value outputArg = entryBlock.getArgument(numArgs - numResults + i);
+
+      // Generate memref.copy to write result to output argument
+      rewriter.create<memref::CopyOp>(loc, returnValue, outputArg);
+    }
+
+    // Return success status (i32 0)
+    auto i32Type = rewriter.getI32Type();
+    Value successStatus = rewriter.create<arith::ConstantOp>(
+        loc, i32Type, rewriter.getI32IntegerAttr(0));
+
+    rewriter.replaceOpWithNewOp<func::ReturnOp>(returnOp, successStatus);
     return success();
   }
 };
@@ -293,7 +340,8 @@ public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<hip::HipDialect>();
     registry.insert<func::FuncDialect>();
-    registry.insert<memref::MemRefDialect>();  // Needed for memref.dim
+    registry.insert<memref::MemRefDialect>();  // Needed for memref.dim and memref.copy
+    registry.insert<arith::ArithDialect>();    // Needed for arith.constant (i32 status)
   }
 
   void runOnOperation() override {
@@ -333,18 +381,27 @@ public:
         newInputs.push_back(convertedType ? convertedType : inputType);
       }
 
-      // Convert result types through TypeConverter
-      SmallVector<Type, 4> newResults;
+      // Destination-passing style: Add output arguments instead of return values
+      // Convert result types to memref and add as function arguments
       for (Type resultType : funcType.getResults()) {
         Type convertedType = typeConverter.convertType(resultType);
-        newResults.push_back(convertedType ? convertedType : resultType);
+        Type outputType = convertedType ? convertedType : resultType;
+        newInputs.push_back(outputType);
+        // Add corresponding block argument
+        entryBlock.addArgument(outputType, func.getLoc());
       }
+
+      // Return type is always i32 (status code: 0 = success)
+      SmallVector<Type, 1> newResults;
+      newResults.push_back(builder.getI32Type());
 
       auto newFuncType = builder.getFunctionType(newInputs, newResults);
       func.setFunctionType(newFuncType);
 
-      // Update block argument types (except context which we just added)
-      for (unsigned i = 1; i < entryBlock.getNumArguments(); ++i) {
+      // Update block argument types for inputs (except context which we just added)
+      // Note: Output arguments were already added with correct types above
+      unsigned numInputArgs = 1 + funcType.getInputs().size();  // context + original inputs
+      for (unsigned i = 1; i < numInputArgs; ++i) {
         Type oldType = entryBlock.getArgument(i).getType();
         Type newType = typeConverter.convertType(oldType);
         if (newType && newType != oldType) {
