@@ -256,14 +256,21 @@ func @main_graph(%ctx: !hip.context, %input: memref<...>) -> memref<...> {
 
 **Lowering to LLVM:**
 ```mlir
-// HIP dialect (before lowering)
-%result = hip.conv(%ctx, %input, ...) : (!hip.context, ...) -> ...
+// HIP dialect (before lowering) - in-place semantics
+%output = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+hip.conv(%ctx, %input, %weights, %bias, %output) {kernel_shape = [3, 3], ...}
+  : (!hip.context, memref<...>, memref<...>, memref<...>, memref<...>)
 
 // LLVM dialect (after lowering)
-// %ctx is now !llvm.ptr, extract miopenHandle at offset 8
-%miopen_ptr = llvm.getelementptr %ctx[0, 1] : (!llvm.ptr) -> !llvm.ptr
-%miopen = llvm.load %miopen_ptr : !llvm.ptr
-%result = llvm.call @miopenConvolutionForward(%miopen, ...) : ...
+// %ctx is now !llvm.ptr, used directly as handle
+%output_ptr = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
+%input_ptr = [extract from %input memref descriptor]
+%weights_ptr = [extract from %weights memref descriptor]
+%bias_ptr = [extract from %bias memref descriptor]
+llvm.call @miopenConvolutionForward(
+  %ctx, %input_ptr, %weights_ptr, %bias_ptr, %output_ptr,
+  %kernel_h, %kernel_w, %stride_h, %stride_w, ...
+) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, ...) -> i32
 ```
 
 **Alternative Designs Considered (and rejected):**
