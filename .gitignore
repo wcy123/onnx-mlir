@@ -110,3 +110,4 @@ conv_model.onnx
 conv_gemm_model.onnx
 graph_for_mlir.txt
 vaip_init/
+3rd-party/onnx-mlir/third_party/
