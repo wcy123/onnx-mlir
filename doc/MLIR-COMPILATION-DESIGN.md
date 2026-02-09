@@ -105,8 +105,9 @@ module {
   llvm.mlir.global constant @conv_weight(...) : !llvm.array<...>
   llvm.mlir.global constant @conv_bias(...) : !llvm.array<...>
 
-  func.func @main(%state: !hip.context,  // NEW: state parameter added
-                   %arg0: memref<1x3x224x224xf32>) -> memref<1x64x224x224xf32> {
+  func.func @main(%state: !hip.context,       // NEW: state parameter added
+                   %arg0: memref<1x3x224x224xf32>,
+                   %arg1: memref<1x64x224x224xf32>) -> i32 {  // NEW: output arg, i32 return
 
     // ONNX operations replaced with HIP operations (inline, in-place semantics)
     %0 = hip.alloc(%state) : memref<1x64x224x224xf32>
@@ -121,7 +122,12 @@ module {
     %1 = hip.alloc(%state) : memref<1x64x224x224xf32>
     hip.relu(%state, %0, %1) : (!hip.context, memref<...>, memref<...>)
 
-    return %1 : memref<1x64x224x224xf32>
+    // Destination-passing: copy result to output argument
+    memref.copy %1, %arg1 : memref<1x64x224x224xf32> to memref<1x64x224x224xf32>
+
+    // Return success status
+    %c0_i32 = arith.constant 0 : i32
+    return %c0_i32 : i32
   }
 }
 ```
@@ -130,6 +136,8 @@ module {
 - Operations: `onnx.Conv` → `hip.conv`, `onnx.Relu` → `hip.relu`
 - Constants: Moved to `llvm.mlir.global`
 - State: Added `%state: !hip.context` parameter
+- **Function signature**: Added output argument, changed return to i32
+- **Destination-passing**: memref.copy to output arg, return status code
 - Inline: All operations still in one function
 
 ### Stage 3: After HIP → LLVM Lowering
@@ -241,8 +249,8 @@ def Hip_ContextType : DialectType<HipDialect, "context"> {
 
 **Usage in IR:**
 ```mlir
-// Context is first parameter of every HIP function
-func @main_graph(%ctx: !hip.context, %input: memref<...>) -> memref<...> {
+// Context is first parameter, outputs as arguments (destination-passing)
+func @main_graph(%ctx: !hip.context, %input: memref<...>, %output_arg: memref<...>) -> i32 {
   // HIP operations use in-place semantics (output as argument)
   %output = hip.alloc(%ctx) : memref<...>
   hip.conv(%ctx, %input, %weights, %bias, %output) {...}
@@ -250,7 +258,12 @@ func @main_graph(%ctx: !hip.context, %input: memref<...>) -> memref<...> {
   %result = hip.alloc(%ctx) : memref<...>
   hip.gemm(%ctx, %output, %matrix, %result) {...}
 
-  return %result : memref<...>
+  // Destination-passing: copy to output argument
+  memref.copy %result, %output_arg : memref<...> to memref<...>
+
+  // Return success status
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }
 ```
 
