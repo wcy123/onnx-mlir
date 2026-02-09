@@ -19,15 +19,21 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 
 **After conversion (HIP):**
 ```mlir
-func.func @main(%input: memref<1x3x224x224xf32, 1>) -> memref<1x64x112x112xf32, 1> {
-  %result = hip.conv(%ctx, %input, ...) : (...) -> memref<1x64x112x112xf32, 1>
-  return %result : memref<1x64x112x112xf32, 1>
+func.func @main(%ctx: !hip.context,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<1x64x112x112xf32, 1>) -> i32 {
+  %0 = hip.alloc(%ctx) : memref<1x64x112x112xf32, 1>
+  hip.conv(%ctx, %input, ..., %0) : (...)  // in-place, no return
+  memref.copy %0, %output : memref<1x64x112x112xf32, 1> to memref<1x64x112x112xf32, 1>
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }
 ```
 
 Notice what changed:
-- Function signature: `tensor<...>` → `memref<..., 1>`
-- Operation result type: `tensor<...>` → `memref<..., 1>`
+- Function signature: destination-passing (output as argument, return i32)
+- Type conversion: `tensor<...>` → `memref<..., 1>` (GPU address space)
+- Operation semantics: in-place (output buffer as argument, no return)
 - Return type: `tensor<...>` → `memref<..., 1>`
 
 **The Challenge:** How do you keep track of all these type changes consistently?
@@ -195,9 +201,10 @@ func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 ```
 
 **During conversion, MLIR automatically:**
-1. **Converts function signature** using TypeConverter rules:
+1. **Converts function signature** using TypeConverter rules + custom transformation:
    - `%arg0: tensor<...>` → `%arg0: memref<..., 1>`
-   - Return type: `tensor<...>` → `memref<..., 1>`
+   - Adds output argument: `%arg1: memref<..., 1>`
+   - Return type: `tensor<...>` → `i32` (destination-passing)
 
 2. **Calls your pattern** with converted operands:
    - `adaptor.getX()` gives you memref, not tensor
@@ -207,10 +214,14 @@ func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 
 **Output IR:**
 ```mlir
-func.func @main(%arg0: memref<1x3x224x224xf32, 1>) -> memref<1x64x112x112xf32, 1> {
-  %alloc = memref.alloc() : memref<1x64x112x112xf32, 1>
+func.func @main(%ctx: !hip.context,
+                %arg0: memref<1x3x224x224xf32, 1>,
+                %arg1: memref<1x64x112x112xf32, 1>) -> i32 {
+  %alloc = hip.alloc(%ctx) : memref<1x64x112x112xf32, 1>
   hip.conv(%ctx, %arg0, %weights, %bias, %alloc) {...}
-  return %alloc : memref<1x64x112x112xf32, 1>
+  memref.copy %alloc, %arg1 : memref<1x64x112x112xf32, 1> to memref<1x64x112x112xf32, 1>
+  %c0_i32 = arith.constant 0 : i32
+  return %c0_i32 : i32
 }
 ```
 
