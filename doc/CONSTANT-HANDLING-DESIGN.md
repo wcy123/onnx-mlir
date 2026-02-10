@@ -545,13 +545,7 @@ int inference_cleanup(void* state) {
 
 ## Appendix C: Future Optimizations
 
-1. **Constant Deduplication**: Share GPU memory for identical constants (requires hash-based registry)
-2. **Lazy Upload**: Only upload constants actually used (requires liveness analysis)
-3. **Compression**: Compress data in DLL, decompress during upload (trade CPU for size)
-4. **Quantization**: INT8/INT4 constant support with dequantization kernels
-5. **Batched Upload**: Single `hipMemcpy` for all constants (requires memory layout planning)
-6. **Pinned Memory**: Use `hipHostMalloc` for faster transfers
-7. **Async Upload**: Overlap upload with other initialization (requires stream management)
+1. **Constant Deduplication**: Share GPU memory for identical constants
 
 ---
 
