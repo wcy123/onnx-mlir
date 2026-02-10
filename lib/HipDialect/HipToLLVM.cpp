@@ -414,6 +414,11 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
     auto callOp = LLVM::CallOp::create(rewriter, loc, *funcOp, args);
     Value gpuPtr = callOp.getResult();
 
+    // Cast to GPU address space (address space 1)
+    // hip_get_constant returns !llvm.ptr, but memref needs !llvm.ptr<1>
+    Value gpuPtrWithAddrSpace = rewriter.create<LLVM::AddrSpaceCastOp>(
+        loc, LLVM::LLVMPointerType::get(rewriter.getContext(), 1), gpuPtr);
+
     // Build sizes and strides for memref descriptor
     auto shape = memRefType.getShape();
     SmallVector<Value, 4> sizes;
@@ -435,9 +440,10 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
       stride *= shape[i];
     }
 
-    // Create memref descriptor from GPU pointer
+    // Create memref descriptor from GPU pointer (with address space)
     MemRefDescriptor desc = createMemRefDescriptor(
-        loc, memRefType, gpuPtr, gpuPtr, sizes, strides, rewriter);
+        loc, memRefType, gpuPtrWithAddrSpace, gpuPtrWithAddrSpace, sizes,
+        strides, rewriter);
 
     // Replace with the constructed memref descriptor
     rewriter.replaceOp(op, {desc});

@@ -50,7 +50,7 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 
 ### After `--convert-onnx-to-hip`
 
-**Command**: `hip-opt test_constants.mlir --convert-onnx-to-hip`
+**Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip`
 
 ```mlir
 module {
@@ -148,7 +148,7 @@ module {
 
 ### After `--convert-hip-to-llvm`
 
-**Command**: `hip-opt test_constants.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
+**Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
 
 Pure LLVM dialect output (key sections):
 
@@ -157,44 +157,81 @@ module {
   // Runtime function declarations
   llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, ...) -> i32
   llvm.func @hipMalloc(i64) -> !llvm.ptr
+  llvm.func @hip_get_constant(!llvm.ptr, i64) -> !llvm.ptr
 
-  // Main function signature: memrefs unpacked to LLVM struct fields
-  llvm.func @main(
-    %arg0: !llvm.ptr,                    // context
-    %arg1: !llvm.ptr<1>, %arg2: !llvm.ptr<1>, %arg3: i64,  // input memref fields
-    %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64,        // input.sizes[4]
-    %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64,      // input.strides[4]
-    // ... weights, bias, output memref fields ...
-  ) -> i32 {
+  // Constants embedded in DLL .data section
+  llvm.mlir.global internal constant @constant_0(dense<1.0> : tensor<64x3x3x3xf32>)
+    : !llvm.array<1728 x f32>
+  llvm.mlir.global internal constant @constant_1(dense<0.5> : tensor<64xf32>)
+    : !llvm.array<64 x f32>
+  // ... (constant_2, constant_3)
 
-    // Reconstruct memref descriptors from parameters
-    %0 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %1 = llvm.insertvalue %arg1, %0[0] : ...
-    // ... (build all memref descriptors)
+  // Main function: memrefs unpacked to (ptr, ptr, offset, sizes[4], strides[4])
+  llvm.func @main(%arg0: !llvm.ptr,  /* context */
+                  /* input: 11 params */ ...,
+                  /* output: 11 params */ ...) -> i32 {
 
-    // hip.alloc → hipMalloc + descriptor construction
-    %52 = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
-    %54 = llvm.addrspacecast %53 : !llvm.ptr to !llvm.ptr<1>
-    // ... (build memref descriptor for allocated buffer)
+    // 1. Reconstruct input/output memref descriptors from parameters
+    %input_desc = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, ...)>
+    %input_desc = llvm.insertvalue %arg1, %input_desc[0] : ...
+    // ... (build complete descriptor)
 
-    // hip.conv → miopenConvolutionForward with extracted pointers
-    %68 = llvm.extractvalue %descriptor[1] : ...  // Extract aligned_ptr from input
-    %69 = llvm.addrspacecast %68 : !llvm.ptr<1> to !llvm.ptr
-    // ... (extract weights, bias, output pointers)
-    %87 = llvm.call @miopenConvolutionForward(
+    // 2. Get pre-uploaded constants from GPU state
+    %c0 = llvm.mlir.constant(0 : i64) : i64
+    %weights1_ptr = llvm.call @hip_get_constant(%arg0, %c0)
+    %weights1_gpu = llvm.addrspacecast %weights1_ptr : !llvm.ptr to !llvm.ptr<1>
+    // ... (build memref descriptor for weights1)
+
+    %c1 = llvm.mlir.constant(1 : i64) : i64
+    %bias1_ptr = llvm.call @hip_get_constant(%arg0, %c1)
+    // ... (build descriptor)
+
+    // 3. hip.alloc → hipMalloc
+    %size = llvm.mlir.constant(3211264 : i64) : i64  // temp buffer
+    %ptr = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
+    %gpu_ptr = llvm.addrspacecast %ptr : !llvm.ptr to !llvm.ptr<1>
+    // ... (build descriptor)
+
+    // 4. hip.conv → miopenConvolutionForward
+    %input_ptr = llvm.extractvalue %input_desc[1] : ...
+    %weights_ptr = llvm.extractvalue %weights_desc[1] : ...
+    %bias_ptr = llvm.extractvalue %bias_desc[1] : ...
+    %output_ptr = llvm.extractvalue %output_desc[1] : ...
+
+    llvm.call @miopenConvolutionForward(
       %arg0, %input_ptr, %weights_ptr, %bias_ptr, %output_ptr,
-      %kernel_h, %kernel_w, %stride_h, %stride_w,
-      %pad_top, %pad_left, %pad_bottom, %pad_right,
-      %dilation_h, %dilation_w, %group
+      3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1
     ) : (!llvm.ptr, !llvm.ptr, ...) -> i32
 
-    // memref.copy → llvm.intr.memcpy
-    "llvm.intr.memcpy"(%dest_ptr, %src_ptr, %size)
-      <{isVolatile = false}> : (!llvm.ptr<1>, !llvm.ptr<1>, i64) -> ()
+    // 5. Get layer 2 constants and repeat
+    // ... (similar pattern for conv2)
 
-    // Return success
-    %107 = llvm.mlir.constant(0 : i32) : i32
-    llvm.return %107 : i32
+    // 6. memref.copy → llvm.intr.memcpy
+    "llvm.intr.memcpy"(%dest, %src, %size) : ...
+
+    llvm.return %c0 : i32
+  }
+
+  // Initialization functions (from constant handling)
+  llvm.func @get_constant_count() -> i64 {
+    %0 = llvm.mlir.constant(4 : i64) : i64
+    llvm.return %0 : i64
+  }
+
+  llvm.func @initialize_constants(%arg0: !llvm.ptr) -> i32 {
+    %0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
+    %c0 = llvm.mlir.constant(0 : i64) : i64
+    %c6912 = llvm.mlir.constant(6912 : i64) : i64
+    llvm.call @hip_upload_constant(%arg0, %c0, %0, %c6912)
+    // ... (upload constant_1, constant_2, constant_3)
+    llvm.return %c0_i32 : i32
+  }
+
+  llvm.func @release_constants(%arg0: !llvm.ptr) -> i32 {
+    %c0 = llvm.mlir.constant(0 : i64) : i64
+    llvm.call @hip_release_constant(%arg0, %c0)
+    // ... (release all constants)
+    llvm.return %c0_i32 : i32
   }
 }
 ```
@@ -304,12 +341,12 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
 
 # Run ONNX → HIP transformation
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
-  tools/hip-opt/test_constants.mlir \
+  tools/hip-opt/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip
 
 # Run full pipeline: ONNX → HIP → LLVM
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
-  tools/hip-opt/test_constants.mlir \
+  tools/hip-opt/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
   --convert-hip-to-llvm
 ```
