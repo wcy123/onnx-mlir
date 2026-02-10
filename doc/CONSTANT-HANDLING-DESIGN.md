@@ -282,32 +282,48 @@ func.func @main(%ctx: !hip.context,
 
 ### Question 3: Subgraph Constant Handling
 
-**Context**: ONNX control flow operators (If, Loop, Scan) create subgraphs as separate `func.func`.
+**Context**: ONNX control flow operators (If, Loop, Scan) create subgraphs as separate `func.func`. In original ONNX, constants may be passed as arguments to subgraphs.
 
-**Example**:
+**Example (BEFORE conversion)**:
 ```mlir
 func.func @main_graph(%input: tensor<...>) -> tensor<...> {
-  %w0 = "onnx.Constant"() {value = dense<...>}
-  %result = func.call @subgraph_if_then(%input, %w0)
+  %w0 = "onnx.Constant"() {value = dense<...>}  // Constant defined in parent
+  %result = func.call @subgraph_if_then(%input, %w0)  // Passed to subgraph
   ...
 }
 
 func.func @subgraph_if_then(%arg0: tensor<...>, %arg1: tensor<...>) -> tensor<...> {
   %w1 = "onnx.Constant"() {value = dense<...>}  // Local constant
-  %conv = "onnx.Conv"(%arg0, %arg1, %w1)
+  %conv = "onnx.Conv"(%arg0, %arg1, %w1)  // Uses both passed (%arg1) and local (%w1)
   ...
 }
 ```
 
-**Question**: After conversion, should `@subgraph_if_then`:
-- **Option A**: Receive only `%ctx`, load all constants (including passed ones) from state?
-- **Option B**: Receive `%ctx` + pre-loaded constants as arguments?
+**Decision**: Use Option A (consistent with design principle of eliminating constant arguments)
 
-**Trade-offs**:
-- Option A: Clean signatures, but caller and callee must agree on global indices
-- Option B: Reintroduces constant arguments (defeats purpose of design)
+**After conversion**:
+```mlir
+func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
+  %temp = hip.alloc(%ctx) : memref<...>
+  func.call @subgraph_if_then(%ctx, %input, %temp)  // Only %ctx, no constants
+  ...
+}
 
-**TODO**: Decide based on real-world ONNX model analysis.
+func.func @subgraph_if_then(%ctx: !hip.context, %arg0: memref<...>, %output: memref<...>) -> i32 {
+  // Load constants from state by global index
+  %w0 = hip.get_constant(%ctx, 0)  // Was passed as argument in ONNX
+  %w1 = hip.get_constant(%ctx, 1)  // Was local constant in ONNX
+
+  hip.conv(%ctx, %arg0, %w0, %w1, %output) {...}
+  return %c0_i32 : i32
+}
+```
+
+**Implementation question** (not yet resolved):
+- How does the pass know that `%arg1` in the original ONNX subgraph corresponds to global constant index 0?
+- Need to track constant provenance: map ONNX constant SSA values to global indices across function boundaries
+
+**TODO**: Implement constant provenance tracking in Phase 6 (Subgraph Handling).
 
 ---
 
