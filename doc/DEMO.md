@@ -478,21 +478,22 @@ clang test.o -shared -L/opt/rocm/lib -lMIOpen -lhip -o test.dll
 
 **Status**: ✅ **FULLY WORKING** - All 6 phases implemented and tested!
 
-### Input: ONNX Model with Constants
+### Input: ONNX Model with Constants (Two Conv Layers)
 
 ```mlir
-func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32> {
-  // Constants embedded in the model (weights and bias)
-  %weights = "onnx.Constant"() {
+// Two sequential convolutions with different constant weights
+func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
+  // First Conv: Constants for layer 1
+  %weights1 = "onnx.Constant"() {
     value = dense<1.0> : tensor<64x3x3x3xf32>
   } : () -> tensor<64x3x3x3xf32>
 
-  %bias = "onnx.Constant"() {
+  %bias1 = "onnx.Constant"() {
     value = dense<0.5> : tensor<64xf32>
   } : () -> tensor<64xf32>
 
-  // Convolution using the constants
-  %output = "onnx.Conv"(%input, %weights, %bias) {
+  // First convolution (same size output)
+  %conv1 = "onnx.Conv"(%input, %weights1, %bias1) {
     kernel_shape = [3, 3],
     strides = [1, 1],
     pads = [1, 1, 1, 1],
@@ -501,9 +502,36 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32> {
   } : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>)
       -> tensor<1x64x224x224xf32>
 
-  return %output : tensor<1x64x224x224xf32>
+  // Second Conv: Constants for layer 2
+  %weights2 = "onnx.Constant"() {
+    value = dense<2.0> : tensor<64x64x3x3xf32>
+  } : () -> tensor<64x64x3x3xf32>
+
+  %bias2 = "onnx.Constant"() {
+    value = dense<0.1> : tensor<64xf32>
+  } : () -> tensor<64xf32>
+
+  // Second convolution (stride=2, halves spatial dimensions)
+  %conv2 = "onnx.Conv"(%conv1, %weights2, %bias2) {
+    kernel_shape = [3, 3],
+    strides = [2, 2],
+    pads = [1, 1, 1, 1],
+    dilations = [1, 1],
+    group = 1 : si64
+  } : (tensor<1x64x224x224xf32>, tensor<64x64x3x3xf32>, tensor<64xf32>)
+      -> tensor<1x64x112x112xf32>
+
+  return %conv2 : tensor<1x64x112x112xf32>
 }
 ```
+
+**Key properties**:
+- **4 constants total**: 2 weight tensors + 2 bias tensors
+- **weights1**: 64×3×3×3 = 1,728 elements = 6,912 bytes
+- **bias1**: 64 elements = 256 bytes
+- **weights2**: 64×64×3×3 = 36,864 elements = 147,456 bytes
+- **bias2**: 64 elements = 256 bytes
+- **Two sequential convolutions** demonstrating multi-layer constant handling
 
 ### After `--convert-onnx-to-hip` (With Constant Handling)
 
@@ -516,24 +544,27 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32> {
 
 ```mlir
 module {
-  // ✅ Phase 3: LLVM globals with embedded constant data
-  llvm.mlir.global internal constant @constant_1(dense<5.000000e-01> : tensor<64xf32>)
-    {addr_space = 0 : i32} : !llvm.array<64 x f32>
+  // ✅ Phase 3: LLVM globals with embedded constant data (4 constants)
   llvm.mlir.global internal constant @constant_0(dense<1.000000e+00> : tensor<64x3x3x3xf32>)
     {addr_space = 0 : i32} : !llvm.array<1728 x f32>
+  llvm.mlir.global internal constant @constant_3(dense<1.000000e-01> : tensor<64xf32>)
+    {addr_space = 0 : i32} : !llvm.array<64 x f32>
+  llvm.mlir.global internal constant @constant_1(dense<5.000000e-01> : tensor<64xf32>)
+    {addr_space = 0 : i32} : !llvm.array<64 x f32>
+  llvm.mlir.global internal constant @constant_2(dense<2.000000e+00> : tensor<64x64x3x3xf32>)
+    {addr_space = 0 : i32} : !llvm.array<36864 x f32>
 
   // ✅ Main inference function with constant retrieval
   func.func @main(%arg0: !hip.context,
                   %arg1: memref<1x3x224x224xf32, 1>,
-                  %arg2: memref<1x64x224x224xf32, 1>) -> i32 {
-    // ✅ Phase 5: Constants replaced with hip.get_constant
+                  %arg2: memref<1x64x112x112xf32, 1>) -> i32 {
+    // ✅ Phase 5: First Conv - Retrieve constants for layer 1
     %c0_i64 = arith.constant 0 : i64
     %0 = hip.get_constant(%arg0, %c0_i64) : memref<64x3x3x3xf32, 1>
-
     %c1_i64 = arith.constant 1 : i64
     %1 = hip.get_constant(%arg0, %c1_i64) : memref<64xf32, 1>
 
-    // Convolution uses retrieved constants (not embedded!)
+    // First convolution (stride=1, same size)
     %2 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
     hip.conv(%arg0, %arg1, %0, %1, %2)
       {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3],
@@ -542,30 +573,58 @@ module {
          memref<64x3x3x3xf32, 1>, memref<64xf32, 1>,
          memref<1x64x224x224xf32, 1>)
 
-    memref.copy %2, %arg2 : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
+    // ✅ Phase 5: Second Conv - Retrieve constants for layer 2
+    %c2_i64 = arith.constant 2 : i64
+    %3 = hip.get_constant(%arg0, %c2_i64) : memref<64x64x3x3xf32, 1>
+    %c3_i64 = arith.constant 3 : i64
+    %4 = hip.get_constant(%arg0, %c3_i64) : memref<64xf32, 1>
+
+    // Second convolution (stride=2, halves spatial dimensions)
+    %5 = hip.alloc(%arg0) : memref<1x64x112x112xf32, 1>
+    hip.conv(%arg0, %2, %3, %4, %5)
+      {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3],
+       pads = [1, 1, 1, 1], strides = [2, 2]}
+      : (!hip.context, memref<1x64x224x224xf32, 1>,
+         memref<64x64x3x3xf32, 1>, memref<64xf32, 1>,
+         memref<1x64x112x112xf32, 1>)
+
+    // Copy final result to output
+    memref.copy %5, %arg2 : memref<1x64x112x112xf32, 1> to memref<1x64x112x112xf32, 1>
     %c0_i32 = arith.constant 0 : i32
     return %c0_i32 : i32
   }
 
   // ✅ Phase 4: Initialization function #1 - Query constant count
   llvm.func @get_constant_count() -> i64 {
-    %0 = llvm.mlir.constant(2 : i64) : i64
+    %0 = llvm.mlir.constant(4 : i64) : i64
     llvm.return %0 : i64
   }
 
   // ✅ Phase 4: Initialization function #2 - Upload constants to GPU
   func.func @initialize_constants(%arg0: !hip.context) -> i32 {
-    // Upload constant_1 (bias: 64 floats = 256 bytes)
-    %0 = llvm.mlir.addressof @constant_1 : !llvm.ptr
-    %c1_i64 = arith.constant 1 : i64
-    %c256_i64 = arith.constant 256 : i64
-    hip.upload_constant(%arg0, %c1_i64, %0, %c256_i64) : (!llvm.ptr)
-
-    // Upload constant_0 (weights: 64×3×3×3 floats = 6912 bytes)
-    %1 = llvm.mlir.addressof @constant_0 : !llvm.ptr
+    // Upload constant_0 (weights1: 64×3×3×3 floats = 6,912 bytes)
+    %0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
     %c0_i64 = arith.constant 0 : i64
     %c6912_i64 = arith.constant 6912 : i64
-    hip.upload_constant(%arg0, %c0_i64, %1, %c6912_i64) : (!llvm.ptr)
+    hip.upload_constant(%arg0, %c0_i64, %0, %c6912_i64) : (!llvm.ptr)
+
+    // Upload constant_3 (bias2: 64 floats = 256 bytes)
+    %1 = llvm.mlir.addressof @constant_3 : !llvm.ptr
+    %c3_i64 = arith.constant 3 : i64
+    %c256_i64 = arith.constant 256 : i64
+    hip.upload_constant(%arg0, %c3_i64, %1, %c256_i64) : (!llvm.ptr)
+
+    // Upload constant_1 (bias1: 64 floats = 256 bytes)
+    %2 = llvm.mlir.addressof @constant_1 : !llvm.ptr
+    %c1_i64 = arith.constant 1 : i64
+    %c256_i64_0 = arith.constant 256 : i64
+    hip.upload_constant(%arg0, %c1_i64, %2, %c256_i64_0) : (!llvm.ptr)
+
+    // Upload constant_2 (weights2: 64×64×3×3 floats = 147,456 bytes)
+    %3 = llvm.mlir.addressof @constant_2 : !llvm.ptr
+    %c2_i64 = arith.constant 2 : i64
+    %c147456_i64 = arith.constant 147456 : i64
+    hip.upload_constant(%arg0, %c2_i64, %3, %c147456_i64) : (!llvm.ptr)
 
     %c0_i32 = arith.constant 0 : i32
     return %c0_i32 : i32
@@ -573,12 +632,14 @@ module {
 
   // ✅ Phase 4: Initialization function #3 - Release GPU constants
   func.func @release_constants(%arg0: !hip.context) -> i32 {
-    %c1_i64 = arith.constant 1 : i64
-    hip.release_constant(%arg0, %c1_i64)
-
     %c0_i64 = arith.constant 0 : i64
     hip.release_constant(%arg0, %c0_i64)
-
+    %c3_i64 = arith.constant 3 : i64
+    hip.release_constant(%arg0, %c3_i64)
+    %c1_i64 = arith.constant 1 : i64
+    hip.release_constant(%arg0, %c1_i64)
+    %c2_i64 = arith.constant 2 : i64
+    hip.release_constant(%arg0, %c2_i64)
     %c0_i32 = arith.constant 0 : i32
     return %c0_i32 : i32
   }
@@ -588,23 +649,29 @@ module {
 **Key Transformations**:
 
 1. **Phase 2: Constant Discovery**
-   - Discovered 2 constants: weights (64×3×3×3 = 1728 elements) and bias (64 elements)
-   - Assigned sequential indices: 0 and 1
-   - Calculated sizes: 6912 bytes and 256 bytes
+   - Discovered **4 constants** across two conv layers:
+     - weights1: 64×3×3×3 = 1,728 elements = 6,912 bytes
+     - bias1: 64 elements = 256 bytes
+     - weights2: 64×64×3×3 = 36,864 elements = 147,456 bytes
+     - bias2: 64 elements = 256 bytes
+   - Assigned sequential indices: 0, 1, 2, 3
+   - **Total constant data**: ~155 KB
 
 2. **Phase 3: LLVM Global Generation**
-   - Created `@constant_0` and `@constant_1` globals
+   - Created **4 LLVM globals**: `@constant_0` through `@constant_3`
    - Embedded dense data directly in LLVM IR
    - Type: `!llvm.array<N x f32>` (flattened arrays)
+   - Different constant values: 1.0, 0.5, 2.0, 0.1
 
 3. **Phase 4: Initialization Functions**
-   - `get_constant_count()`: Returns 2 (number of constants)
-   - `initialize_constants()`: Uploads both constants to GPU during model init
-   - `release_constants()`: Frees GPU memory during cleanup
+   - `get_constant_count()`: Returns **4** (number of constants)
+   - `initialize_constants()`: Uploads **all 4 constants** to GPU during model init
+   - `release_constants()`: Frees GPU memory for **all 4 constants** during cleanup
 
 4. **Phase 5: Constant Retrieval**
-   - `onnx.Constant` operations replaced with `hip.get_constant`
-   - Retrieves pre-uploaded GPU pointers from state
+   - **4 onnx.Constant operations** replaced with **4 hip.get_constant calls**
+   - Retrieves pre-uploaded GPU pointers from state (indices 0, 1, 2, 3)
+   - **Two conv operations** use retrieved constants instead of parameters
    - Zero runtime overhead (no uploading during inference)
 
 5. **Phase 6: HIP→LLVM Lowering** (ready for next step)
