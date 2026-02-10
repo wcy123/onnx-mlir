@@ -321,21 +321,9 @@ Each pass builds on the output of previous passes:
 └──────────────────────┘
 ```
 
-**Prerequisites for GenerateInterfacePass:**
+**Prerequisites for [GenerateInterfacePass](passes/GenerateInterfacePass.md):**
 
-1. **@main signature**: `(context, inputs, outputs) → i32` - Generic arrays (no type info)
-2. **Module metadata**: `hipdnn.input_count`, `hipdnn.input_ranks`, etc. - Compensates for lost type information
-   - Tells how many inputs/outputs to expect
-   - Tells what rank each tensor has
-   - Enables validation code generation
-   - Determines memref struct layout (rank determines array sizes)
-3. **Constant helpers**: `initialize_constants`, `release_constants`, `get_constant_count`
-4. **Context layout**: Known struct fields for handles and constants
-5. **Tensor interface**: `tensor_t` with `data`, `shape`, `rank` fields
-
-**Why metadata is critical:** When @main uses array parameters, the signature loses compile-time information about how many inputs/outputs exist and their ranks. Metadata preserves this information so GenerateInterfacePass can generate correct validation and memref construction code.
-
-**See:** [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) for complete prerequisite specifications.
+This pass requires specific module structure from previous passes. See [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) for detailed prerequisite specifications.
 
 ---
 

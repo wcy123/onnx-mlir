@@ -19,7 +19,14 @@ The GenerateInterfacePass generates the three C interface functions that are exp
 
 ## Prerequisites
 
-Before this pass can run, the module MUST satisfy these requirements:
+Before this pass can run, the module MUST satisfy these requirements.
+
+**Why prerequisites matter:** [GenerateInterfacePass](GenerateInterfacePass.md) generates C interface functions that bridge between user-provided `span_t` arrays and MLIR's internal `@main` function. This requires precise knowledge of:
+- How many inputs/outputs to expect (for validation)
+- What rank each tensor has (for memref struct construction)
+- Where to find constants and GPU handles (for initialization)
+
+When @main signature becomes `(context, inputs, outputs) → i32` in [HipToLLVM pass](HipToLLVM.md), type information is lost. Module metadata and helper functions preserve this information.
 
 ### Prerequisite 1: @main Function Signature
 
@@ -44,17 +51,23 @@ llvm.func @main(%context: !llvm.ptr,
 **Required module attributes:**
 ```mlir
 module attributes {
-  hipdnn.input_count = 1 : i64,
-  hipdnn.input_ranks = dense<[4]> : tensor<1xi64>,
-  hipdnn.output_count = 1 : i64,
-  hipdnn.output_ranks = dense<[2]> : tensor<1xi64>
+  hipdnn.input_count = 2 : i64,              // N inputs
+  hipdnn.input_ranks = dense<[4, 2]> : tensor<2xi64>,  // ranks for each input
+  hipdnn.output_count = 2 : i64,             // M outputs
+  hipdnn.output_ranks = dense<[2, 1]> : tensor<2xi64>  // ranks for each output
 }
 ```
 
-**Why?** GenerateInterfacePass needs to know:
-- How many inputs/outputs to expect
-- What rank each tensor has
-- Drives validation code generation and memref struct building
+**Why metadata is critical:** When @main signature becomes `(context, inputs, outputs) → i32`, type information is lost (arrays have no compile-time size). Metadata compensates for this loss by preserving:
+- **Input/output counts**: How many tensors to validate and process
+- **Tensor ranks**: Determines memref struct layout (`rank 4` → `array<4xi64>` for sizes/strides)
+- **Loop bounds**: How many iterations when building memref arrays
+
+This enables the pass to:
+1. Generate validation code (check user provides correct number of tensors)
+2. Build memref structs with correct rank-dependent layout
+3. Allocate arrays of correct size
+4. Iterate over inputs/outputs correctly
 
 ### Prerequisite 3: Constant Management Helpers
 
