@@ -70,6 +70,10 @@ Embedded in ONNX EPContext
 
 The compiled DLL exports exactly 3 functions:
 
+**About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
+
+**About `span_t`:** Array of input/output tensors from CustomOp (CPU memory). Wrapper functions copy inputs to GPU (H2D), call computation, then copy outputs back to CPU (D2H). See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
+
 ### 1. inference_init
 ```c
 int inference_init(void** out_state);
@@ -116,25 +120,6 @@ int inference_cleanup(void* state);
 - Wrappers bridge the gap
 
 See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
-
----
-
-## Runtime State Structure
-
-```c
-struct HipExecutionContext {
-    hipStream_t stream;              // GPU stream for async operations
-    miopenHandle_t miopenHandle;     // MIOpen library handle
-    hipblasLtHandle_t hipblasHandle; // hipBLAS library handle
-    void** gpu_constants;            // Dynamically allocated array of GPU pointers
-};
-```
-
-- Allocated in `inference_init`
-- Passed to all operations
-- Freed in `inference_cleanup`
-
-See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
 
 ---
 
@@ -206,18 +191,8 @@ gcc -shared -o inference.so inference.o -lhip -lmiopen -lhipblaslt
 
 ---
 
-## Key Design Principles
-
-1. **Simplicity first**: Start with LLVM dialect directly, refine later
-2. **Explicit state**: Pass as parameter, no globals
-3. **Inline operations**: All computation in @main
-4. **C ABI compatibility**: Clean integration with CustomOp
-5. **Performance**: AOT compilation, no JIT overhead
-6. **Dynamic shapes**: Runtime dimensions from Day 1
-
----
-
 ## Related Documents
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture
+- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - Runtime state structure and lifecycle
 - [DEMO.md](DEMO.md) - End-to-end demo walkthrough
