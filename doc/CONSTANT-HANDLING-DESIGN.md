@@ -299,7 +299,7 @@ func.func @subgraph_if_then(%arg0: tensor<...>, %arg1: tensor<...>) -> tensor<..
 }
 ```
 
-**Decision**: Use Option A (consistent with design principle of eliminating constant arguments)
+**Design decision**: Subgraphs receive only `%ctx` and load constants from state (consistent with design principle of eliminating constant arguments)
 
 **After conversion**:
 ```mlir
