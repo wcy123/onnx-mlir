@@ -115,48 +115,94 @@ func.func @main(%arg0: !hip.context,
 
 **Command**: `hip-opt test_conv_inplace.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
 
-**Status**: ⚠️ **Partial** (HIP operations convert to LLVM, but memref/arith still need lowering)
+**Status**: ✅ **Working** (complete ONNX→HIP→LLVM lowering, 117 lines of pure LLVM IR)
 
-**Real output** (truncated for readability):
+**Real output** (showing key sections, full output is 117 lines):
 
 ```mlir
 module {
+  // Runtime function declarations
   llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
   llvm.func @hipMalloc(i64) -> !llvm.ptr
-  func.func @main(%arg0: !hip.context, %arg1: memref<1x3x224x224xf32, 1>, %arg2: memref<64x3x3x3xf32, 1>, %arg3: memref<64xf32, 1>, %arg4: memref<1x64x224x224xf32, 1>) -> i32 {
-    // Unrealized conversion casts (memref -> LLVM struct)
-    %0 = builtin.unrealized_conversion_cast %arg3 : memref<64xf32, 1> to !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)>
-    %1 = builtin.unrealized_conversion_cast %arg2 : memref<64x3x3x3xf32, 1> to !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %2 = builtin.unrealized_conversion_cast %arg1 : memref<1x3x224x224xf32, 1> to !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %3 = builtin.unrealized_conversion_cast %arg0 : !hip.context to !llvm.ptr
 
-    // hip.alloc converted to hipMalloc + memref descriptor construction
-    %15 = llvm.call @hipMalloc(%14) : (i64) -> !llvm.ptr
-    // ... memref descriptor construction (29 lines total) ...
+  // ✅ Function signature: fully converted to LLVM types
+  // Memref parameters unpacked to individual struct fields (allocated_ptr, aligned_ptr, offset, sizes[4], strides[4])
+  llvm.func @main(%arg0: !llvm.ptr,           // context (was !hip.context)
+                  %arg1: !llvm.ptr<1>,        // input.allocated_ptr
+                  %arg2: !llvm.ptr<1>,        // input.aligned_ptr
+                  %arg3: i64,                 // input.offset
+                  %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64,    // input.sizes[4]
+                  %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64,  // input.strides[4]
+                  %arg12: !llvm.ptr<1>, %arg13: !llvm.ptr<1>,        // weights pointers
+                  %arg14: i64,                                        // weights.offset
+                  %arg15: i64, %arg16: i64, %arg17: i64, %arg18: i64, // weights.sizes[4]
+                  %arg19: i64, %arg20: i64, %arg21: i64, %arg22: i64, // weights.strides[4]
+                  %arg23: !llvm.ptr<1>, %arg24: !llvm.ptr<1>,        // bias pointers
+                  %arg25: i64,                                        // bias.offset
+                  %arg26: i64,                                        // bias.sizes[1]
+                  %arg27: i64,                                        // bias.strides[1]
+                  %arg28: !llvm.ptr<1>, %arg29: !llvm.ptr<1>,        // output pointers
+                  %arg30: i64,                                        // output.offset
+                  %arg31: i64, %arg32: i64, %arg33: i64, %arg34: i64, // output.sizes[4]
+                  %arg35: i64, %arg36: i64, %arg37: i64, %arg38: i64  // output.strides[4]
+                 ) -> i32 {
 
-    // hip.conv converted to miopenConvolutionForward call
-    %50 = llvm.call @miopenConvolutionForward(%3, %32, %34, %38, %36, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
+    // Reconstruct memref descriptors from parameters (lines 4-41)
+    %0 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %1 = llvm.insertvalue %arg28, %0[0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    // ... (37 more insertvalue operations to build all memref descriptors)
 
-    // ⚠️ NOT YET CONVERTED: memref.copy and arith.constant still present
-    memref.copy %30, %arg4 : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
-    %c0_i32 = arith.constant 0 : i32
-    return %c0_i32 : i32
+    // ✅ hip.alloc → hipMalloc + descriptor construction (lines 42-67)
+    %42 = llvm.mlir.constant(1 : index) : i64
+    %43 = llvm.mlir.constant(64 : index) : i64
+    %44 = llvm.mlir.constant(224 : index) : i64
+    %45 = llvm.mlir.constant(224 : index) : i64
+    // ... size computation ...
+    %53 = llvm.call @hipMalloc(%52) : (i64) -> !llvm.ptr
+    %54 = llvm.addrspacecast %53 : !llvm.ptr to !llvm.ptr<1>
+    // ... build memref descriptor for allocated buffer ...
+
+    // ✅ hip.conv → miopenConvolutionForward (lines 68-86)
+    %68 = llvm.extractvalue %41[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %69 = llvm.addrspacecast %68 : !llvm.ptr<1> to !llvm.ptr  // input pointer
+    %70 = llvm.extractvalue %29[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %71 = llvm.addrspacecast %70 : !llvm.ptr<1> to !llvm.ptr  // weights pointer
+    // ... extract output and bias pointers ...
+    %76 = llvm.mlir.constant(3 : i64) : i64  // kernel_h, kernel_w
+    %77 = llvm.mlir.constant(1 : i64) : i64  // stride, padding, dilation, group
+    %87 = llvm.call @miopenConvolutionForward(%arg0, %69, %71, %75, %73,
+                                               %76, %76, %77, %77, %77, %77, %77, %77, %77, %77, %77)
+          : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr,
+             i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
+
+    // ✅ memref.copy → llvm.intr.memcpy (lines 88-114)
+    %88 = llvm.mlir.constant(1 : index) : i64
+    // ... compute size in bytes ...
+    %103 = llvm.extractvalue %67[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %104 = llvm.extractvalue %67[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %105 = llvm.getelementptr %103[%104] : (!llvm.ptr<1>, i64) -> !llvm.ptr<1>, f32
+    %106 = llvm.extractvalue %11[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %107 = llvm.extractvalue %11[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %108 = llvm.getelementptr %106[%107] : (!llvm.ptr<1>, i64) -> !llvm.ptr<1>, f32
+    "llvm.intr.memcpy"(%108, %105, %102) <{isVolatile = false}> : (!llvm.ptr<1>, !llvm.ptr<1>, i64) -> ()
+
+    // ✅ arith.constant → llvm.mlir.constant, func.return → llvm.return (lines 115-117)
+    %109 = llvm.mlir.constant(0 : i32) : i32
+    llvm.return %109 : i32
   }
 }
 ```
 
-**What's working**:
-- ✅ `hip.alloc` → `llvm.call @hipMalloc` with memref descriptor construction
-- ✅ `hip.conv` → `llvm.call @miopenConvolutionForward` with pointer extraction
-- ✅ LLVM function declarations for runtime calls
-
-**What's NOT yet converted** (remaining work):
-- ❌ Function signature still has `!hip.context` and `memref<...>` types (should be fully LLVM types)
-- ❌ `memref.copy` not converted to LLVM operations
-- ❌ `arith.constant` not converted to `llvm.mlir.constant`
-- ❌ `builtin.unrealized_conversion_cast` present (indicates incomplete conversion)
-
-**Why**: The HIP→LLVM pass only converts HIP dialect operations. To get fully lowered LLVM IR, we need to also run standard MLIR lowering passes for memref and arith dialects.
+**Complete conversion achieved**:
+- ✅ `llvm.func` with fully unpacked memref parameters (no high-level types!)
+- ✅ `!hip.context` → `!llvm.ptr`
+- ✅ `memref<...>` → individual struct fields (allocated_ptr, aligned_ptr, offset, sizes, strides)
+- ✅ `hip.alloc` → `llvm.call @hipMalloc` + descriptor construction
+- ✅ `hip.conv` → `llvm.call @miopenConvolutionForward` with extracted pointers
+- ✅ `memref.copy` → `llvm.intr.memcpy` intrinsic
+- ✅ `arith.constant` → `llvm.mlir.constant`
+- ✅ `func.return` → `llvm.return`
+- ✅ **Zero non-LLVM operations** - pure LLVM dialect ready for translation to LLVM IR
 
 **Key transformations**:
 
@@ -288,21 +334,36 @@ extern "C" int miopenConvolutionForward(
 
 **Documentation**: `notes/ONNX_TO_HIP_CONVERSION_WORKING.md`
 
-### ✅ Implemented: HIP → LLVM Conversion
+### ✅ Working: HIP → LLVM Conversion
 
 **Implementation**: `lib/HipDialect/HipToLLVM.cpp`
 
-**Features**:
+**HIP-specific patterns**:
 - ✅ CreateHandleOpLowering, DestroyHandleOpLowering
 - ✅ AllocOpLowering: hip.alloc → hipMalloc + memref descriptor
 - ✅ FreeOpLowering: hip.free → hipFree
-- ✅ **ConvOpLowering**: hip.conv → miopenConvolutionForward runtime call (NEW)
+- ✅ ConvOpLowering: hip.conv → miopenConvolutionForward runtime call
   - Extracts memref aligned pointers
   - Handles optional bias (null pointer if not provided)
   - Converts attributes to i64 constants
   - Generates runtime function call
 
-**Status**: Code implemented, awaiting build verification.
+**Standard MLIR lowering** (added to complete the pipeline):
+- ✅ `populateFuncToLLVMConversionPatterns`: Function signature conversion (memref → unpacked struct fields)
+- ✅ `populateFinalizeMemRefToLLVMConversionPatterns`: memref.copy → llvm.intr.memcpy
+- ✅ `arith::populateArithToLLVMConversionPatterns`: arith.constant → llvm.mlir.constant
+
+**Conversion target configuration**:
+- ✅ Dynamic legality for func.FuncOp (must have LLVM-compatible signature)
+- ✅ HIP, memref, arith dialects marked illegal (must be lowered)
+- ✅ LLVM dialect marked legal
+
+**Test**:
+```bash
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe tools/hip-opt/test_conv_inplace.mlir --convert-onnx-to-hip --convert-hip-to-llvm
+```
+
+**Result**: Pure LLVM dialect output (117 lines), ready for `mlir-translate --mlir-to-llvmir` → LLVM IR → native code.
 
 **Documentation**: `notes/HIP_TO_LLVM_INPLACE.md`
 
@@ -404,5 +465,5 @@ clang test.o -shared -L/opt/rocm/lib -lMIOpen -lhip -o test.dll
 
 ---
 
-**Last Updated**: 2026-02-09
-**Status**: ONNX→HIP working ✅ | HIP→LLVM implemented ✅ | Runtime wrapper TODO 📋
+**Last Updated**: 2026-02-10
+**Status**: ONNX→HIP working ✅ | HIP→LLVM working ✅ | Pure LLVM IR output ✅ | Runtime wrapper TODO 📋
