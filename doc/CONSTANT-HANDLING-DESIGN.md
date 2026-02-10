@@ -112,13 +112,8 @@ This creates **200+ function arguments**, which is:
 
 ### 1. Module-Level Pass
 
-**Current implementation** (WRONG):
-```cpp
-class ConvertOnnxToHipPass
-    : public PassWrapper<ConvertOnnxToHipPass, OperationPass<func::FuncOp>>
-```
+The `ConvertOnnxToHipPass` must operate at module level to handle constants properly:
 
-**Required implementation** (CORRECT):
 ```cpp
 class ConvertOnnxToHipPass
     : public PassWrapper<ConvertOnnxToHipPass, OperationPass<ModuleOp>> {
@@ -126,7 +121,7 @@ class ConvertOnnxToHipPass
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
-    // Can now:
+    // Capabilities:
     // - Walk all functions
     // - Create module-level globals
     // - Generate module-level functions
@@ -248,34 +243,117 @@ for (auto& [value, info] : constantRegistry) {
 }
 ```
 
-### 5. Generated Initialization Functions
+### 5. HIP Dialect Operations for Constants
 
-Three functions are generated to manage constant lifecycle:
+Three operations are defined in HIP dialect for constant management:
 
-```mlir
-// 1. Query constant count
-llvm.func @get_constant_count() -> i64
-
-// 2. Upload constants to GPU (called once during init)
-llvm.func @initialize_constants(%state_ptr: !llvm.ptr) -> i32 {
-  // For each constant:
-  // - Get CPU data: llvm.mlir.addressof @constant_N
-  // - Allocate GPU: hipMalloc(size)
-  // - Upload: hipMemcpy(gpu_ptr, cpu_ptr, size, HostToDevice)
-  // - Store: state->gpu_weights[N] = gpu_ptr
+```tablegen
+// Get reference to pre-uploaded constant (used in @main)
+def Hip_GetConstantOp : Hip_Op<"get_constant"> {
+  let arguments = (ins Hip_ContextType:$ctx, I64:$index);
+  let results = (outs AnyMemRef:$result);
+  let summary = "Get reference to pre-uploaded constant from state";
 }
 
-// 3. Free GPU memory (called during cleanup)
-llvm.func @release_constants(%state_ptr: !llvm.ptr) -> i32 {
-  // For each constant:
-  // - Load GPU pointer from state->gpu_weights[N]
-  // - Free: hipFree(gpu_ptr)
+// Upload constant data to GPU (used in @initialize_constants)
+def Hip_UploadConstantOp : Hip_Op<"upload_constant"> {
+  let arguments = (ins Hip_ContextType:$ctx, I64:$index,
+                       LLVM_AnyPointer:$cpu_data, I64:$size);
+  let summary = "Upload constant data to GPU and store in state->gpu_weights[index]";
+}
+
+// Release constant from GPU (used in @release_constants)
+def Hip_ReleaseConstantOp : Hip_Op<"release_constant"> {
+  let arguments = (ins Hip_ContextType:$ctx, I64:$index);
+  let summary = "Free GPU memory for constant at state->gpu_weights[index]";
 }
 ```
 
-**Implementation details**: See HIP→LLVM lowering pass (out of scope for this document).
+**Semantics at HIP dialect level:**
+- `hip.upload_constant`: Allocate GPU memory, copy data from CPU, store pointer in state
+- `hip.release_constant`: Free GPU memory for this constant
+- `hip.get_constant`: Return memref descriptor referencing GPU memory
 
-### 6. Runtime C Interface
+**Lowering to LLVM** (deferred to HIP→LLVM pass):
+- Naive: individual `hipMalloc` + `hipMemcpy` per constant
+- Optimized: batch allocation, memory pooling, etc.
+
+### 6. Generated Initialization Functions
+
+Three functions are generated in HIP dialect:
+
+```mlir
+// 1. Query constant count (pure LLVM, no HIP ops needed)
+llvm.func @get_constant_count() -> i64 {
+  %count = llvm.mlir.constant(200 : i64) : i64
+  llvm.return %count : i64
+}
+
+// 2. Upload all constants to GPU
+func.func @initialize_constants(%ctx: !hip.context) -> i32 {
+  // Constant 0: weights
+  %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
+  %size_0 = llvm.mlir.constant(6912 : i64) : i64  // 64*3*3*3*sizeof(float)
+  %index_0 = llvm.mlir.constant(0 : i64) : i64
+  hip.upload_constant(%ctx, %index_0, %data_0, %size_0)
+
+  // Constant 1: bias
+  %data_1 = llvm.mlir.addressof @constant_1 : !llvm.ptr
+  %size_1 = llvm.mlir.constant(256 : i64) : i64
+  %index_1 = llvm.mlir.constant(1 : i64) : i64
+  hip.upload_constant(%ctx, %index_1, %data_1, %size_1)
+
+  // ... repeat for all 200 constants
+
+  %success = llvm.mlir.constant(0 : i32) : i32
+  return %success : i32
+}
+
+// 3. Release all constants
+func.func @release_constants(%ctx: !hip.context) -> i32 {
+  %index_0 = llvm.mlir.constant(0 : i64) : i64
+  hip.release_constant(%ctx, %index_0)
+
+  %index_1 = llvm.mlir.constant(1 : i64) : i64
+  hip.release_constant(%ctx, %index_1)
+
+  // ... repeat for all 200 constants
+
+  %success = llvm.mlir.constant(0 : i32) : i32
+  return %success : i32
+}
+```
+
+### 7. How @main Accesses Constants
+
+**After ONNX→HIP conversion**, `@main` uses `hip.get_constant`:
+
+```mlir
+func.func @main(%ctx: !hip.context,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<1x64x224x224xf32, 1>) -> i32 {
+
+  // Get pre-uploaded constants (already on GPU)
+  %weights = hip.get_constant(%ctx, 0) : (!hip.context, i64) -> memref<64x3x3x3xf32, 1>
+  %bias = hip.get_constant(%ctx, 1) : (!hip.context, i64) -> memref<64xf32, 1>
+
+  // Allocate output buffer
+  %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+
+  // Convolution using pre-uploaded weights
+  hip.conv(%ctx, %input, %weights, %bias, %temp) {...}
+
+  // Copy to output
+  memref.copy %temp, %output
+
+  %success = llvm.mlir.constant(0 : i32) : i32
+  return %success : i32
+}
+```
+
+**Key insight**: Constants are accessed via `hip.get_constant`, NOT passed as function arguments. This keeps the function signature clean regardless of model size.
+
+### 8. Runtime C Interface
 
 **State Structure**:
 ```c
@@ -310,47 +388,19 @@ int inference_release(void* state_ptr) {
 
 ---
 
-## Open Design Questions
+## Resolved Design Questions
 
-### Question 2: How do ONNX functions access constants?
+### Question 2: How do ONNX functions access constants? ✅ RESOLVED
 
-**Context**: After converting `onnx.Constant` operations, how should the generated code in `@main` access the pre-uploaded GPU constants?
+**Decision**: Use `hip.get_constant` operation in HIP dialect.
 
-**Option A: Introduce `hip.load_weight` operation**
-```mlir
-func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
-  %weights = hip.load_weight(%ctx, 0) : (!hip.context, i64) -> memref<64x3x3x3xf32, 1>
-  %bias = hip.load_weight(%ctx, 1) : (!hip.context, i64) -> memref<64xf32, 1>
-  hip.conv(%ctx, %input, %weights, %bias, %temp)
-  ...
-}
-```
+**Rationale**:
+- Maintains clean abstraction: ONNX→HIP stays in HIP dialect
+- Explicit semantics: "get reference to pre-uploaded constant"
+- Flexible lowering: HIP→LLVM can optimize implementation
+- Not ambiguous: clearly retrieves from state, doesn't upload
 
-Then HipToLLVM lowers `hip.load_weight` to:
-```mlir
-// Extract gpu_weights[index] from state
-%gpu_weights_array = extract state->gpu_weights
-%ptr = load gpu_weights_array[index]
-// Build memref descriptor with this pointer
-```
-
-**Option B: Direct LLVM generation**
-```mlir
-// During ONNX→HIP, directly generate LLVM code
-func.func @main(%ctx: !llvm.ptr, %input: ..., %output: ...) -> i32 {
-  // Extract state->gpu_weights[0]
-  %gpu_weights_field = llvm.getelementptr %ctx[0, 3]
-  %gpu_weights_array = llvm.load %gpu_weights_field
-  %weight_ptr_ptr = llvm.getelementptr %gpu_weights_array[0]
-  %weight_ptr = llvm.load %weight_ptr_ptr
-  // Build memref descriptor...
-
-  // Use in convolution
-  hip.conv(%ctx, %input, %weight_memref, %bias_memref, %temp)
-}
-```
-
-**TODO**: Decide which approach to use.
+See Section 7 for usage example.
 
 ### Question 3: How do function calls handle constants?
 
@@ -467,4 +517,4 @@ But this reintroduces constant arguments...
 
 ---
 
-**Document Status**: In Progress - Questions 2 and 3 remain open
+**Document Status**: In Progress - Question 3 remains open
