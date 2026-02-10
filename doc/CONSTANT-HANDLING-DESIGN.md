@@ -144,12 +144,13 @@ hip.release_constant(%ctx, index)
 - Order-independent in pass manager
 - Won't accidentally transform non-ONNX helper functions (e.g., LLVM utility functions)
 - Robust to future additions of utility functions at other dialect levels
+- **Idempotent**: If the pass runs twice by accident, already-transformed functions are skipped (they have `memref` types and HIP operations, not `tensor` types and ONNX operations)
 
 **Identification criteria in `ConvertOnnxToHipPass`**:
 1. Function signature contains `TensorType`
 2. Function body contains ONNX dialect operations
 
-This ensures the pass only transforms ONNX functions, leaving other functions untouched.
+This ensures the pass only transforms ONNX functions, leaving other functions untouched. After transformation, functions have `memref` types and HIP dialect operations, so they won't match the criteria on subsequent runs.
 
 ---
 
