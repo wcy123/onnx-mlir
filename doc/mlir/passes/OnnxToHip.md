@@ -24,8 +24,10 @@ The OnnxToHip pass transforms ONNX operations into HIP dialect operations. This 
 ```mlir
 module {
   func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32> {
-    %weights = arith.constant dense<[...]> : tensor<64x3x3x3xf32>
-    %bias = arith.constant dense<[...]> : tensor<64xf32>
+    %weights = "onnx.Constant"() {value = dense<[...]> : tensor<64x3x3x3xf32>}
+      : () -> tensor<64x3x3x3xf32>
+    %bias = "onnx.Constant"() {value = dense<[...]> : tensor<64xf32>}
+      : () -> tensor<64xf32>
 
     %0 = "onnx.Conv"(%arg0, %weights, %bias) {
       kernel_shape = [3, 3],
@@ -46,7 +48,7 @@ module {
 **Characteristics:**
 - High-level ONNX operations
 - Tensor types
-- Constants inlined with `arith.constant`
+- Constants as `onnx.Constant` operations
 - Return value semantics
 
 ---
@@ -159,7 +161,8 @@ module attributes {
 
 **Before:**
 ```mlir
-%weights = arith.constant dense<[...]> : tensor<64x3x3x3xf32>
+%weights = "onnx.Constant"() {value = dense<[...]> : tensor<64x3x3x3xf32>}
+  : () -> tensor<64x3x3x3xf32>
 ```
 
 **After:**
