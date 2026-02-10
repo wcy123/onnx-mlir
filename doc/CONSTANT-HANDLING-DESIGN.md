@@ -135,19 +135,21 @@ hip.release_constant(%ctx, index)
 - Standard C ABI enables simple dlsym resolution
 - Separation of concerns: compiler generates, runtime invokes
 
-### Decision 7: ONNX Function Identification
+### Decision 7: ONNX Function Identification (in ONNX→HIP Pass)
 
-**Choice**: Process only functions with tensor types + ONNX dialect operations.
+**Choice**: The ONNX→HIP pass processes only functions with tensor types + ONNX dialect operations.
 
 **Rationale**:
-- Pass can coexist with other MLIR passes in pipeline
+- ONNX→HIP pass can coexist with other MLIR passes in pipeline
 - Order-independent in pass manager
-- Won't accidentally transform non-ONNX helper functions
-- Robust to future additions of utility functions
+- Won't accidentally transform non-ONNX helper functions (e.g., LLVM utility functions)
+- Robust to future additions of utility functions at other dialect levels
 
-**Identification criteria**:
+**Identification criteria in `ConvertOnnxToHipPass`**:
 1. Function signature contains `TensorType`
 2. Function body contains ONNX dialect operations
+
+This ensures the pass only transforms ONNX functions, leaving other functions untouched.
 
 ---
 
