@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document defines the architecture for handling ONNX model constants (weights, biases, embeddings) in the MLIR-based compilation pipeline for the HipDNN Execution Provider. The design eliminates the naive approach of passing 200+ constant arguments through function signatures by introducing a state-based constant management system with pre-compiled initialization code.
+This document defines the architecture for handling ONNX model constants (weights, biases, embeddings) in the MLIR-based compilation pipeline for the HipDNN Execution Provider.
 
 **Key innovation**: Constants are embedded in the compiled DLL as LLVM globals, uploaded to GPU once during initialization, and accessed through a state structure—achieving clean function signatures while maintaining optimal performance.
 
@@ -24,22 +24,11 @@ Deep learning models (e.g., ResNet50) contain hundreds of constant tensors:
 
 In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
 
-**Challenge**: How do we transform these constants during ONNX→HIP conversion without creating unmaintainable function signatures?
-
-**Naive approach failure**:
-```mlir
-// Treating constants as function arguments creates:
-func.func @main(%ctx: !hip.context, %input: memref<...>,
-                %w0: memref<...>, %b0: memref<...>, %w1: memref<...>,
-                // ... 196 more constant parameters ...
-                %output: memref<...>) -> i32
-```
-
-Problems:
-- ❌ 200+ function arguments (unmaintainable)
-- ❌ Calling convention overhead
-- ❌ Doesn't match execution model (constants loaded once, used repeatedly)
-- ❌ Doesn't scale to larger models
+**Requirements**:
+- Clean function signatures that scale regardless of model size
+- Efficient constant management (load once, use many times)
+- Type-safe constant access
+- Single-artifact deployment
 
 ---
 
