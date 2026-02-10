@@ -49,11 +49,11 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 
 **@main_graph signature at this stage:**
 ```mlir
-// Multiple inputs, single output
-func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x3x3xf32>)
-  -> tensor<1x64x224x224xf32>
+// General form: N inputs, M outputs
+func.func @main_graph(%arg0: tensor<...>, %arg1: tensor<...>, ..., %argN: tensor<...>)
+  -> (tensor<...>, tensor<...>, ..., tensor<...>)
 
-// Multiple inputs, multiple outputs
+// Example: 2 inputs, 2 outputs
 func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
   -> (tensor<1x1000xf32>, tensor<1x10xf32>)
 ```
@@ -76,13 +76,13 @@ func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
 
 **@main signature at this stage:**
 ```mlir
-// Single input, single output (simplified example)
-func.func @main(%ctx: !hip.context,           // NEW: context parameter
-                %input: memref<1x3x224x224xf32>,
-                %output: memref<1x64x224x224xf32>)  // NEW: output parameter
-                -> i32                         // NEW: status return
+// General form: context + N inputs + M outputs → status
+func.func @main(%ctx: !hip.context,
+                %input0: memref<...>, %input1: memref<...>, ..., %inputN: memref<...>,
+                %output0: memref<...>, %output1: memref<...>, ..., %outputM: memref<...>)
+                -> i32
 
-// Multiple inputs, multiple outputs
+// Example: 2 inputs, 2 outputs (dynamic shapes)
 func.func @main(%ctx: !hip.context,
                 %input0: memref<?x?x?x?xf32>,
                 %input1: memref<?x?xf32>,
@@ -93,10 +93,10 @@ func.func @main(%ctx: !hip.context,
 **Module-level changes:**
 ```mlir
 module attributes {
-  hipdnn.input_count = 1 : i64,              // NEW: metadata for validation
-  hipdnn.input_ranks = dense<[4]> : tensor<1xi64>,  // Input 0 is rank 4
-  hipdnn.output_count = 1 : i64,
-  hipdnn.output_ranks = dense<[2]> : tensor<1xi64>  // Output 0 is rank 2
+  hipdnn.input_count = 2 : i64,              // N inputs
+  hipdnn.input_ranks = dense<[4, 2]> : tensor<2xi64>,  // ranks for each input
+  hipdnn.output_count = 2 : i64,             // M outputs
+  hipdnn.output_ranks = dense<[2, 1]> : tensor<2xi64>  // ranks for each output
 } {
   llvm.mlir.global constant @constant_0 ...   // NEW: extracted constants
   func.func @main(...) { ... }
@@ -127,12 +127,12 @@ module attributes {
 **@main signature at this stage:**
 ```mlir
 llvm.func @main(%context: !llvm.ptr,          // Context lowered to pointer
-                %inputs: !llvm.ptr,           // NEW: Array of input memref structs
-                %outputs: !llvm.ptr)          // NEW: Array of output memref structs
+                %inputs: !llvm.ptr,           // Array of N input memref structs
+                %outputs: !llvm.ptr)          // Array of M output memref structs
                 -> i32
 
-// Note: Supports arbitrary number of inputs/outputs via arrays
-// The number is determined by module metadata attributes
+// Unified signature for any number of inputs/outputs
+// N and M determined by module metadata (hipdnn.input_count, hipdnn.output_count)
 ```
 
 **Critical transformation - wrapper generation:**
