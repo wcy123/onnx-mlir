@@ -1,15 +1,13 @@
 # MLIR-Based AOT Compilation for AMD ROCm
-## Live Demo: ONNX → Native GPU Code
+## Technical Demo: ONNX → Native GPU Code
 
-**Problem**: Traditional ONNX Runtime execution providers have slow startup (100-500ms JIT compilation) and large runtime dependencies (50-200MB LLVM libraries).
+**What**: MLIR-based ahead-of-time (AOT) compilation pipeline that transforms ONNX models to native GPU code for AMD ROCm.
 
-**Solution**: Ahead-of-time (AOT) compilation via MLIR to native DLL, stored in ONNX EPContext. Fast startup (~1-10ms), lightweight runtime, zero JIT overhead.
-
-**Pipeline**: `ONNX → ONNX-MLIR → HIP Dialect → LLVM IR → Native DLL`
+**Pipeline**: `ONNX → ONNX-MLIR → HIP Dialect → LLVM IR → Native DLL → EPContext`
 
 ---
 
-## Live Demo: Two-Layer Convolution with Constants
+## Demo: Two-Layer Convolution with Constant Weights
 
 ### Input: ONNX Model
 
@@ -148,13 +146,64 @@ module {
 }
 ```
 
-### After `--convert-hip-to-llvm` → Native DLL
+### After `--convert-hip-to-llvm`
 
-Further lowering produces pure LLVM dialect, which compiles to native DLL with:
-- **Embedded constant data** in .data section (~155 KB for this example)
-- **3 entry functions**: `inference_init()`, `inference_compute()`, `inference_cleanup()`
-- **3 helper functions**: `get_constant_count()`, `initialize_constants()`, `release_constants()`
-- **MIOpen runtime calls** for GPU execution
+**Command**: `hip-opt test_constants.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
+
+Pure LLVM dialect output (key sections):
+
+```mlir
+module {
+  // Runtime function declarations
+  llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, ...) -> i32
+  llvm.func @hipMalloc(i64) -> !llvm.ptr
+
+  // Main function signature: memrefs unpacked to LLVM struct fields
+  llvm.func @main(
+    %arg0: !llvm.ptr,                    // context
+    %arg1: !llvm.ptr<1>, %arg2: !llvm.ptr<1>, %arg3: i64,  // input memref fields
+    %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64,        // input.sizes[4]
+    %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64,      // input.strides[4]
+    // ... weights, bias, output memref fields ...
+  ) -> i32 {
+
+    // Reconstruct memref descriptors from parameters
+    %0 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %1 = llvm.insertvalue %arg1, %0[0] : ...
+    // ... (build all memref descriptors)
+
+    // hip.alloc → hipMalloc + descriptor construction
+    %52 = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
+    %54 = llvm.addrspacecast %53 : !llvm.ptr to !llvm.ptr<1>
+    // ... (build memref descriptor for allocated buffer)
+
+    // hip.conv → miopenConvolutionForward with extracted pointers
+    %68 = llvm.extractvalue %descriptor[1] : ...  // Extract aligned_ptr from input
+    %69 = llvm.addrspacecast %68 : !llvm.ptr<1> to !llvm.ptr
+    // ... (extract weights, bias, output pointers)
+    %87 = llvm.call @miopenConvolutionForward(
+      %arg0, %input_ptr, %weights_ptr, %bias_ptr, %output_ptr,
+      %kernel_h, %kernel_w, %stride_h, %stride_w,
+      %pad_top, %pad_left, %pad_bottom, %pad_right,
+      %dilation_h, %dilation_w, %group
+    ) : (!llvm.ptr, !llvm.ptr, ...) -> i32
+
+    // memref.copy → llvm.intr.memcpy
+    "llvm.intr.memcpy"(%dest_ptr, %src_ptr, %size)
+      <{isVolatile = false}> : (!llvm.ptr<1>, !llvm.ptr<1>, i64) -> ()
+
+    // Return success
+    %107 = llvm.mlir.constant(0 : i32) : i32
+    llvm.return %107 : i32
+  }
+}
+```
+
+**Ready for compilation**:
+- Pure LLVM dialect (no HIP, memref, or arith operations)
+- Calls to MIOpen runtime functions
+- Can be translated to LLVM IR via `mlir-translate --mlir-to-llvmir`
+- LLVM IR compiles to native DLL
 
 ---
 
@@ -177,10 +226,10 @@ Further lowering produces pure LLVM dialect, which compiles to native DLL with:
 - Functions: Outputs as arguments, return i32 status code
 - Matches GPU library APIs (MIOpen, hipBLAS) directly
 
-### 4. **Zero JIT Overhead**
+### 4. **AOT Compilation**
 - EPContext stores pre-compiled native DLL
-- Load time: ~1-10ms (vs 100-500ms for JIT)
-- Runtime dependencies: ~5 MB (vs 50-200 MB with LLVM)
+- No LLVM/MLIR dependencies at runtime
+- Compiled code loaded from memory (MemoryModule)
 
 ### 5. **Type Safety**
 - ONNX-MLIR provides typed operations (`ONNXConvOp`, not string matching)
@@ -235,17 +284,6 @@ Further lowering produces pure LLVM dialect, which compiles to native DLL with:
 
 ---
 
-## Performance Benefits
-
-| Metric | Traditional | MLIR AOT | Improvement |
-|--------|-------------|----------|-------------|
-| **Startup time** | 100-500ms | 1-10ms | **10-50x faster** |
-| **Runtime size** | 50-200 MB | ~5 MB | **10-40x smaller** |
-| **Constant overhead** | Upload each inference | Upload once | **Eliminated** |
-| **Inference latency** | Baseline | Same | No regression |
-
----
-
 ## For More Details
 
 **Architecture & Design**:
@@ -254,31 +292,39 @@ Further lowering produces pure LLVM dialect, which compiles to native DLL with:
 - [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - State structure, lifecycle, naming conventions
 - [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Full constant handling design, all 6 phases
 
-**Testing**:
-- [test_constants.mlir](../tools/hip-opt/test_constants.mlir) - This demo's input file
-- [test_conv_inplace.mlir](../tools/hip-opt/test_conv_inplace.mlir) - Basic convolution test
+---
+
+## Try It Yourself
+
+```bash
+# Build the compiler
+cd /path/to/onnx-hipdnn-ep
+cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON
+cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
+
+# Run ONNX → HIP transformation
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
+  tools/hip-opt/test_constants.mlir \
+  --convert-onnx-to-hip
+
+# Run full pipeline: ONNX → HIP → LLVM
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
+  tools/hip-opt/test_constants.mlir \
+  --convert-onnx-to-hip \
+  --convert-hip-to-llvm
+```
 
 ---
 
 ## Current Status (2026-02-10)
 
-✅ **Working**:
+✅ **Implemented**:
 - ONNX → HIP conversion with pattern-based lowering
 - HIP → LLVM lowering with runtime calls
-- Constant handling (all 6 phases implemented)
+- Constant handling (all 6 phases)
 - Two-layer convolution demo
 
-📋 **Next Steps**:
-- Runtime wrapper implementation (miopenConvolutionForward)
-- End-to-end integration test
-- Full ResNet50 support
-
----
-
-**Test it yourself**:
-```bash
-# From project root
-../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
-  tools/hip-opt/test_constants.mlir \
-  --convert-onnx-to-hip
-```
+📋 **Next**:
+- Runtime wrapper (miopenConvolutionForward)
+- End-to-end integration
+- ResNet50 support
