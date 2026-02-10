@@ -14,11 +14,10 @@ This document provides a high-level overview of how ONNX models are compiled thr
 
 ## Key Design Decisions
 
-1. **Inline lowering**: Each ONNX operation is lowered inline (no function-per-node)
-2. **Explicit state passing**: State is passed as function parameter (no thread-local globals)
-3. **Constants in DLL**: Weights embedded in `.data` section, uploaded to GPU in `init`
-4. **Direct C interface mapping**: MLIR function signatures match C interface exactly
-5. **Dynamic shapes from Day 1**: Rank is compile-time, dimension values are runtime
+1. **Explicit state passing**: State is passed as function parameter (no thread-local globals)
+2. **Constants in DLL**: Weights embedded in `.data` section, uploaded to GPU in `init`
+3. **Direct C interface mapping**: MLIR function signatures match C interface exactly
+4. **Dynamic shapes from Day 1**: Rank is compile-time, dimension values are runtime
 
 ---
 
