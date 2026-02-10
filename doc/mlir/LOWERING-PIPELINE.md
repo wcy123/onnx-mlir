@@ -45,10 +45,17 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 - Tensor types with compile-time shapes
 - Constants as `onnx.Constant` operations
 - Functional style: return values
+- Supports multiple inputs and outputs
 
-**@main signature at this stage:**
+**@main_graph signature at this stage:**
 ```mlir
-func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32>
+// Multiple inputs, single output
+func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x3x3xf32>)
+  -> tensor<1x64x224x224xf32>
+
+// Multiple inputs, multiple outputs
+func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
+  -> (tensor<1x1000xf32>, tensor<1x10xf32>)
 ```
 
 ---
@@ -67,10 +74,18 @@ func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x224x224xf32>
 
 **@main signature at this stage:**
 ```mlir
+// Single input, single output (simplified example)
 func.func @main(%ctx: !hip.context,           // NEW: context parameter
                 %input: memref<1x3x224x224xf32>,
                 %output: memref<1x64x224x224xf32>)  // NEW: output parameter
                 -> i32                         // NEW: status return
+
+// Multiple inputs, multiple outputs
+func.func @main(%ctx: !hip.context,
+                %input0: memref<?x?x?x?xf32>,
+                %input1: memref<?x?xf32>,
+                %output0: memref<?x?xf32>,
+                %output1: memref<?xf32>) -> i32
 ```
 
 **Module-level changes:**
@@ -103,9 +118,12 @@ module attributes {
 **@main signature at this stage:**
 ```mlir
 llvm.func @main(%context: !llvm.ptr,          // Context lowered to pointer
-                %inputs: !llvm.ptr,           // NEW: Array of memref structs
-                %outputs: !llvm.ptr)          // NEW: Array of memref structs
+                %inputs: !llvm.ptr,           // NEW: Array of input memref structs
+                %outputs: !llvm.ptr)          // NEW: Array of output memref structs
                 -> i32
+
+// Note: Supports arbitrary number of inputs/outputs via arrays
+// The number is determined by module metadata attributes
 ```
 
 **Critical transformation - wrapper generation:**
@@ -182,11 +200,12 @@ int32_t inference_cleanup(void* state);
 | **Operations** | `onnx.Conv` | `hip.conv` | `llvm.call @hip_conv_wrapper` | MIOpen calls |
 | **Types** | `tensor<...>` | `memref<...>` | `!llvm.struct<...>` | C pointers |
 | **Constants** | `onnx.Constant` | `llvm.mlir.global` | `.data` section | GPU memory |
-| **@main params** | 1 input tensor | context, input, output memref | context, input/output arrays | — |
-| **@main return** | tensor | `i32` status | `i32` status | — |
+| **@main params** | N input tensors | context, N inputs, M outputs | context, input array, output array | — |
+| **@main return** | M output tensors | `i32` status | `i32` status | — |
+| **I/O structure** | Function params/returns | Separate memref params | Array parameters | `span_t*` arrays |
 | **Interface** | — | — | 3 LLVM functions | 3 C exports |
 | **Context** | None | `!hip.context` | `!llvm.ptr` | `void*` |
-| **Dynamic shapes** | Compile-time | Compile-time | Runtime extraction | Runtime |
+| **Dynamic shapes** | Compile-time rank | Compile-time rank | Runtime extraction | Runtime |
 
 ---
 
