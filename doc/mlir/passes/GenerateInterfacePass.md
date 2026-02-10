@@ -84,11 +84,99 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32
 - `initialize_constants(context)`: Expects context with handles created and gpu_constants allocated
 - `release_constants(context)`: Frees GPU constant memory
 
+### Prerequisite 4: Interface Functions Must NOT Exist
+
+**CRITICAL: The pass must fail if interface functions already exist.**
+
+The following functions must NOT be present in the module:
+- `inference_init`
+- `inference_compute`
+- `inference_cleanup`
+
+**Why?** These are the OUTPUT of this pass. If they already exist:
+- The pass has already run (accidental double-run)
+- Another pass/tool generated them (naming conflict)
+- Attempting to generate them again would cause duplicate symbol errors
+
+**What to do:** The pass should check for these symbols in `verifyPrerequisites()` and fail if found.
+
 See [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) for complete prerequisite details.
 
 ---
 
-## Generated Code
+## Generated Code Overview
+
+GenerateInterfacePass generates three C-compatible functions that form the public interface of the compiled DLL. These functions manage the complete lifecycle of GPU inference execution.
+
+### High-Level Function Roles
+
+**1. `inference_init` - One-Time Setup**
+
+Creates and initializes all GPU resources needed for inference:
+- Allocates an opaque state structure (the "context")
+- Creates GPU handles (stream, MIOpen, hipBLAS)
+- Uploads model constants (weights, biases) to GPU memory
+- Stores GPU constant pointers in the state structure
+- Returns the state pointer to the caller
+
+**Purpose:** Do all expensive initialization work once, so subsequent inference calls are fast.
+
+**Analogy:** Like loading a program into memory and initializing it - done once at startup.
+
+---
+
+**2. `inference_compute` - The Fast Path**
+
+Executes the actual inference using pre-initialized resources:
+- Receives input/output tensors from caller (via `span_t` structures)
+- Validates tensor counts and ranks match model expectations
+- Loads runtime dimension values from `tensor_t.shape` pointers
+- Builds MLIR memref descriptors with runtime dimensions
+- Calls the internal `@main` function to perform GPU computation
+- Returns status code (0 = success)
+
+**Purpose:** Fast execution path - all resources already created, just run the model.
+
+**Analogy:** Like calling an already-loaded function - minimal overhead, maximum speed.
+
+**Critical feature:** Supports dynamic shapes - dimension values are loaded at runtime from the caller's tensor metadata.
+
+---
+
+**3. `inference_cleanup` - Teardown**
+
+Releases all GPU resources created by `inference_init`:
+- Calls `release_constants` to free GPU memory for weights/biases
+- Destroys GPU handles (hipBLAS, MIOpen, stream) in reverse order
+- Frees the gpu_constants array
+- Frees the state structure itself
+- State pointer becomes invalid after this call
+
+**Purpose:** Clean shutdown - prevent GPU memory leaks.
+
+**Analogy:** Like shutting down a program - release all resources back to the OS.
+
+---
+
+### Usage Pattern
+
+```c
+// Once at startup
+void* state;
+inference_init(&state);
+
+// Many times (hot path)
+for (int i = 0; i < num_requests; i++) {
+  inference_compute(state, inputs, outputs);
+}
+
+// Once at shutdown
+inference_cleanup(state);
+```
+
+---
+
+## Detailed MLIR Implementations
 
 ### Function 1: inference_init
 
@@ -100,82 +188,219 @@ int inference_init(void** out_state);
 **MLIR Implementation:**
 ```mlir
 llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32 {
-  // 1. Allocate context
-  %context_size = llvm.mlir.constant(32 : i64) : i64
+  // Define constants used throughout function
+  %c0_i32 = llvm.mlir.constant(0 : i32) : i32
+  %c1_i64 = llvm.mlir.constant(1 : i64) : i64
+  %null = llvm.mlir.zero : !llvm.ptr
+
+  // ============================================================================
+  // Step 1: Allocate context struct on heap
+  // ============================================================================
+  %context_size = llvm.mlir.constant(32 : i64) : i64  // 4 pointers × 8 bytes = 32
   %context = llvm.call @malloc(%context_size) : (i64) -> !llvm.ptr
+
+  // Check if allocation failed (malloc returns NULL on failure)
   %is_null = llvm.icmp "eq" %context, %null : !llvm.ptr
   llvm.cond_br %is_null, ^error_alloc, ^cont1
 
 ^cont1:
-  // 2. Create stream
-  %stream_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
+  // ============================================================================
+  // Step 2: Create HIP stream for asynchronous GPU operations
+  // ============================================================================
+  %stream_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr  // Stack allocate pointer to receive handle
   %stream_ret = llvm.call @hipStreamCreate(%stream_ptr) : (!llvm.ptr) -> i32
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0 : i32
+
+  // Check if stream creation failed (returns non-zero on error)
+  %stream_failed = llvm.icmp "ne" %stream_ret, %c0_i32 : i32
   llvm.cond_br %stream_failed, ^error_stream, ^cont2
 
 ^cont2:
+  // Stream created successfully - load it and store in context.stream (field 0)
   %stream = llvm.load %stream_ptr : !llvm.ptr
   %stream_field = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %stream, %stream_field : !llvm.ptr
 
-  // 3. Create MIOpen handle
-  %miopen_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  llvm.call @miopenCreate(%miopen_ptr) : (!llvm.ptr) -> i32
+  // ============================================================================
+  // Step 3: Create MIOpen handle for DNN operations
+  // ============================================================================
+  %miopen_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+  %miopen_ret = llvm.call @miopenCreate(%miopen_ptr) : (!llvm.ptr) -> i32
+
+  // Check if MIOpen handle creation failed
+  %miopen_failed = llvm.icmp "ne" %miopen_ret, %c0_i32 : i32
+  llvm.cond_br %miopen_failed, ^error_miopen, ^cont3
+
+^cont3:
+  // Load MIOpen handle and associate it with our stream
   %miopen = llvm.load %miopen_ptr : !llvm.ptr
-  llvm.call @miopenSetStream(%miopen, %stream) : (!llvm.ptr, !llvm.ptr) -> i32
+  %setstream_ret = llvm.call @miopenSetStream(%miopen, %stream) : (!llvm.ptr, !llvm.ptr) -> i32
+
+  // Check if stream association failed
+  %setstream_failed = llvm.icmp "ne" %setstream_ret, %c0_i32 : i32
+  llvm.cond_br %setstream_failed, ^error_miopen_stream, ^cont4
+
+^cont4:
+  // Store MIOpen handle in context.miopenHandle (field 1)
   %miopen_field = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %miopen, %miopen_field : !llvm.ptr
 
-  // 4. Create hipBLAS handle
-  %hipblas_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  llvm.call @hipblasLtCreate(%hipblas_ptr) : (!llvm.ptr) -> i32
+  // ============================================================================
+  // Step 4: Create hipBLASLt handle for matrix operations
+  // ============================================================================
+  %hipblas_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+  %hipblas_ret = llvm.call @hipblasLtCreate(%hipblas_ptr) : (!llvm.ptr) -> i32
+
+  // Check if hipBLAS handle creation failed
+  %hipblas_failed = llvm.icmp "ne" %hipblas_ret, %c0_i32 : i32
+  llvm.cond_br %hipblas_failed, ^error_hipblas, ^cont5
+
+^cont5:
+  // Store hipBLAS handle in context.hipblasHandle (field 2)
   %hipblas = llvm.load %hipblas_ptr : !llvm.ptr
   %hipblas_field = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %hipblas, %hipblas_field : !llvm.ptr
 
-  // 5. Allocate gpu_constants array
+  // ============================================================================
+  // Step 5: Allocate array to hold GPU constant pointers
+  // ============================================================================
   %count = llvm.call @get_constant_count() : () -> i64
   %ptr_size = llvm.mlir.constant(8 : i64) : i64
-  %array_size = llvm.mul %count, %ptr_size : i64
+  %array_size = llvm.mul %count, %ptr_size : i64  // count × sizeof(void*)
   %gpu_constants = llvm.call @malloc(%array_size) : (i64) -> !llvm.ptr
+
+  // Check if allocation failed
+  %constants_null = llvm.icmp "eq" %gpu_constants, %null : !llvm.ptr
+  llvm.cond_br %constants_null, ^error_constants_alloc, ^cont6
+
+^cont6:
+  // Store gpu_constants array pointer in context.gpu_constants (field 3)
   %gpu_constants_field = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %gpu_constants, %gpu_constants_field : !llvm.ptr
 
-  // 6. Initialize constants
+  // ============================================================================
+  // Step 6: Upload constants to GPU and populate gpu_constants array
+  // ============================================================================
   %init_ret = llvm.call @initialize_constants(%context) : (!llvm.ptr) -> i32
-  %init_failed = llvm.icmp "ne" %init_ret, %c0 : i32
+
+  // Check if constant initialization failed
+  %init_failed = llvm.icmp "ne" %init_ret, %c0_i32 : i32
   llvm.cond_br %init_failed, ^error_init, ^success
 
+// ==============================================================================
+// SUCCESS PATH: Return context pointer to caller
+// ==============================================================================
 ^success:
   llvm.store %context, %out_state : !llvm.ptr
-  llvm.return %c0 : i32
+  llvm.return %c0_i32 : i32
+
+// ==============================================================================
+// ERROR PATHS: Clean up what was created, then return error code
+// ==============================================================================
 
 ^error_init:
-  // Cleanup: destroy handles, free context
-  llvm.call @hipblasLtDestroy(%hipblas)
-  llvm.call @miopenDestroy(%miopen)
-  llvm.call @hipStreamDestroy(%stream)
-  llvm.call @free(%gpu_constants)
-  llvm.call @free(%context)
-  %c3 = llvm.mlir.constant(3 : i32) : i32
-  llvm.return %c3 : i32
+  // initialize_constants failed - need to destroy ALL handles and free everything
+  // NOTE: initialize_constants cleans up its own partial work, so we don't
+  // need to call release_constants
+
+  // Load handles from context struct (they were stored successfully)
+  %hipblas_ptr_err = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
+  %hipblas_err = llvm.load %hipblas_ptr_err : !llvm.ptr
+  llvm.call @hipblasLtDestroy(%hipblas_err) : (!llvm.ptr) -> i32
+
+  %miopen_ptr_err = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
+  %miopen_err = llvm.load %miopen_ptr_err : !llvm.ptr
+  llvm.call @miopenDestroy(%miopen_err) : (!llvm.ptr) -> i32
+
+  %stream_ptr_err = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %stream_err = llvm.load %stream_ptr_err : !llvm.ptr
+  llvm.call @hipStreamDestroy(%stream_err) : (!llvm.ptr) -> i32
+
+  // Free gpu_constants array (was allocated successfully)
+  %gpu_constants_ptr_err = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
+  %gpu_constants_err = llvm.load %gpu_constants_ptr_err : !llvm.ptr
+  llvm.call @free(%gpu_constants_err) : (!llvm.ptr) -> ()
+
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c3_i32 = llvm.mlir.constant(3 : i32) : i32
+  llvm.return %c3_i32 : i32
+
+^error_constants_alloc:
+  // gpu_constants allocation failed - destroy all handles, free context
+  %hipblas_ptr_ca = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
+  %hipblas_ca = llvm.load %hipblas_ptr_ca : !llvm.ptr
+  llvm.call @hipblasLtDestroy(%hipblas_ca) : (!llvm.ptr) -> i32
+
+  %miopen_ptr_ca = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
+  %miopen_ca = llvm.load %miopen_ptr_ca : !llvm.ptr
+  llvm.call @miopenDestroy(%miopen_ca) : (!llvm.ptr) -> i32
+
+  %stream_ptr_ca = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %stream_ca = llvm.load %stream_ptr_ca : !llvm.ptr
+  llvm.call @hipStreamDestroy(%stream_ca) : (!llvm.ptr) -> i32
+
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c4_i32 = llvm.mlir.constant(4 : i32) : i32
+  llvm.return %c4_i32 : i32
+
+^error_hipblas:
+  // hipBLAS creation failed - destroy MIOpen handle and stream, free context
+  %miopen_ptr_hb = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
+  %miopen_hb = llvm.load %miopen_ptr_hb : !llvm.ptr
+  llvm.call @miopenDestroy(%miopen_hb) : (!llvm.ptr) -> i32
+
+  %stream_ptr_hb = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %stream_hb = llvm.load %stream_ptr_hb : !llvm.ptr
+  llvm.call @hipStreamDestroy(%stream_hb) : (!llvm.ptr) -> i32
+
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c5_i32 = llvm.mlir.constant(5 : i32) : i32
+  llvm.return %c5_i32 : i32
+
+^error_miopen_stream:
+  // miopenSetStream failed - destroy MIOpen handle, destroy stream, free context
+  // Note: %miopen is in scope (loaded before setStream call)
+  llvm.call @miopenDestroy(%miopen) : (!llvm.ptr) -> i32
+
+  %stream_ptr_ms = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %stream_ms = llvm.load %stream_ptr_ms : !llvm.ptr
+  llvm.call @hipStreamDestroy(%stream_ms) : (!llvm.ptr) -> i32
+
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c6_i32 = llvm.mlir.constant(6 : i32) : i32
+  llvm.return %c6_i32 : i32
+
+^error_miopen:
+  // miopenCreate failed - destroy stream, free context
+  %stream_ptr_m = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %stream_m = llvm.load %stream_ptr_m : !llvm.ptr
+  llvm.call @hipStreamDestroy(%stream_m) : (!llvm.ptr) -> i32
+
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c7_i32 = llvm.mlir.constant(7 : i32) : i32
+  llvm.return %c7_i32 : i32
 
 ^error_stream:
-  llvm.call @free(%context)
-  %c2 = llvm.mlir.constant(2 : i32) : i32
-  llvm.return %c2 : i32
+  // Stream creation failed - only need to free context
+  llvm.call @free(%context) : (!llvm.ptr) -> ()
+  %c2_i32 = llvm.mlir.constant(2 : i32) : i32
+  llvm.return %c2_i32 : i32
 
 ^error_alloc:
-  %c1 = llvm.mlir.constant(1 : i32) : i32
-  llvm.return %c1 : i32
+  // Context allocation failed - nothing to clean up
+  %c1_i32 = llvm.mlir.constant(1 : i32) : i32
+  llvm.return %c1_i32 : i32
 }
 ```
 
 **Error codes:**
 - 0: Success
-- 1: Context allocation failed
-- 2: Handle creation failed
-- 3: Constant initialization failed
+- 1: Context allocation failed (malloc returned NULL)
+- 2: Stream creation failed (hipStreamCreate failed)
+- 3: Constant initialization failed (initialize_constants failed)
+- 4: GPU constants array allocation failed
+- 5: hipBLAS handle creation failed
+- 6: MIOpen stream association failed (miopenSetStream failed)
+- 7: MIOpen handle creation failed (miopenCreate failed)
 
 ### Function 2: inference_compute
 
@@ -378,6 +603,11 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count")) return false;
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants")) return false;
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants")) return false;
+
+    // Check interface functions DON'T exist (prevent double-run)
+    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_init")) return false;
+    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_compute")) return false;
+    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_cleanup")) return false;
 
     return true;
   }
