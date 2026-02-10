@@ -147,7 +147,7 @@ struct HipExecutionState {
     hipblasLtHandle_t hipblasHandle;
 
     // Field 3: Pre-uploaded constant pointers
-    void** gpu_weights;  // Array of GPU pointers (size known at compile time)
+    void** gpu_constants;  // Array of GPU pointers (size known at compile time)
 
     // Future fields:
     // - Descriptor cache
@@ -173,7 +173,7 @@ struct HipExecutionState {
   ptr,              // hip_stream
   ptr,              // miopen_handle
   ptr,              // hipblas_handle
-  array<N x ptr>    // gpu_weights (N = constant count)
+  array<N x ptr>    // gpu_constants (N = constant count)
 )>
 ```
 
@@ -192,7 +192,7 @@ struct HipExecutionState {
 
 **Accessing constant GPU pointers:**
 ```mlir
-// Get first constant (gpu_weights[0])
+// Get first constant (gpu_constants[0])
 %weights_array = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
 %weight_0_ptr = llvm.getelementptr %weights_array[0] : (!llvm.ptr) -> !llvm.ptr
 %weight_0_gpu = llvm.load %weight_0_ptr : !llvm.ptr
@@ -382,7 +382,7 @@ The state structure contains pointers to pre-uploaded constants (weights, biases
 **Summary**:
 - Constants embedded in DLL as `llvm.mlir.global`
 - Uploaded to GPU in `inference_init`
-- GPU pointers stored in `state->gpu_weights[]`
+- GPU pointers stored in `state->gpu_constants[]`
 - Accessed in `inference_compute` via state
 - Freed in `inference_cleanup`
 

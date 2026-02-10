@@ -51,7 +51,7 @@ struct HipExecutionState {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
     hipblasLtHandle_t hipblasHandle;
-    void** gpu_weights;  // Array of pre-uploaded constant pointers
+    void** gpu_constants;  // Array of pre-uploaded constant pointers
 };
 ```
 
@@ -92,7 +92,7 @@ Module-level pass provides full visibility and control over all functions.
 
 **Rationale**:
 - Simple, deterministic, reproducible
-- Direct array indexing in `state->gpu_weights[]`
+- Direct array indexing in `state->gpu_constants[]`
 - No hash collisions or lookup overhead
 - Easy to debug (indices match discovery order)
 
@@ -173,7 +173,7 @@ LLVM dialect with HIP runtime calls
 Compiled DLL with:
   - Embedded constant data (LLVM globals)
   - Initialization functions
-  - Inference function using gpu_weights[]
+  - Inference function using gpu_constants[]
 ```
 
 ### Runtime Initialization
@@ -185,13 +185,13 @@ initialize_constants_fn = dlsym(dll, "initialize_constants");
 
 // 2. Create state structure
 State* state = new State();
-state->gpu_weights = new void*[get_constant_count()];
+state->gpu_constants = new void*[get_constant_count()];
 
 // 3. Upload all constants to GPU (once)
 initialize_constants(state);  // Generated code: hipMalloc + hipMemcpy for each
 
 // 4. State is ready for inference
-// @main(%ctx, input, output) uses gpu_weights[] internally
+// @main(%ctx, input, output) uses gpu_constants[] internally
 ```
 
 ### Inference Execution
@@ -357,7 +357,7 @@ bool isOnnxFunction(func::FuncOp funcOp) {
 
 ```cpp
 struct ConstantInfo {
-  size_t globalIndex;      // Index in state->gpu_weights[]
+  size_t globalIndex;      // Index in state->gpu_constants[]
   ElementsAttr value;      // The dense<...> constant data
   Type type;               // tensor<64x3x3x3xf32>
   size_t sizeInBytes;      // For allocation/transfer
@@ -458,7 +458,7 @@ struct HipExecutionState {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
     hipblasLtHandle_t hipblasHandle;
-    void** gpu_weights;  // Array of GPU pointers
+    void** gpu_constants;  // Array of GPU pointers
 };
 
 // Generated functions (called by runtime)
@@ -472,7 +472,7 @@ int inference_init(void** out_state) {
     HipExecutionState* state = new HipExecutionState();
 
     // Allocate constant pointer array
-    state->gpu_weights = new void*[get_constant_count()];
+    state->gpu_constants = new void*[get_constant_count()];
 
     // Upload constants to GPU
     initialize_constants(state);
