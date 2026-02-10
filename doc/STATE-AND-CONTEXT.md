@@ -149,16 +149,21 @@ struct HipExecutionState {
     // Field 3: Pre-uploaded constant pointers
     void** gpu_constants;  // Array of GPU pointers (size known at compile time)
 
-    // Extensible: Can add handles for any ROCm library as needed
-    // Examples of ROCm libraries that can be added:
-    // - rocBLAS (basic linear algebra)
-    // - rocFFT (Fast Fourier Transform)
-    // - rocRAND (random number generation)
-    // - rocSPARSE (sparse linear algebra)
-    // - rocSOLVER (LAPACK functionality)
-    // - RCCL (collective communication for multi-GPU)
+    // SELF-CONTAINED DESIGN: This struct is private to the compiled DLL.
+    // Can freely add/remove fields for any ROCm library without breaking anything:
+    // - C interface only sees opaque void*
+    // - No external code depends on struct layout
+    // - Each compiled model is independent
     //
-    // Future fields:
+    // Examples of ROCm libraries that can be added as handles:
+    //   rocBLAS       - basic linear algebra
+    //   rocFFT        - Fast Fourier Transform
+    //   rocRAND       - random number generation
+    //   rocSPARSE     - sparse linear algebra
+    //   rocSOLVER     - LAPACK functionality
+    //   RCCL          - multi-GPU collective communication
+    //
+    // Other extensible fields:
     // - Descriptor cache
     // - Workspace memory
     // - Algorithm selection cache
