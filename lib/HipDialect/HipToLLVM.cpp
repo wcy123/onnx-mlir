@@ -37,6 +37,9 @@ static constexpr const char *kHipDestroyHandle = "hipDestroyHandle";
 static constexpr const char *kHipMalloc = "hipMalloc";
 static constexpr const char *kHipFree = "hipFree";
 static constexpr const char *kMiopenConvolutionForward = "miopenConvolutionForward";
+static constexpr const char *kHipUploadConstant = "hip_upload_constant";
+static constexpr const char *kHipReleaseConstant = "hip_release_constant";
+static constexpr const char *kHipGetConstant = "hip_get_constant";
 
 // --- CreateHandleOp: hip.create_handle() -> llvm.call @hipCreateHandle()
 struct CreateHandleOpLowering : public ConvertOpToLLVMPattern<CreateHandleOp> {
@@ -306,6 +309,142 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
   }
 };
 
+//===----------------------------------------------------------------------===//
+// Constant Management Operations Lowering
+//===----------------------------------------------------------------------===//
+
+// --- UploadConstantOp: hip.upload_constant(%ctx, %index, %data, %size)
+//     -> hip_upload_constant(%ctx, %index, %data, %size)
+struct UploadConstantOpLowering : public ConvertOpToLLVMPattern<UploadConstantOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(UploadConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+    Type voidType = getVoidType();
+    Type ptrType = getPtrType();
+    Type i64Type = IntegerType::get(rewriter.getContext(), 64);
+
+    // Function signature: void hip_upload_constant(void* state, i64 index, void* data, i64 size)
+    SmallVector<Type, 4> paramTypes = {ptrType, i64Type, ptrType, i64Type};
+
+    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
+        rewriter, module, kHipUploadConstant, paramTypes, voidType);
+    if (failed(funcOp))
+      return failure();
+
+    // Call runtime function
+    SmallVector<Value, 4> args = {
+        adaptor.getCtx(),   // state pointer
+        adaptor.getIndex(), // constant index
+        adaptor.getData(),  // host data pointer
+        adaptor.getSize()   // size in bytes
+    };
+
+    LLVM::CallOp::create(rewriter, loc, *funcOp, args);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// --- ReleaseConstantOp: hip.release_constant(%ctx, %index)
+//     -> hip_release_constant(%ctx, %index)
+struct ReleaseConstantOpLowering : public ConvertOpToLLVMPattern<ReleaseConstantOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(ReleaseConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+    Type voidType = getVoidType();
+    Type ptrType = getPtrType();
+    Type i64Type = IntegerType::get(rewriter.getContext(), 64);
+
+    // Function signature: void hip_release_constant(void* state, i64 index)
+    SmallVector<Type, 2> paramTypes = {ptrType, i64Type};
+
+    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
+        rewriter, module, kHipReleaseConstant, paramTypes, voidType);
+    if (failed(funcOp))
+      return failure();
+
+    // Call runtime function
+    SmallVector<Value, 2> args = {
+        adaptor.getCtx(),   // state pointer
+        adaptor.getIndex()  // constant index
+    };
+
+    LLVM::CallOp::create(rewriter, loc, *funcOp, args);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// --- GetConstantOp: %mem = hip.get_constant(%ctx, %index) : memref<...>
+//     -> %ptr = hip_get_constant(%ctx, %index) + build memref descriptor
+struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(GetConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+    Type ptrType = getPtrType();
+    Type i64Type = IntegerType::get(rewriter.getContext(), 64);
+    MemRefType memRefType = op.getResult().getType();
+
+    // Function signature: void* hip_get_constant(void* state, i64 index)
+    SmallVector<Type, 2> paramTypes = {ptrType, i64Type};
+
+    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
+        rewriter, module, kHipGetConstant, paramTypes, ptrType);
+    if (failed(funcOp))
+      return failure();
+
+    // Call runtime function to get GPU pointer
+    SmallVector<Value, 2> args = {
+        adaptor.getCtx(),   // state pointer
+        adaptor.getIndex()  // constant index
+    };
+
+    auto callOp = LLVM::CallOp::create(rewriter, loc, *funcOp, args);
+    Value gpuPtr = callOp.getResult();
+
+    // Build sizes and strides for memref descriptor
+    auto shape = memRefType.getShape();
+    SmallVector<Value, 4> sizes;
+    SmallVector<Value, 4> strides;
+
+    // Calculate sizes (all static for constants)
+    for (int64_t dim : shape) {
+      Value size = rewriter.create<LLVM::ConstantOp>(
+          loc, i64Type, rewriter.getI64IntegerAttr(dim));
+      sizes.push_back(size);
+    }
+
+    // Calculate strides (row-major layout)
+    int64_t stride = 1;
+    for (int i = shape.size() - 1; i >= 0; --i) {
+      Value strideVal = rewriter.create<LLVM::ConstantOp>(
+          loc, i64Type, rewriter.getI64IntegerAttr(stride));
+      strides.insert(strides.begin(), strideVal);
+      stride *= shape[i];
+    }
+
+    // Create memref descriptor from GPU pointer
+    MemRefDescriptor desc = createMemRefDescriptor(
+        loc, memRefType, gpuPtr, gpuPtr, sizes, strides, rewriter);
+
+    // Replace with the constructed memref descriptor
+    rewriter.replaceOp(op, {desc});
+    return success();
+  }
+};
+
 // --- Pass
 struct ConvertHipToLLVMPass
     : public PassWrapper<ConvertHipToLLVMPass, OperationPass<ModuleOp>> {
@@ -340,7 +479,9 @@ struct ConvertHipToLLVMPass
 
     // Add HIP-specific conversion patterns
     patterns.add<CreateHandleOpLowering, DestroyHandleOpLowering,
-                 AllocOpLowering, FreeOpLowering, ConvOpLowering>(typeConverter);
+                 AllocOpLowering, FreeOpLowering, ConvOpLowering,
+                 UploadConstantOpLowering, ReleaseConstantOpLowering,
+                 GetConstantOpLowering>(typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);
