@@ -200,7 +200,7 @@ int initialize_constants(void* state) {
   //   - Upload: hipMemcpy(GPU, CPU, size, H2D)
   //   - Store in state->gpu_constants[N]
   //
-  // Future optimizations (see Appendix D):
+  // Future optimizations (see Appendix C):
   //   - Batched upload: single hipMemcpy for all constants
   //   - Pinned memory: hipMallocHost for faster transfers
   //   - Memory pooling: single allocation with offset management
@@ -327,62 +327,9 @@ func.func @subgraph_if_then(%ctx: !hip.context, %arg0: memref<...>, %output: mem
 
 ---
 
-## Appendix A: Alternatives Considered
+## Appendix A: Implementation Details
 
-### Alternative 1: External Constant File
-
-**Approach**: Store constants in separate binary file, load at runtime.
-
-**Rejected because**:
-- ❌ Requires disk I/O at inference time
-- ❌ Two artifacts to manage (DLL + data file)
-- ❌ Versioning/compatibility issues (DLL vs data mismatch)
-- ❌ More complex deployment
-
-### Alternative 2: JIT Compilation with LLVM IR
-
-**Approach**: Store LLVM IR in EPContext, JIT compile at runtime to access constants.
-
-**Rejected because**:
-- ❌ 100-500ms JIT overhead unacceptable for inference
-- ❌ LLVM runtime dependency (50-200 MB)
-- ❌ Defeats purpose of EPContext (eliminate recompilation)
-
-### Alternative 3: Function-Level Pass
-
-**Approach**: Keep `ConvertOnnxToHipPass` as `OperationPass<func::FuncOp>`.
-
-**Rejected because**:
-- ❌ Cannot create module-level `llvm.mlir.global` operations
-- ❌ Cannot discover constants across multiple functions
-- ❌ Cannot generate module-level initialization functions
-- ❌ No shared constant registry across functions
-
-### Alternative 4: Constant Arguments with Bundling
-
-**Approach**: Bundle constants into a single struct argument.
-
-**Rejected because**:
-- ❌ Still requires passing data through call chain
-- ❌ Type-unsafe (void* or unions)
-- ❌ Runtime packing/unpacking overhead
-- ❌ Doesn't reflect actual execution model
-
-### Alternative 5: hash-Based Constant Indexing
-
-**Approach**: Use hash of constant data as index instead of sequential numbers.
-
-**Rejected because**:
-- ❌ Hash collisions require resolution logic
-- ❌ Non-deterministic indices complicate debugging
-- ❌ Lookup overhead vs direct array indexing
-- ✅ Could enable deduplication (future optimization)
-
----
-
-## Appendix B: Implementation Details
-
-### B.1: ONNX Function Identification
+### A.1: ONNX Function Identification
 
 ```cpp
 bool isOnnxFunction(func::FuncOp funcOp) {
@@ -413,7 +360,7 @@ bool isOnnxFunction(func::FuncOp funcOp) {
 }
 ```
 
-### B.2: Constant Discovery
+### A.2: Constant Discovery
 
 ```cpp
 struct ConstantInfo {
@@ -446,7 +393,7 @@ for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
 }
 ```
 
-### B.3: LLVM Global Generation
+### A.3: LLVM Global Generation
 
 ```cpp
 OpBuilder builder(moduleOp.getBodyRegion());
@@ -473,7 +420,7 @@ llvm.mlir.global internal constant @constant_1(dense<[0.5, ...]> : tensor<64xf32
   : !llvm.array<64 x f32>
 ```
 
-### B.4: Initialization Function Generation
+### A.4: Initialization Function Generation
 
 ```mlir
 // 1. Query constant count
@@ -508,7 +455,7 @@ func.func @release_constants(%ctx: !hip.context) -> i32 {
 }
 ```
 
-### B.5: Runtime Interface
+### A.5: Runtime Interface
 
 For state structure design and lifecycle, see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md).
 
@@ -554,7 +501,7 @@ int inference_cleanup(void* state) {
 
 ---
 
-## Appendix C: Implementation Phases
+## Appendix B: Implementation Phases
 
 ### Phase 1: Module-Level Pass Infrastructure (Week 1)
 - Convert `ConvertOnnxToHipPass` to module-level
@@ -596,7 +543,7 @@ int inference_cleanup(void* state) {
 
 ---
 
-## Appendix D: Future Optimizations
+## Appendix C: Future Optimizations
 
 1. **Constant Deduplication**: Share GPU memory for identical constants (requires hash-based registry)
 2. **Lazy Upload**: Only upload constants actually used (requires liveness analysis)
