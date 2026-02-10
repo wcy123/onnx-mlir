@@ -17,6 +17,14 @@ This document explains the design of the opaque state pointer used throughout th
 
 This naming reflects the abstraction boundary between the generic interface and HIP-specific implementation.
 
+**Self-Contained Design**: The internal state structure is private to each compiled DLL. This means:
+- ✅ Can freely add/remove fields (e.g., handles for rocBLAS, rocFFT, rocRAND, etc.)
+- ✅ No external dependencies on struct layout
+- ✅ Each compiled model evolves independently
+- ✅ Zero impact on C interface or CustomOp code
+
+This isolation is fundamental to the architecture's extensibility and maintainability.
+
 ---
 
 ## Dual Perspective
