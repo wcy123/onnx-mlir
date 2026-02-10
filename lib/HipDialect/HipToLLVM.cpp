@@ -8,10 +8,15 @@
 
 #include "HipDialect.h"
 #include "HipPasses.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/MemRefBuilder.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
@@ -314,6 +319,8 @@ struct ConvertHipToLLVMPass
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<LLVM::LLVMDialect>();
     registry.insert<memref::MemRefDialect>();
+    registry.insert<arith::ArithDialect>();
+    registry.insert<func::FuncDialect>();
   }
 
   void runOnOperation() override {
@@ -330,13 +337,27 @@ struct ConvertHipToLLVMPass
         });
 
     RewritePatternSet patterns(ctx);
+
+    // Add HIP-specific conversion patterns
     patterns.add<CreateHandleOpLowering, DestroyHandleOpLowering,
                  AllocOpLowering, FreeOpLowering, ConvOpLowering>(typeConverter);
+
+    // Add standard MLIR→LLVM conversion patterns
+    populateFuncToLLVMConversionPatterns(typeConverter, patterns);
+    populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
+    arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
 
     LLVMConversionTarget target(*ctx);
     target.addLegalDialect<LLVM::LLVMDialect>();
     target.addIllegalDialect<HipDialect>();
+    target.addIllegalDialect<memref::MemRefDialect>();
+    target.addIllegalDialect<arith::ArithDialect>();
     target.addLegalOp<ModuleOp>();
+
+    // FuncOp is legal only if types are converted
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType());
+    });
 
     if (failed(applyPartialConversion(module, target, std::move(patterns))))
       signalPassFailure();

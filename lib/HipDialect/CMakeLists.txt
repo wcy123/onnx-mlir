@@ -96,6 +96,9 @@ target_link_libraries(HipDialect PUBLIC
   MLIRLLVMDialect
   MLIRLLVMCommonConversion
   MLIRTransformUtils
+  MLIRArithToLLVM
+  MLIRFuncToLLVM
+  MLIRMemRefToLLVM
   OMONNXOps  # ONNX dialect from onnx-mlir (required)
   ${llvm_libs}
 )
