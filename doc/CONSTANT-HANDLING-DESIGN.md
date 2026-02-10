@@ -7,138 +7,331 @@
 
 ---
 
-## Problem Statement
+## Executive Summary
 
-In a typical deep learning model (e.g., ResNet50), there are 100+ convolutional layers, each with weights and biases. In ONNX-MLIR, these appear as `onnx.Constant` operations within the function body:
+This document defines the architecture for handling ONNX model constants (weights, biases, embeddings) in the MLIR-based compilation pipeline for the HipDNN Execution Provider. The design eliminates the naive approach of passing 200+ constant arguments through function signatures by introducing a state-based constant management system with pre-compiled initialization code.
 
-```mlir
-func.func @main_graph(%input: tensor<1x3x224x224xf32>) -> tensor<...> {
-  %w0 = "onnx.Constant"() {value = dense<...> : tensor<64x3x3x3xf32>}
-  %b0 = "onnx.Constant"() {value = dense<...> : tensor<64xf32>}
-  %conv0 = "onnx.Conv"(%input, %w0, %b0) {...}
-
-  %w1 = "onnx.Constant"() {value = dense<...> : tensor<128x64x3x3xf32>}
-  %b1 = "onnx.Constant"() {value = dense<...> : tensor<128xf32>}
-  %conv1 = "onnx.Conv"(%conv0, %w1, %b1) {...}
-
-  // ... 98 more Conv operations with their constants
-}
-```
-
-**Naive approach problem**: If we treat constants as function arguments during ONNX→HIP conversion, we end up with:
-
-```mlir
-func.func @main(%ctx: !hip.context,
-                %input: memref<...>,
-                %w0: memref<...>, %b0: memref<...>,
-                %w1: memref<...>, %b1: memref<...>,
-                // ... 196 more constant arguments
-                %output: memref<...>) -> i32
-```
-
-This creates **200+ function arguments**, which is:
-- ❌ Unmaintainable
-- ❌ Inefficient (calling convention overhead)
-- ❌ Doesn't match the execution model (constants are loaded once, reused many times)
+**Key innovation**: Constants are embedded in the compiled DLL as LLVM globals, uploaded to GPU once during initialization, and accessed through a state structure—achieving clean function signatures while maintaining optimal performance.
 
 ---
 
-## Proposed Architecture
+## Problem Statement
+
+Deep learning models (e.g., ResNet50) contain hundreds of constant tensors:
+- 100+ convolutional layers, each with weights and biases
+- Batch normalization layers with scale/bias/mean/variance tensors
+- Embedding layers with large lookup tables
+
+In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
+
+**Challenge**: How do we transform these constants during ONNX→HIP conversion without creating unmaintainable function signatures?
+
+**Naive approach failure**:
+```mlir
+// Treating constants as function arguments creates:
+func.func @main(%ctx: !hip.context, %input: memref<...>,
+                %w0: memref<...>, %b0: memref<...>, %w1: memref<...>,
+                // ... 196 more constant parameters ...
+                %output: memref<...>) -> i32
+```
+
+Problems:
+- ❌ 200+ function arguments (unmaintainable)
+- ❌ Calling convention overhead
+- ❌ Doesn't match execution model (constants loaded once, used repeatedly)
+- ❌ Doesn't scale to larger models
+
+---
+
+## Core Design Decisions
+
+### Decision 1: State-Based Constant Management
+
+**Choice**: Store constants in a state structure with pre-uploaded GPU pointers.
+
+**Rationale**:
+- Constants have different lifecycle than inputs/outputs (loaded once vs per-inference)
+- GPU memory allocation/upload is expensive—do it once, reuse many times
+- Matches industry standard execution provider patterns (TensorRT, QNN, VitisAI)
+- Clean separation of initialization vs execution concerns
+
+**Architecture**:
+```c
+struct State {
+    hipStream_t stream;
+    miopenHandle_t miopenHandle;
+    void** gpu_weights;  // Array of pre-uploaded constant pointers
+};
+```
+
+Functions receive `%ctx: !hip.context` instead of individual constants.
+
+### Decision 2: Embed Constants in Compiled DLL
+
+**Choice**: Generate `llvm.mlir.global` operations with embedded `dense<...>` constant data.
+
+**Rationale**:
+- DLL already contains compiled code—colocating data avoids external dependencies
+- LLVM globals provide type-safe, addressable storage in CPU memory
+- No runtime parsing of ONNX model needed
+- Enables compiler optimizations on constant data
+- Simplifies deployment (single artifact)
+
+**Trade-offs**:
+- ✅ Self-contained DLL (no external files)
+- ✅ Type safety at compile time
+- ⚠️ Larger DLL size (~100KB-1MB for typical models)
+- ⚠️ GPU architecture-specific (must match runtime hardware)
+
+### Decision 3: Module-Level MLIR Pass
+
+**Choice**: `ConvertOnnxToHipPass` operates on `ModuleOp`, not `func::FuncOp`.
+
+**Rationale**:
+- Need to discover constants across **all** functions (including subgraphs from ONNX If/Loop/Scan)
+- Need to create module-level `llvm.mlir.global` operations
+- Need to generate module-level initialization functions
+- Need shared constant registry with consistent global indexing
+
+Module-level pass provides full visibility and control over all functions.
+
+### Decision 4: Sequential Global Indexing
+
+**Choice**: Assign each constant a unique index (0, 1, 2, ..., N-1) in discovery order.
+
+**Rationale**:
+- Simple, deterministic, reproducible
+- Direct array indexing in `state->gpu_weights[]`
+- No hash collisions or lookup overhead
+- Easy to debug (indices match discovery order)
+
+Trade-off: No automatic deduplication (future optimization).
+
+### Decision 5: HIP Dialect Operations for Constants
+
+**Choice**: Define three HIP operations: `hip.get_constant`, `hip.upload_constant`, `hip.release_constant`.
+
+**Rationale**:
+- **Clean abstraction layers**: ONNX→HIP stays in HIP dialect, HIP→LLVM handles lowering to runtime calls
+- **Semantic clarity**: Each operation has clear, unambiguous meaning
+- **Optimization flexibility**: HIP→LLVM can choose naive (individual hipMalloc) or optimized (batched) lowering
+- **Future extensibility**: Can add attributes for optimization hints (pinned memory, async upload, etc.)
+
+**Operations**:
+```tablegen
+// Get reference to pre-uploaded constant (used in @main)
+hip.get_constant(%ctx, index) -> memref
+
+// Upload constant to GPU (used in @initialize_constants)
+hip.upload_constant(%ctx, index, cpu_data, size)
+
+// Free GPU memory (used in @release_constants)
+hip.release_constant(%ctx, index)
+```
+
+### Decision 6: Generated Initialization Functions
+
+**Choice**: ConvertOnnxToHipPass generates three metadata functions in the compiled DLL.
+
+**Functions**:
+- `get_constant_count() -> i64`: Returns total number of constants
+- `initialize_constants(state*) -> i32`: Uploads all constants to GPU
+- `release_constants(state*) -> i32`: Frees all GPU memory
+
+**Rationale**:
+- Runtime knows constant count without parsing ONNX model
+- Initialization code is compiled (fast, no JIT overhead)
+- Standard C ABI enables simple dlsym resolution
+- Separation of concerns: compiler generates, runtime invokes
+
+### Decision 7: ONNX Function Identification
+
+**Choice**: Process only functions with tensor types + ONNX dialect operations.
+
+**Rationale**:
+- Pass can coexist with other MLIR passes in pipeline
+- Order-independent in pass manager
+- Won't accidentally transform non-ONNX helper functions
+- Robust to future additions of utility functions
+
+**Identification criteria**:
+1. Function signature contains `TensorType`
+2. Function body contains ONNX dialect operations
+
+---
+
+## Architecture Overview
 
 ### High-Level Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  ONNX Model (model.onnx)                                     │
-│  - graph.initializer[] contains constant data                │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ONNX-MLIR Import                                            │
-│  - Initializers → onnx.Constant operations in func.func      │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ConvertOnnxToHipPass (MODULE-level)                         │
-│                                                               │
-│  Phase 1: Discovery                                          │
-│  - Walk all func.func in module                              │
-│  - Identify ONNX functions (have tensor types + ONNX ops)    │
-│  - Discover all onnx.Constant operations                     │
-│  - Assign global indices: 0, 1, 2, ..., N-1                 │
-│                                                               │
-│  Phase 2: Generate LLVM Globals                              │
-│  - llvm.mlir.global @weight_0, @bias_0, @weight_1, ...      │
-│  - Embed dense<...> constant data in DLL                     │
-│                                                               │
-│  Phase 3: Generate Initialization Functions                  │
-│  - llvm.func @get_constant_count() -> i64                    │
-│  - llvm.func @initialize_constants(state_ptr) -> i32         │
-│  - llvm.func @release_constants(state_ptr) -> i32            │
-│                                                               │
-│  Phase 4: Transform ONNX Functions                           │
-│  - Convert onnx.Constant to load from state                  │
-│  - Remove constants from function arguments                  │
-│  - Add %ctx parameter                                        │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Generated LLVM IR (in compiled DLL)                         │
-│                                                               │
-│  - Global constants (CPU memory)                             │
-│  - @get_constant_count() -> 200                              │
-│  - @initialize_constants(state*) -> uploads to GPU           │
-│  - @release_constants(state*) -> frees GPU memory            │
-│  - @main(state*, input*, output*) -> uses gpu_weights[]     │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Runtime: inference_init()                                   │
-│                                                               │
-│  1. count = get_constant_count()          // 200             │
-│  2. state->gpu_weights = new void*[count]                    │
-│  3. initialize_constants(state)           // Upload to GPU   │
-│  4. return state                                             │
-└─────────────────────────────────────────────────────────────┘
+ONNX Model
+    ↓ (ONNX-MLIR import)
+MLIR with onnx.Constant operations
+    ↓ (ConvertOnnxToHipPass - MODULE-level)
+    │
+    ├─→ Discovery: Find all onnx.Constant, assign indices 0..N-1
+    ├─→ Generate: llvm.mlir.global for each constant (embed data)
+    ├─→ Generate: @get_constant_count(), @initialize_constants(), @release_constants()
+    └─→ Transform: Replace onnx.Constant with hip.get_constant(%ctx, index)
+    ↓
+HIP dialect with state-based constant access
+    ↓ (ConvertHipToLLVMPass)
+LLVM dialect with HIP runtime calls
+    ↓ (LLVM compilation)
+Compiled DLL with:
+  - Embedded constant data (LLVM globals)
+  - Initialization functions
+  - Inference function using gpu_weights[]
 ```
+
+### Runtime Initialization
+
+```c
+// 1. Runtime loads DLL, resolves symbols
+get_constant_count_fn = dlsym(dll, "get_constant_count");
+initialize_constants_fn = dlsym(dll, "initialize_constants");
+
+// 2. Create state structure
+State* state = new State();
+state->gpu_weights = new void*[get_constant_count()];
+
+// 3. Upload all constants to GPU (once)
+initialize_constants(state);  // Generated code: hipMalloc + hipMemcpy for each
+
+// 4. State is ready for inference
+// @main(%ctx, input, output) uses gpu_weights[] internally
+```
+
+### Inference Execution
+
+```mlir
+// BEFORE (ONNX dialect):
+func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<...> {
+  %w = "onnx.Constant"() {value = dense<...>}
+  %conv = "onnx.Conv"(%input, %w) {...}
+  return %conv
+}
+
+// AFTER (HIP dialect):
+func.func @main(%ctx: !hip.context,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<...>) -> i32 {
+  // Get pre-uploaded constant from state
+  %w = hip.get_constant(%ctx, 0) : (!hip.context, i64) -> memref<...>
+
+  // Use constant in computation
+  hip.conv(%ctx, %input, %w, %output) {...}
+
+  %success = llvm.mlir.constant(0 : i32) : i32
+  return %success : i32
+}
+```
+
+**Key insight**: No constant arguments—function signature stays clean regardless of model size.
 
 ---
 
-## Design Details
+## Design Principles
 
-### 1. Module-Level Pass
+1. **Separation of Concerns**: Initialization (once) vs execution (many times)
+2. **Single Source of Truth**: Constant data embedded in DLL, no external files
+3. **Clean Abstractions**: Each MLIR dialect level maintains semantic clarity
+4. **Performance**: Pre-upload eliminates repeated allocation/transfer overhead
+5. **Scalability**: Design handles 10 constants or 10,000 constants equally well
+6. **Industry Alignment**: Follows patterns from TensorRT EP, QNN EP, VitisAI EP
 
-The `ConvertOnnxToHipPass` must operate at module level to handle constants properly:
+---
 
-```cpp
-class ConvertOnnxToHipPass
-    : public PassWrapper<ConvertOnnxToHipPass, OperationPass<ModuleOp>> {
+## Open Design Questions
 
-  void runOnOperation() override {
-    ModuleOp moduleOp = getOperation();
+### Question 3: Subgraph Constant Handling
 
-    // Capabilities:
-    // - Walk all functions
-    // - Create module-level globals
-    // - Generate module-level functions
-    // - Maintain global constant registry
-  }
-};
+**Context**: ONNX control flow operators (If, Loop, Scan) create subgraphs as separate `func.func`.
+
+**Example**:
+```mlir
+func.func @main_graph(%input: tensor<...>) -> tensor<...> {
+  %w0 = "onnx.Constant"() {value = dense<...>}
+  %result = func.call @subgraph_if_then(%input, %w0)
+  ...
+}
+
+func.func @subgraph_if_then(%arg0: tensor<...>, %arg1: tensor<...>) -> tensor<...> {
+  %w1 = "onnx.Constant"() {value = dense<...>}  // Local constant
+  %conv = "onnx.Conv"(%arg0, %arg1, %w1)
+  ...
+}
 ```
 
-**Why module-level?**
-- Need to discover constants across ALL functions (including subgraphs)
-- Need to create module-level `llvm.mlir.global` operations
-- Need to generate module-level initialization functions
-- Need shared constant registry with global indexing
+**Question**: After conversion, should `@subgraph_if_then`:
+- **Option A**: Receive only `%ctx`, load all constants (including passed ones) from state?
+- **Option B**: Receive `%ctx` + pre-loaded constants as arguments?
 
-### 2. ONNX Function Identification
+**Trade-offs**:
+- Option A: Clean signatures, but caller and callee must agree on global indices
+- Option B: Reintroduces constant arguments (defeats purpose of design)
 
-Not all `func.func` in the module are ONNX-MLIR functions. We need to identify and process only ONNX functions:
+**TODO**: Decide based on real-world ONNX model analysis.
+
+---
+
+## Appendix A: Alternatives Considered
+
+### Alternative 1: External Constant File
+
+**Approach**: Store constants in separate binary file, load at runtime.
+
+**Rejected because**:
+- ❌ Requires disk I/O at inference time
+- ❌ Two artifacts to manage (DLL + data file)
+- ❌ Versioning/compatibility issues (DLL vs data mismatch)
+- ❌ More complex deployment
+
+### Alternative 2: JIT Compilation with LLVM IR
+
+**Approach**: Store LLVM IR in EPContext, JIT compile at runtime to access constants.
+
+**Rejected because**:
+- ❌ 100-500ms JIT overhead unacceptable for inference
+- ❌ LLVM runtime dependency (50-200 MB)
+- ❌ Defeats purpose of EPContext (eliminate recompilation)
+
+### Alternative 3: Function-Level Pass
+
+**Approach**: Keep `ConvertOnnxToHipPass` as `OperationPass<func::FuncOp>`.
+
+**Rejected because**:
+- ❌ Cannot create module-level `llvm.mlir.global` operations
+- ❌ Cannot discover constants across multiple functions
+- ❌ Cannot generate module-level initialization functions
+- ❌ No shared constant registry across functions
+
+### Alternative 4: Constant Arguments with Bundling
+
+**Approach**: Bundle constants into a single struct argument.
+
+**Rejected because**:
+- ❌ Still requires passing data through call chain
+- ❌ Type-unsafe (void* or unions)
+- ❌ Runtime packing/unpacking overhead
+- ❌ Doesn't reflect actual execution model
+
+### Alternative 5: hash-Based Constant Indexing
+
+**Approach**: Use hash of constant data as index instead of sequential numbers.
+
+**Rejected because**:
+- ❌ Hash collisions require resolution logic
+- ❌ Non-deterministic indices complicate debugging
+- ❌ Lookup overhead vs direct array indexing
+- ✅ Could enable deduplication (future optimization)
+
+---
+
+## Appendix B: Implementation Details
+
+### B.1: ONNX Function Identification
 
 ```cpp
 bool isOnnxFunction(func::FuncOp funcOp) {
@@ -169,14 +362,7 @@ bool isOnnxFunction(func::FuncOp funcOp) {
 }
 ```
 
-**Benefits:**
-- ✅ Pass can coexist with other MLIR passes
-- ✅ Order-independent in pass manager
-- ✅ Won't break non-ONNX functions
-
-### 3. Constant Discovery and Index Assignment
-
-**Strategy**: Sequential order across all ONNX functions in the module.
+### B.2: Constant Discovery
 
 ```cpp
 struct ConstantInfo {
@@ -184,7 +370,7 @@ struct ConstantInfo {
   ElementsAttr value;      // The dense<...> constant data
   Type type;               // tensor<64x3x3x3xf32>
   size_t sizeInBytes;      // For allocation/transfer
-  StringRef name;          // Generated name (e.g., "weight_0")
+  StringRef name;          // Generated name (e.g., "constant_0")
 };
 
 DenseMap<Value, ConstantInfo> constantRegistry;
@@ -209,24 +395,8 @@ for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
 }
 ```
 
-**Future optimization (TODO)**: Deduplication - if the same constant appears in multiple places, share GPU memory.
+### B.3: LLVM Global Generation
 
-### 4. Generated LLVM Globals
-
-For each discovered constant, generate an `llvm.mlir.global`:
-
-```mlir
-// Example: weight tensor with 64*3*3*3 = 1728 elements
-llvm.mlir.global internal constant @constant_0(dense<[1.0, 2.0, ...]> : tensor<64x3x3x3xf32>)
-  : !llvm.array<1728 x f32>
-
-llvm.mlir.global internal constant @constant_1(dense<[0.5, 0.5, ...]> : tensor<64xf32>)
-  : !llvm.array<64 x f32>
-
-// ... 198 more globals
-```
-
-**Implementation:**
 ```cpp
 OpBuilder builder(moduleOp.getBodyRegion());
 
@@ -243,47 +413,19 @@ for (auto& [value, info] : constantRegistry) {
 }
 ```
 
-### 5. HIP Dialect Operations for Constants
+**Generated MLIR**:
+```mlir
+llvm.mlir.global internal constant @constant_0(dense<[1.0, 2.0, ...]> : tensor<64x3x3x3xf32>)
+  : !llvm.array<1728 x f32>
 
-Three operations are defined in HIP dialect for constant management:
-
-```tablegen
-// Get reference to pre-uploaded constant (used in @main)
-def Hip_GetConstantOp : Hip_Op<"get_constant"> {
-  let arguments = (ins Hip_ContextType:$ctx, I64:$index);
-  let results = (outs AnyMemRef:$result);
-  let summary = "Get reference to pre-uploaded constant from state";
-}
-
-// Upload constant data to GPU (used in @initialize_constants)
-def Hip_UploadConstantOp : Hip_Op<"upload_constant"> {
-  let arguments = (ins Hip_ContextType:$ctx, I64:$index,
-                       LLVM_AnyPointer:$cpu_data, I64:$size);
-  let summary = "Upload constant data to GPU and store in state->gpu_weights[index]";
-}
-
-// Release constant from GPU (used in @release_constants)
-def Hip_ReleaseConstantOp : Hip_Op<"release_constant"> {
-  let arguments = (ins Hip_ContextType:$ctx, I64:$index);
-  let summary = "Free GPU memory for constant at state->gpu_weights[index]";
-}
+llvm.mlir.global internal constant @constant_1(dense<[0.5, ...]> : tensor<64xf32>)
+  : !llvm.array<64 x f32>
 ```
 
-**Semantics at HIP dialect level:**
-- `hip.upload_constant`: Allocate GPU memory, copy data from CPU, store pointer in state
-- `hip.release_constant`: Free GPU memory for this constant
-- `hip.get_constant`: Return memref descriptor referencing GPU memory
-
-**Lowering to LLVM** (deferred to HIP→LLVM pass):
-- Naive: individual `hipMalloc` + `hipMemcpy` per constant
-- Optimized: batch allocation, memory pooling, etc.
-
-### 6. Generated Initialization Functions
-
-Three functions are generated in HIP dialect:
+### B.4: Initialization Function Generation
 
 ```mlir
-// 1. Query constant count (pure LLVM, no HIP ops needed)
+// 1. Query constant count
 llvm.func @get_constant_count() -> i64 {
   %count = llvm.mlir.constant(200 : i64) : i64
   llvm.return %count : i64
@@ -291,19 +433,13 @@ llvm.func @get_constant_count() -> i64 {
 
 // 2. Upload all constants to GPU
 func.func @initialize_constants(%ctx: !hip.context) -> i32 {
-  // Constant 0: weights
+  // For each constant:
   %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
-  %size_0 = llvm.mlir.constant(6912 : i64) : i64  // 64*3*3*3*sizeof(float)
+  %size_0 = llvm.mlir.constant(6912 : i64) : i64
   %index_0 = llvm.mlir.constant(0 : i64) : i64
   hip.upload_constant(%ctx, %index_0, %data_0, %size_0)
 
-  // Constant 1: bias
-  %data_1 = llvm.mlir.addressof @constant_1 : !llvm.ptr
-  %size_1 = llvm.mlir.constant(256 : i64) : i64
-  %index_1 = llvm.mlir.constant(1 : i64) : i64
-  hip.upload_constant(%ctx, %index_1, %data_1, %size_1)
-
-  // ... repeat for all 200 constants
+  // ... repeat for all constants ...
 
   %success = llvm.mlir.constant(0 : i32) : i32
   return %success : i32
@@ -314,59 +450,23 @@ func.func @release_constants(%ctx: !hip.context) -> i32 {
   %index_0 = llvm.mlir.constant(0 : i64) : i64
   hip.release_constant(%ctx, %index_0)
 
-  %index_1 = llvm.mlir.constant(1 : i64) : i64
-  hip.release_constant(%ctx, %index_1)
-
-  // ... repeat for all 200 constants
+  // ... repeat for all constants ...
 
   %success = llvm.mlir.constant(0 : i32) : i32
   return %success : i32
 }
 ```
 
-### 7. How @main Accesses Constants
+### B.5: Runtime Interface
 
-**After ONNX→HIP conversion**, `@main` uses `hip.get_constant`:
-
-```mlir
-func.func @main(%ctx: !hip.context,
-                %input: memref<1x3x224x224xf32, 1>,
-                %output: memref<1x64x224x224xf32, 1>) -> i32 {
-
-  // Get pre-uploaded constants (already on GPU)
-  %weights = hip.get_constant(%ctx, 0) : (!hip.context, i64) -> memref<64x3x3x3xf32, 1>
-  %bias = hip.get_constant(%ctx, 1) : (!hip.context, i64) -> memref<64xf32, 1>
-
-  // Allocate output buffer
-  %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
-
-  // Convolution using pre-uploaded weights
-  hip.conv(%ctx, %input, %weights, %bias, %temp) {...}
-
-  // Copy to output
-  memref.copy %temp, %output
-
-  %success = llvm.mlir.constant(0 : i32) : i32
-  return %success : i32
-}
-```
-
-**Key insight**: Constants are accessed via `hip.get_constant`, NOT passed as function arguments. This keeps the function signature clean regardless of model size.
-
-### 8. Runtime C Interface
-
-**State Structure**:
 ```c
 struct State {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
     hipblasLtHandle_t hipblasHandle;
-    void** gpu_weights;  // Array of GPU pointers (pre-uploaded constants)
+    void** gpu_weights;  // Array of GPU pointers
 };
-```
 
-**Runtime calls generated functions**:
-```c
 extern "C" int64_t get_constant_count();
 extern "C" int initialize_constants(void* state_ptr);
 extern "C" int release_constants(void* state_ptr);
@@ -380,7 +480,7 @@ int inference_init(void** state_ptr) {
 }
 
 int inference_release(void* state_ptr) {
-    release_constants(state_ptr);  // Free GPU memory
+    release_constants(state_ptr);
     delete state;
     return 0;
 }
@@ -388,124 +488,57 @@ int inference_release(void* state_ptr) {
 
 ---
 
-## Resolved Design Questions
+## Appendix C: Implementation Phases
 
-### Question 2: How do ONNX functions access constants? ✅ RESOLVED
+### Phase 1: Module-Level Pass Infrastructure (Week 1)
+- Convert `ConvertOnnxToHipPass` to module-level
+- Implement `isOnnxFunction()` helper
+- Test with multi-function modules
 
-**Decision**: Use `hip.get_constant` operation in HIP dialect.
+### Phase 2: Constant Discovery (Week 1-2)
+- Implement constant registry
+- Walk all ONNX functions, discover constants
+- Assign sequential indices
+- Test registry correctness
 
-**Rationale**:
-- Maintains clean abstraction: ONNX→HIP stays in HIP dialect
-- Explicit semantics: "get reference to pre-uploaded constant"
-- Flexible lowering: HIP→LLVM can optimize implementation
-- Not ambiguous: clearly retrieves from state, doesn't upload
+### Phase 3: LLVM Global Generation (Week 2)
+- Generate `llvm.mlir.global` for each constant
+- Embed `dense<...>` data
+- Verify in LLVM IR output
 
-See Section 7 for usage example.
+### Phase 4: Initialization Functions (Week 2-3)
+- Generate `@get_constant_count()`
+- Generate `@initialize_constants()` with hip.upload_constant
+- Generate `@release_constants()` with hip.release_constant
+- Test compilation and linking
 
-### Question 3: How do function calls handle constants?
+### Phase 5: Constant Access in @main (Week 3)
+- Replace `onnx.Constant` with `hip.get_constant`
+- Test convolution with pre-uploaded weights
+- Verify correctness
 
-**Context**: ONNX subgraphs (from If, Loop, Scan) become separate `func.func` that may reference constants.
+### Phase 6: Subgraph Handling (Week 4)
+- Decide ctx-only vs ctx+constants approach
+- Implement subgraph transformation
+- Test with ONNX If/Loop/Scan models
 
-**Example:**
-```mlir
-func.func @main_graph(%input: tensor<...>) -> tensor<...> {
-  %w0 = "onnx.Constant"() {value = dense<...>}
-  %result = func.call @subgraph_if_then(%input, %w0)
-  ...
-}
-
-func.func @subgraph_if_then(%arg0: tensor<...>, %arg1: tensor<...>) -> tensor<...> {
-  %w1 = "onnx.Constant"() {value = dense<...>}
-  %conv = "onnx.Conv"(%arg0, %arg1, %w1)
-  ...
-}
-```
-
-**Option A: Pass %ctx through call chain**
-```mlir
-// After conversion
-func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
-  %temp = ...
-  func.call @subgraph_if_then(%ctx, %input, %temp)
-  // Subgraph loads its constants from %ctx
-}
-
-func.func @subgraph_if_then(%ctx: !hip.context, %arg0: memref<...>, %arg1: memref<...>) -> ... {
-  %w1 = hip.load_weight(%ctx, 5)  // Load from state
-  ...
-}
-```
-
-Constants passed as arguments are REMOVED - subgraphs load from state directly.
-
-**Option B: Pass both %ctx and pre-loaded constants**
-```mlir
-func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
-  %w0 = hip.load_weight(%ctx, 0)
-  %temp = ...
-  func.call @subgraph_if_then(%ctx, %input, %w0, %temp)
-}
-```
-
-But this reintroduces constant arguments...
-
-**TODO**: Decide which approach to use.
+### Phase 7: Integration & Validation (Week 4-5)
+- Update runtime to call generated functions
+- End-to-end test with ResNet50
+- Performance benchmarking
+- Accuracy validation
 
 ---
 
-## Implementation Phases
+## Appendix D: Future Optimizations
 
-### Phase 1: Module-Level Pass Infrastructure
-- [ ] Convert `ConvertOnnxToHipPass` from function-level to module-level
-- [ ] Implement `isOnnxFunction()` helper
-- [ ] Test: Pass can process multiple functions in module
-- [ ] Test: Pass skips non-ONNX functions
-
-### Phase 2: Constant Discovery
-- [ ] Implement constant registry (DenseMap)
-- [ ] Walk all ONNX functions and discover `onnx.Constant` operations
-- [ ] Assign sequential global indices
-- [ ] Calculate sizes in bytes
-- [ ] Test: Registry correctly tracks all constants
-
-### Phase 3: LLVM Global Generation
-- [ ] Generate `llvm.mlir.global` for each constant
-- [ ] Embed `dense<...>` constant data
-- [ ] Test: Globals appear in LLVM IR output
-
-### Phase 4: Initialization Functions
-- [ ] Generate `@get_constant_count()` function
-- [ ] Generate `@initialize_constants()` function
-  - Extract state->gpu_weights
-  - For each constant: hipMalloc, hipMemcpy, store pointer
-- [ ] Generate `@release_constants()` function
-  - For each constant: load pointer, hipFree
-- [ ] Test: Functions compile and link
-
-### Phase 5: Constant Access (TBD - depends on Question 2)
-- [ ] Decide: `hip.load_weight` operation vs direct LLVM
-- [ ] Implement constant loading in `@main`
-- [ ] Test: Convolution uses loaded weights
-
-### Phase 6: Function Call Handling (TBD - depends on Question 3)
-- [ ] Decide: ctx-only vs ctx+constants
-- [ ] Implement subgraph conversion
-- [ ] Test: Multi-function models work
-
-### Phase 7: Integration
-- [ ] Update `inference_init()` to call generated functions
-- [ ] Update `inference_release()` to call cleanup
-- [ ] End-to-end test with ResNet50
-
----
-
-## Future Optimizations (TODO)
-
-1. **Constant Deduplication**: If the same constant appears multiple times, share GPU memory
-2. **Lazy Loading**: Only upload constants that are actually used
-3. **Compression**: Compress constant data in DLL, decompress during upload
-4. **Quantization**: Support INT8/INT4 quantized constants
-5. **Cached Upload**: Cache upload once across multiple model instances
+1. **Constant Deduplication**: Share GPU memory for identical constants (requires hash-based registry)
+2. **Lazy Upload**: Only upload constants actually used (requires liveness analysis)
+3. **Compression**: Compress data in DLL, decompress during upload (trade CPU for size)
+4. **Quantization**: INT8/INT4 constant support with dequantization kernels
+5. **Batched Upload**: Single `hipMemcpy` for all constants (requires memory layout planning)
+6. **Pinned Memory**: Use `hipHostMalloc` for faster transfers
+7. **Async Upload**: Overlap upload with other initialization (requires stream management)
 
 ---
 
@@ -514,7 +547,8 @@ But this reintroduces constant arguments...
 - MLIR Module-Level Passes: https://mlir.llvm.org/docs/PassManagement/
 - LLVM GlobalOp: https://mlir.llvm.org/docs/Dialects/LLVM/#llvmmlir-global
 - HIP Runtime API: https://rocm.docs.amd.com/projects/HIP/
+- ONNX Runtime EPContext: https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html
 
 ---
 
-**Document Status**: In Progress - Question 3 remains open
+**Document Status**: Design in Progress - Question 3 (subgraph handling) remains open
