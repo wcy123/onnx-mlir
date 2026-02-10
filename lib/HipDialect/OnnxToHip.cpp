@@ -25,7 +25,99 @@
 
 using namespace mlir;
 
+//===----------------------------------------------------------------------===//
+// Constant Information Storage
+//===----------------------------------------------------------------------===//
+
+struct ConstantInfo {
+  int64_t globalIndex;        // Sequential index (0, 1, 2, ...)
+  ElementsAttr value;         // Constant data (from onnx.Constant)
+  Type elementType;           // Element type (f32, i64, etc.)
+  SmallVector<int64_t, 4> shape;  // Tensor shape (owned storage)
+  size_t sizeInBytes;         // Total size in bytes
+  std::string name;           // Debug name (from operation location)
+
+  // Default constructor (required by DenseMap)
+  ConstantInfo() : globalIndex(-1), sizeInBytes(0) {}
+
+  ConstantInfo(int64_t idx, ElementsAttr val, Type elemType,
+               ArrayRef<int64_t> shp, size_t size, StringRef debugName)
+      : globalIndex(idx), value(val), elementType(elemType),
+        shape(shp.begin(), shp.end()), sizeInBytes(size),
+        name(debugName.str()) {}
+};
+
 namespace {
+
+//===----------------------------------------------------------------------===//
+// ONNX Constant → HIP Get Constant Conversion Pattern
+//===----------------------------------------------------------------------===//
+
+/// Convert onnx.Constant to hip.get_constant that retrieves pre-uploaded constant from state
+struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
+  const DenseMap<Value, ConstantInfo> &constantRegistry;
+
+  ConstantToHipPattern(TypeConverter &typeConverter, MLIRContext *context,
+                       const DenseMap<Value, ConstantInfo> &registry)
+      : OpConversionPattern(typeConverter, context), constantRegistry(registry) {}
+
+  LogicalResult matchAndRewrite(
+      ONNXConstantOp constantOp,
+      OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+    auto loc = constantOp.getLoc();
+
+    // Look up this constant in the registry
+    auto it = constantRegistry.find(constantOp.getResult());
+    if (it == constantRegistry.end()) {
+      return rewriter.notifyMatchFailure(
+          constantOp, "Constant not found in registry (not discovered during Phase 2)");
+    }
+
+    const auto &info = it->second;
+
+    // Get context from parent function's first argument
+    auto funcOp = constantOp->getParentOfType<func::FuncOp>();
+    if (!funcOp) {
+      return rewriter.notifyMatchFailure(constantOp, "Not inside a function");
+    }
+
+    auto &entryBlock = funcOp.getBody().front();
+    if (entryBlock.getNumArguments() == 0) {
+      return rewriter.notifyMatchFailure(
+          constantOp, "Function has no arguments (expected context as first arg)");
+    }
+
+    Value context = entryBlock.getArgument(0);
+    if (!isa<hip::ContextType>(context.getType())) {
+      return rewriter.notifyMatchFailure(
+          constantOp, "First function argument is not a !hip.context");
+    }
+
+    // Create index constant
+    Value index = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI64Type(),
+        rewriter.getI64IntegerAttr(info.globalIndex));
+
+    // Convert output type: tensor<...> → memref<..., 1> (GPU address space)
+    auto tensorType = cast<TensorType>(constantOp.getResult().getType());
+    auto memrefType = getTypeConverter()->convertType(tensorType);
+    if (!memrefType) {
+      return rewriter.notifyMatchFailure(
+          constantOp, "Failed to convert constant tensor type to memref");
+    }
+
+    // Create hip.get_constant operation to retrieve pre-uploaded constant
+    auto getConstOp = rewriter.create<hip::GetConstantOp>(
+        loc, memrefType, context, index);
+
+    // Replace the onnx.Constant with the retrieved constant
+    rewriter.replaceOp(constantOp, getConstOp.getResult());
+
+    return success();
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // ONNX Conv → HIP Conv Conversion Pattern (In-Place Semantics)
@@ -358,28 +450,6 @@ static bool isOnnxFunction(func::FuncOp funcOp) {
 
   return hasOnnxOps;
 }
-
-//===----------------------------------------------------------------------===//
-// Constant Information Storage
-//===----------------------------------------------------------------------===//
-
-struct ConstantInfo {
-  int64_t globalIndex;        // Sequential index (0, 1, 2, ...)
-  ElementsAttr value;         // Constant data (from onnx.Constant)
-  Type elementType;           // Element type (f32, i64, etc.)
-  SmallVector<int64_t, 4> shape;  // Tensor shape (owned storage)
-  size_t sizeInBytes;         // Total size in bytes
-  std::string name;           // Debug name (from operation location)
-
-  // Default constructor (required by DenseMap)
-  ConstantInfo() : globalIndex(-1), sizeInBytes(0) {}
-
-  ConstantInfo(int64_t idx, ElementsAttr val, Type elemType,
-               ArrayRef<int64_t> shp, size_t size, StringRef debugName)
-      : globalIndex(idx), value(val), elementType(elemType),
-        shape(shp.begin(), shp.end()), sizeInBytes(size),
-        name(debugName.str()) {}
-};
 
 //===----------------------------------------------------------------------===//
 // ONNX to HIP Conversion Pass (Module-Level)
@@ -797,11 +867,15 @@ private:
     // Mark ONNX Conv as illegal (must be lowered)
     target.addIllegalOp<ONNXConvOp>();
 
-    // All other ONNX ops are legal for now (only converting Conv)
+    // Mark ONNX Constant as illegal (must be lowered to hip.get_constant)
+    target.addIllegalOp<ONNXConstantOp>();
+
+    // All other ONNX ops are legal for now (only converting Conv and Constant)
     target.addLegalDialect<ONNXDialect>();
 
-    // Set up rewrite patterns (pass typeConverter to patterns)
+    // Set up rewrite patterns (pass typeConverter and constantRegistry to patterns)
     RewritePatternSet patterns(context);
+    patterns.add<ConstantToHipPattern>(typeConverter, context, constantRegistry_);
     patterns.add<ConvToHipPattern>(typeConverter, context);
     patterns.add<ReturnOpConversion>(typeConverter, context);
 
