@@ -13,6 +13,7 @@
 #include "HipDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/PatternMatch.h"
@@ -400,6 +401,7 @@ public:
     registry.insert<memref::MemRefDialect>();  // Needed for memref.dim and memref.copy
     registry.insert<arith::ArithDialect>();    // Needed for arith.constant (i32 status)
     registry.insert<ONNXDialect>();            // Needed for ONNX operations
+    registry.insert<LLVM::LLVMDialect>();      // Needed for LLVM globals (constant storage)
   }
 
   void runOnOperation() override {
@@ -412,8 +414,13 @@ public:
       return;
     }
 
+    // Phase 3: Generate LLVM globals for constants
+    if (failed(generateConstantGlobals(module))) {
+      signalPassFailure();
+      return;
+    }
+
     // Phase 1: Process each ONNX function
-    // TODO Phase 3: Generate LLVM globals for constants
     // TODO Phase 4: Generate initialization functions
 
     for (auto func : module.getOps<func::FuncOp>()) {
@@ -510,6 +517,56 @@ private:
         }
         llvm::errs() << "], size=" << info.sizeInBytes << " bytes\n";
       }
+    }
+
+    return success();
+  }
+
+  /// Generate LLVM global variables for all discovered constants
+  LogicalResult generateConstantGlobals(ModuleOp module) {
+    if (constantRegistry_.empty()) {
+      return success();  // No constants to generate
+    }
+
+    OpBuilder builder(module.getBodyRegion());
+
+    // Set insertion point to the beginning of the module (before any functions)
+    builder.setInsertionPointToStart(module.getBody());
+
+    llvm::errs() << "[ONNX→HIP] Generating LLVM globals for "
+                 << constantRegistry_.size() << " constants\n";
+
+    for (const auto &entry : constantRegistry_) {
+      const auto &info = entry.second;
+
+      // Convert tensor type to LLVM array type
+      // tensor<64x3x3x3xf32> → !llvm.array<1728 x f32>
+      int64_t numElements = 1;
+      for (int64_t dim : info.shape) {
+        numElements *= dim;
+      }
+
+      // Create LLVM array type
+      auto llvmElementType = info.elementType;  // f32, i64, etc.
+      auto llvmArrayType = LLVM::LLVMArrayType::get(llvmElementType, numElements);
+
+      // Create global variable with embedded constant data
+      // Note: LLVM::GlobalOp requires an Attribute as initializer
+      // ElementsAttr is already an Attribute, so we can use it directly
+      auto globalOp = builder.create<LLVM::GlobalOp>(
+          module.getLoc(),
+          llvmArrayType,
+          /*isConstant=*/true,
+          LLVM::Linkage::Internal,
+          info.name,
+          info.value,  // Embed dense<...> data
+          /*alignment=*/0,
+          /*addr_space=*/0
+      );
+
+      llvm::errs() << "  Generated global: @" << info.name
+                   << " : !llvm.array<" << numElements << " x "
+                   << llvmElementType << ">\n";
     }
 
     return success();
