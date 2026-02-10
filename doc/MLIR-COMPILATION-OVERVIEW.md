@@ -12,15 +12,6 @@ This document provides a high-level overview of how ONNX models are compiled thr
 
 ---
 
-## Key Design Decisions
-
-1. **Explicit state passing**: State is passed as function parameter (no thread-local globals)
-2. **Constants in DLL**: Weights embedded in `.data` section, uploaded to GPU in `init`
-3. **Direct C interface mapping**: MLIR function signatures match C interface exactly
-4. **Dynamic shapes from Day 1**: Rank is compile-time, dimension values are runtime
-
----
-
 ## Compilation Pipeline Overview
 
 ```
