@@ -3,7 +3,7 @@
 
 **Status**: Design in Progress
 **Date**: 2026-02-10
-**Related**: ARCHITECTURE.md, MLIR-COMPILATION-DESIGN.md
+**Related**: ARCHITECTURE.md, MLIR-COMPILATION-DESIGN.md, STATE-AND-CONTEXT.md
 
 ---
 
@@ -36,7 +36,7 @@ In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
 
 ### Decision 1: State-Based Constant Management
 
-**Choice**: Store constants in a state structure with pre-uploaded GPU pointers.
+**Choice**: Store constants in execution state with pre-uploaded GPU pointers.
 
 **Rationale**:
 - Constants have different lifecycle than inputs/outputs (loaded once vs per-inference)
@@ -44,16 +44,18 @@ In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
 - Matches industry standard execution provider patterns (TensorRT, QNN, VitisAI)
 - Clean separation of initialization vs execution concerns
 
-**Architecture**:
+**Architecture** (see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for full design):
 ```c
-struct State {
+// Internal state structure (opaque to C interface)
+struct HipExecutionState {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
+    hipblasLtHandle_t hipblasHandle;
     void** gpu_weights;  // Array of pre-uploaded constant pointers
 };
 ```
 
-Functions receive `%ctx: !hip.context` instead of individual constants.
+**In MLIR**: Functions receive `%ctx: !hip.context` parameter to access pre-uploaded constants.
 
 ### Decision 2: Embed Constants in Compiled DLL
 
@@ -448,29 +450,44 @@ func.func @release_constants(%ctx: !hip.context) -> i32 {
 
 ### B.5: Runtime Interface
 
+For state structure design and lifecycle, see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md).
+
 ```c
-struct State {
+// Internal state structure (opaque to C interface)
+struct HipExecutionState {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
     hipblasLtHandle_t hipblasHandle;
     void** gpu_weights;  // Array of GPU pointers
 };
 
+// Generated functions (called by runtime)
 extern "C" int64_t get_constant_count();
-extern "C" int initialize_constants(void* state_ptr);
-extern "C" int release_constants(void* state_ptr);
+extern "C" int initialize_constants(void* state);
+extern "C" int release_constants(void* state);
 
-int inference_init(void** state_ptr) {
-    State* state = new State();
+// Runtime implementation
+int inference_init(void** out_state) {
+    // Allocate state on heap
+    HipExecutionState* state = new HipExecutionState();
+
+    // Allocate constant pointer array
     state->gpu_weights = new void*[get_constant_count()];
-    initialize_constants(state);  // Upload to GPU
-    *state_ptr = state;
+
+    // Upload constants to GPU
+    initialize_constants(state);
+
+    // Return opaque pointer
+    *out_state = state;
     return 0;
 }
 
-int inference_release(void* state_ptr) {
-    release_constants(state_ptr);
-    delete state;
+int inference_cleanup(void* state) {
+    // Free GPU constant memory
+    release_constants(state);
+
+    // Free state structure
+    delete static_cast<HipExecutionState*>(state);
     return 0;
 }
 ```
