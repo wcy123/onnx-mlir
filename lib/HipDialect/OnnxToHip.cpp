@@ -871,7 +871,10 @@ private:
     target.addIllegalOp<ONNXConstantOp>();
 
     // All other ONNX ops are legal for now (only converting Conv and Constant)
-    target.addLegalDialect<ONNXDialect>();
+    // NOTE: Cannot use addLegalDialect<ONNXDialect>() because it would override
+    // the specific illegal ops above. Instead, operations not explicitly marked
+    // illegal will be legal by default in partial conversion.
+    // target.addLegalDialect<ONNXDialect>();
 
     // Set up rewrite patterns (pass typeConverter and constantRegistry to patterns)
     RewritePatternSet patterns(context);
