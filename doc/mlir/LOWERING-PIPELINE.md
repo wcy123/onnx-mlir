@@ -69,8 +69,10 @@ func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
 - **Operations**: ONNX ops → HIP ops (e.g., `onnx.Conv` → `hip.conv`)
 - **Types**: `tensor<...>` → `memref<...>` (in-place semantics)
 - **Signature**: Add context parameter, output argument, status return
-- **Metadata**: Add module attributes (I/O counts, ranks)
+- **Metadata**: Add module attributes (I/O counts, ranks) - Required for GenerateInterfacePass
 - **Generated**: Constant management helpers
+
+**Why metadata is needed:** When @main signature becomes `(context, inputs, outputs) → i32` in Stage 3, type information is lost (arrays have no compile-time size). GenerateInterfacePass needs to know: (1) how many inputs/outputs to validate, (2) what rank each tensor has for memref struct construction, (3) loop bounds for processing I/O arrays. The metadata preserves this information.
 
 **@main signature at this stage:**
 ```mlir
@@ -91,8 +93,10 @@ func.func @main(%ctx: !hip.context,
 **Module-level changes:**
 ```mlir
 module attributes {
-  hipdnn.input_count = 1 : i64,              // NEW: metadata
-  hipdnn.input_ranks = dense<[4]> : tensor<1xi64>
+  hipdnn.input_count = 1 : i64,              // NEW: metadata for validation
+  hipdnn.input_ranks = dense<[4]> : tensor<1xi64>,  // Input 0 is rank 4
+  hipdnn.output_count = 1 : i64,
+  hipdnn.output_ranks = dense<[2]> : tensor<1xi64>  // Output 0 is rank 2
 } {
   llvm.mlir.global constant @constant_0 ...   // NEW: extracted constants
   func.func @main(...) { ... }
@@ -101,6 +105,11 @@ module attributes {
   func.func @release_constants(...) -> i32
 }
 ```
+
+**Metadata purpose:**
+- `input_count`/`output_count`: Number of inputs/outputs for validation
+- `input_ranks`/`output_ranks`: Tensor ranks for memref struct construction
+- Used by GenerateInterfacePass to generate correct validation and I/O handling code
 
 ---
 
@@ -320,11 +329,18 @@ Each pass builds on the output of previous passes:
 ```
 
 **Prerequisites for GenerateInterfacePass:**
-1. @main with signature: `(context, inputs, outputs) → i32`
-2. Module metadata: `hipdnn.input_count`, `hipdnn.input_ranks`, etc.
-3. Constant helpers: `initialize_constants`, `release_constants`, `get_constant_count`
-4. Context layout: Known struct fields for handles and constants
-5. Tensor interface: `tensor_t` with `data`, `shape`, `rank` fields
+
+1. **@main signature**: `(context, inputs, outputs) → i32` - Generic arrays (no type info)
+2. **Module metadata**: `hipdnn.input_count`, `hipdnn.input_ranks`, etc. - Compensates for lost type information
+   - Tells how many inputs/outputs to expect
+   - Tells what rank each tensor has
+   - Enables validation code generation
+   - Determines memref struct layout (rank determines array sizes)
+3. **Constant helpers**: `initialize_constants`, `release_constants`, `get_constant_count`
+4. **Context layout**: Known struct fields for handles and constants
+5. **Tensor interface**: `tensor_t` with `data`, `shape`, `rank` fields
+
+**Why metadata is critical:** When @main uses array parameters, the signature loses compile-time information about how many inputs/outputs exist and their ranks. Metadata preserves this information so GenerateInterfacePass can generate correct validation and memref construction code.
 
 **See:** [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) for complete prerequisite specifications.
 
