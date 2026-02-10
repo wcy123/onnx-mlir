@@ -130,42 +130,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 
 ## Compilation to DLL
 
-### LLVM IR Generation
-
-```cpp
-mlir::registerLLVMDialectTranslation(*context);
-auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext);
-```
-
-### Native Code Compilation
-
-```cpp
-// Set target (x86_64-pc-windows-msvc or x86_64-unknown-linux-gnu)
-llvmModule->setTargetTriple(TargetTriple.normalize());
-llvmModule->setDataLayout(targetMachine->createDataLayout());
-
-// Emit object file
-llvm::legacy::PassManager pass;
-targetMachine->addPassesToEmitFile(pass, dest, nullptr, llvm::CGFT_ObjectFile);
-pass.run(*llvmModule);
-```
-
-### Linking
-
-```bash
-# Windows (MSVC)
-link.exe /DLL /OUT:inference.dll inference.obj hip.lib miopen.lib hipblaslt.lib
-
-# Linux (GCC)
-gcc -shared -o inference.so inference.o -lhip -lmiopen -lhipblaslt
-```
-
-### EPContext Embedding
-
-- DLL bytes embedded in ONNX model EPContext node
-- CustomOp loads DLL from memory (MemoryModule library)
-- No disk I/O at runtime
-- Fast startup (~1-10ms)
+**TODO**: Document LLVM IR generation, native compilation, linking, and EPContext embedding details.
 
 ---
 
