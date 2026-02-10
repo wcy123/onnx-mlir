@@ -54,6 +54,8 @@ Native DLL (inference.dll / inference.so)
 Embedded in ONNX EPContext
 ```
 
+For detailed transformation through each stage, see [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md).
+
 ---
 
 ## Output: 3-Function Interface
