@@ -84,35 +84,6 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32
 - `initialize_constants(context)`: Expects context with handles created and gpu_constants allocated
 - `release_constants(context)`: Frees GPU constant memory
 
-### Prerequisite 4: Context Struct Layout
-
-**Expected layout:**
-```c
-struct HipExecutionContext {
-    hipStream_t stream;              // field 0
-    miopenHandle_t miopenHandle;     // field 1
-    hipblasLtHandle_t hipblasHandle; // field 2
-    void** gpu_constants;            // field 3: dynamically allocated array
-};
-```
-
-### Prerequisite 5: Tensor Interface Types
-
-**C structs (defined in custom-op):**
-```c
-typedef struct {
-    void* data;
-    int64_t* shape;    // Runtime dimensions
-    int rank;
-    int data_type;
-} tensor_t;
-
-typedef struct {
-    tensor_t* data;
-    size_t count;
-} span_t;
-```
-
 See [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) for complete prerequisite details.
 
 ---
