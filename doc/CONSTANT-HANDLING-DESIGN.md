@@ -250,144 +250,61 @@ for (auto& [value, info] : constantRegistry) {
 
 ### 5. Generated Initialization Functions
 
-#### 5.1 Get Constant Count
+Three functions are generated to manage constant lifecycle:
 
 ```mlir
-llvm.func @get_constant_count() -> i64 {
-  %count = llvm.mlir.constant(200 : i64) : i64
-  llvm.return %count : i64
-}
-```
+// 1. Query constant count
+llvm.func @get_constant_count() -> i64
 
-#### 5.2 Initialize Constants
-
-```mlir
-// Declare HIP runtime functions
-llvm.func @hipMalloc(i64) -> !llvm.ptr
-llvm.func @hipMemcpy(!llvm.ptr, !llvm.ptr, i64, i32) -> i32
-
+// 2. Upload constants to GPU (called once during init)
 llvm.func @initialize_constants(%state_ptr: !llvm.ptr) -> i32 {
-  // Extract state->gpu_weights pointer
-  // Assuming: struct State { stream, handle, ..., void** gpu_weights }
-  // gpu_weights is at offset 3
-  %gpu_weights_field = llvm.getelementptr %state_ptr[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_weights_array = llvm.load %gpu_weights_field : !llvm.ptr
-
-  // Constant 0: Allocate and upload
-  %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
-  %size_0 = llvm.mlir.constant(6912 : i64) : i64  // 1728 * sizeof(float)
-  %gpu_ptr_0 = llvm.call @hipMalloc(%size_0) : (i64) -> !llvm.ptr
-  %memcpy_kind = llvm.mlir.constant(1 : i32) : i32  // hipMemcpyHostToDevice
-  llvm.call @hipMemcpy(%gpu_ptr_0, %data_0, %size_0, %memcpy_kind) : ...
-
-  // Store GPU pointer in state->gpu_weights[0]
-  %slot_0 = llvm.getelementptr %gpu_weights_array[0] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %gpu_ptr_0, %slot_0 : !llvm.ptr
-
-  // Constant 1: Allocate and upload
-  %data_1 = llvm.mlir.addressof @constant_1 : !llvm.ptr
-  %size_1 = llvm.mlir.constant(256 : i64) : i64
-  %gpu_ptr_1 = llvm.call @hipMalloc(%size_1) : (i64) -> !llvm.ptr
-  llvm.call @hipMemcpy(%gpu_ptr_1, %data_1, %size_1, %memcpy_kind) : ...
-  %slot_1 = llvm.getelementptr %gpu_weights_array[1] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %gpu_ptr_1, %slot_1 : !llvm.ptr
-
-  // ... repeat for all 200 constants
-
-  %success = llvm.mlir.constant(0 : i32) : i32
-  llvm.return %success : i32
+  // For each constant:
+  // - Get CPU data: llvm.mlir.addressof @constant_N
+  // - Allocate GPU: hipMalloc(size)
+  // - Upload: hipMemcpy(gpu_ptr, cpu_ptr, size, HostToDevice)
+  // - Store: state->gpu_weights[N] = gpu_ptr
 }
-```
 
-#### 5.3 Release Constants
-
-```mlir
-llvm.func @hipFree(!llvm.ptr) -> i32
-
+// 3. Free GPU memory (called during cleanup)
 llvm.func @release_constants(%state_ptr: !llvm.ptr) -> i32 {
-  // Extract state->gpu_weights pointer
-  %gpu_weights_field = llvm.getelementptr %state_ptr[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_weights_array = llvm.load %gpu_weights_field : !llvm.ptr
-
-  // Free GPU memory for each constant
-  %slot_0 = llvm.getelementptr %gpu_weights_array[0] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_ptr_0 = llvm.load %slot_0 : !llvm.ptr
-  llvm.call @hipFree(%gpu_ptr_0) : (!llvm.ptr) -> i32
-
-  %slot_1 = llvm.getelementptr %gpu_weights_array[1] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_ptr_1 = llvm.load %slot_1 : !llvm.ptr
-  llvm.call @hipFree(%gpu_ptr_1) : (!llvm.ptr) -> i32
-
-  // ... repeat for all 200 constants
-
-  %success = llvm.mlir.constant(0 : i32) : i32
-  llvm.return %success : i32
+  // For each constant:
+  // - Load GPU pointer from state->gpu_weights[N]
+  // - Free: hipFree(gpu_ptr)
 }
 ```
 
-### 6. C Interface
+**Implementation details**: See HIP→LLVM lowering pass (out of scope for this document).
 
-The generated functions are called from the runtime C++ code:
+### 6. Runtime C Interface
 
+**State Structure**:
 ```c
-// Declarations (generated functions from DLL)
+struct State {
+    hipStream_t stream;
+    miopenHandle_t miopenHandle;
+    hipblasLtHandle_t hipblasHandle;
+    void** gpu_weights;  // Array of GPU pointers (pre-uploaded constants)
+};
+```
+
+**Runtime calls generated functions**:
+```c
 extern "C" int64_t get_constant_count();
 extern "C" int initialize_constants(void* state_ptr);
 extern "C" int release_constants(void* state_ptr);
-extern "C" int main(void* state_ptr, void* input_ptr, void* output_ptr);
 
-// State structure (defined by runtime)
-struct State {
-    hipStream_t stream;                // offset 0
-    miopenHandle_t miopenHandle;       // offset 8
-    hipblasLtHandle_t hipblasHandle;   // offset 16
-    void** gpu_weights;                // offset 24 - array of GPU pointers
-};
-
-// Runtime initialization
 int inference_init(void** state_ptr) {
-    // Allocate state
     State* state = new State();
-
-    // Initialize HIP/MIOpen handles
-    hipStreamCreate(&state->stream);
-    miopenCreate(&state->miopenHandle);
-
-    // Query constant count
-    int64_t count = get_constant_count();  // Returns 200
-
-    // Allocate array for GPU pointers
-    state->gpu_weights = new void*[count];
-
-    // Upload constants to GPU
-    int result = initialize_constants(state);
-    if (result != 0) {
-        return result;  // Failed to initialize
-    }
-
+    state->gpu_weights = new void*[get_constant_count()];
+    initialize_constants(state);  // Upload to GPU
     *state_ptr = state;
     return 0;
 }
 
-// Runtime cleanup
 int inference_release(void* state_ptr) {
-    State* state = (State*)state_ptr;
-
-    // Free GPU memory for constants
-    release_constants(state_ptr);
-
-    // Free state structure
-    delete[] state->gpu_weights;
-    miopenDestroy(state->miopenHandle);
-    hipStreamDestroy(state->stream);
+    release_constants(state_ptr);  // Free GPU memory
     delete state;
-
     return 0;
-}
-
-// Runtime inference
-int inference_compute(void* state_ptr, void* input_ptr, void* output_ptr) {
-    return main(state_ptr, input_ptr, output_ptr);
 }
 ```
 
