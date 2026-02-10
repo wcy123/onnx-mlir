@@ -240,16 +240,21 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
           loc, i64Type, rewriter.getI64IntegerAttr(value));
     };
 
-    Value kernelH = createI64Const(kernelShape[0]);
-    Value kernelW = createI64Const(kernelShape[1]);
-    Value strideH = createI64Const(strides[0]);
-    Value strideW = createI64Const(strides[1]);
-    Value padTop = createI64Const(pads[0]);
-    Value padLeft = createI64Const(pads[1]);
-    Value padBottom = createI64Const(pads[2]);
-    Value padRight = createI64Const(pads[3]);
-    Value dilationH = createI64Const(dilations[0]);
-    Value dilationW = createI64Const(dilations[1]);
+    // Extract integer values from attributes
+    auto getI64 = [](mlir::Attribute attr) -> int64_t {
+      return cast<mlir::IntegerAttr>(attr).getInt();
+    };
+
+    Value kernelH = createI64Const(getI64(kernelShape[0]));
+    Value kernelW = createI64Const(getI64(kernelShape[1]));
+    Value strideH = createI64Const(getI64(strides[0]));
+    Value strideW = createI64Const(getI64(strides[1]));
+    Value padTop = createI64Const(getI64(pads[0]));
+    Value padLeft = createI64Const(getI64(pads[1]));
+    Value padBottom = createI64Const(getI64(pads[2]));
+    Value padRight = createI64Const(getI64(pads[3]));
+    Value dilationH = createI64Const(getI64(dilations[0]));
+    Value dilationW = createI64Const(getI64(dilations[1]));
     Value groupVal = createI64Const(group);
 
     // Build function signature
