@@ -40,9 +40,11 @@ func.func @main(%input: tensor<1x3x224x224xf32>,
 
 ## After `--convert-onnx-to-hip`
 
-**Command**: `hip-opt test.mlir --convert-onnx-to-hip`
+**Command**: `hip-opt test_conv_inplace.mlir --convert-onnx-to-hip`
 
 **Status**: ✅ **Working** (tested and verified)
+
+**Critical fix required**: Arith dialect must be marked as legal in ConversionTarget (line 435 in OnnxToHip.cpp), because ReturnOpConversion creates `arith.constant` for the i32 status code.
 
 **Real output** (from working implementation):
 
@@ -113,9 +115,9 @@ func.func @main(%arg0: !hip.context,
 
 **Command**: `hip-opt test.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
 
-**Status**: ✅ Implemented (ConvOpLowering pattern added)
+**Status**: ✅ **Working** (tested and verified)
 
-**Expected output** (based on implementation):
+**Real output** (from working implementation):
 
 ```mlir
 module {
@@ -296,17 +298,19 @@ extern "C" int miopenConvolutionForward(
 **Features**:
 - ✅ OnnxToHipTypeConverter: tensor → memref with GPU address space
 - ✅ ConvToHipPattern: ONNX Conv → HIP Conv with in-place semantics
-- ✅ ReturnOpConversion: Convert return operands to memref types
-- ✅ Function signature conversion: Add !hip.context parameter
+- ✅ ReturnOpConversion: Convert return to destination-passing style (memref.copy + i32 status)
+- ✅ Function signature conversion: Add !hip.context parameter and output arguments
 - ✅ Block argument type conversion
+- ✅ **Critical fix** (line 435): Arith dialect marked as legal in ConversionTarget
+
+**Root cause of initial failure**: ReturnOpConversion creates `arith.constant` for i32 status code, but Arith dialect wasn't marked as legal in the conversion target, causing "failed to legalize operation 'func.return'" error.
 
 **Test**:
 ```bash
-cd tools/hip-opt
-hip-opt test_conv_inplace.mlir --convert-onnx-to-hip
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe tools/hip-opt/test_conv_inplace.mlir --convert-onnx-to-hip
 ```
 
-**Result**: Clean MLIR output with in-place hip.conv operation.
+**Result**: Clean MLIR output with in-place hip.conv operation, memref.copy for destination-passing, and i32 return status.
 
 **Documentation**: `notes/ONNX_TO_HIP_CONVERSION_WORKING.md`
 

@@ -431,6 +431,9 @@ public:
     // Mark MemRef dialect as legal (we generate memref.dim for dynamic shapes)
     target.addLegalDialect<memref::MemRefDialect>();
 
+    // Mark Arith dialect as legal (we generate arith.constant for i32 status)
+    target.addLegalDialect<arith::ArithDialect>();
+
     // Mark ONNX Conv as illegal (must be lowered)
     target.addIllegalOp<ONNXConvOp>();
 
