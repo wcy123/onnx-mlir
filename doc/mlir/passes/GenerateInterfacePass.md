@@ -84,21 +84,34 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32
 - `initialize_constants(context)`: Expects context with handles created and gpu_constants allocated
 - `release_constants(context)`: Frees GPU constant memory
 
-### Prerequisite 4: Interface Functions Must NOT Exist
+### Prerequisite 4: Context Struct Layout
 
-**CRITICAL: The pass must fail if interface functions already exist.**
+**Expected layout:**
+```c
+struct HipExecutionContext {
+    hipStream_t stream;              // field 0
+    miopenHandle_t miopenHandle;     // field 1
+    hipblasLtHandle_t hipblasHandle; // field 2
+    void** gpu_constants;            // field 3: dynamically allocated array
+};
+```
 
-The following functions must NOT be present in the module:
-- `inference_init`
-- `inference_compute`
-- `inference_cleanup`
+### Prerequisite 5: Tensor Interface Types
 
-**Why?** These are the OUTPUT of this pass. If they already exist:
-- The pass has already run (accidental double-run)
-- Another pass/tool generated them (naming conflict)
-- Attempting to generate them again would cause duplicate symbol errors
+**C structs (defined in custom-op):**
+```c
+typedef struct {
+    void* data;
+    int64_t* shape;    // Runtime dimensions
+    int rank;
+    int data_type;
+} tensor_t;
 
-**What to do:** The pass should check for these symbols in `verifyPrerequisites()` and fail if found.
+typedef struct {
+    tensor_t* data;
+    size_t count;
+} span_t;
+```
 
 See [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) for complete prerequisite details.
 
@@ -176,6 +189,29 @@ inference_cleanup(state);
 
 ---
 
+## C-ABI Safety
+
+**CRITICAL:** All generated functions MUST be C-ABI compatible for cross-language DLL calling.
+
+**Required attributes:**
+```mlir
+llvm.func @function_name(...) -> i32 attributes {
+  llvm.emit_c_interface,     // Use C calling convention (cdecl/sysv)
+  sym_visibility = "public"  // Export symbol from DLL
+}
+```
+
+**Platform-specific export (alternative):**
+- **Windows**: `passthrough = ["dllexport"]`
+- **Linux**: `sym_visibility = "public"` (default visibility)
+
+**Why this matters:**
+- Without `llvm.emit_c_interface`: May use wrong calling convention, causing stack corruption
+- Without export attributes: Symbol won't be visible in DLL export table
+- Name mangling: LLVM functions use mangled names by default; C interface ensures `extern "C"` semantics
+
+---
+
 ## Detailed MLIR Implementations
 
 ### Function 1: inference_init
@@ -187,226 +223,93 @@ int inference_init(void** out_state);
 
 **MLIR Implementation:**
 ```mlir
-llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32 {
-  // Define constants used throughout function
-  %c0_i32 = llvm.mlir.constant(0 : i32) : i32
-  %c1_i64 = llvm.mlir.constant(1 : i64) : i64
-  %null = llvm.mlir.zero : !llvm.ptr
-
-  // ============================================================================
-  // Step 1: Allocate context struct on heap
-  // ============================================================================
-  %context_size = llvm.mlir.constant(32 : i64) : i64  // 4 pointers × 8 bytes = 32
+llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
+    attributes {
+      llvm.emit_c_interface,
+      sym_visibility = "public"
+    } {
+  // 1. Allocate context
+  %context_size = llvm.mlir.constant(32 : i64) : i64
   %context = llvm.call @malloc(%context_size) : (i64) -> !llvm.ptr
-
-  // Check if allocation failed (malloc returns NULL on failure)
   %is_null = llvm.icmp "eq" %context, %null : !llvm.ptr
   llvm.cond_br %is_null, ^error_alloc, ^cont1
 
 ^cont1:
-  // ============================================================================
-  // Step 2: Create HIP stream for asynchronous GPU operations
-  // ============================================================================
-  %stream_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr  // Stack allocate pointer to receive handle
+  // 2. Create stream
+  %stream_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
   %stream_ret = llvm.call @hipStreamCreate(%stream_ptr) : (!llvm.ptr) -> i32
-
-  // Check if stream creation failed (returns non-zero on error)
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0_i32 : i32
+  %stream_failed = llvm.icmp "ne" %stream_ret, %c0 : i32
   llvm.cond_br %stream_failed, ^error_stream, ^cont2
 
 ^cont2:
-  // Stream created successfully - load it and store in context.stream (field 0)
   %stream = llvm.load %stream_ptr : !llvm.ptr
   %stream_field = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %stream, %stream_field : !llvm.ptr
 
-  // ============================================================================
-  // Step 3: Create MIOpen handle for DNN operations
-  // ============================================================================
-  %miopen_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
-  %miopen_ret = llvm.call @miopenCreate(%miopen_ptr) : (!llvm.ptr) -> i32
-
-  // Check if MIOpen handle creation failed
-  %miopen_failed = llvm.icmp "ne" %miopen_ret, %c0_i32 : i32
-  llvm.cond_br %miopen_failed, ^error_miopen, ^cont3
-
-^cont3:
-  // Load MIOpen handle and associate it with our stream
+  // 3. Create MIOpen handle
+  %miopen_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
+  llvm.call @miopenCreate(%miopen_ptr) : (!llvm.ptr) -> i32
   %miopen = llvm.load %miopen_ptr : !llvm.ptr
-  %setstream_ret = llvm.call @miopenSetStream(%miopen, %stream) : (!llvm.ptr, !llvm.ptr) -> i32
-
-  // Check if stream association failed
-  %setstream_failed = llvm.icmp "ne" %setstream_ret, %c0_i32 : i32
-  llvm.cond_br %setstream_failed, ^error_miopen_stream, ^cont4
-
-^cont4:
-  // Store MIOpen handle in context.miopenHandle (field 1)
+  llvm.call @miopenSetStream(%miopen, %stream) : (!llvm.ptr, !llvm.ptr) -> i32
   %miopen_field = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %miopen, %miopen_field : !llvm.ptr
 
-  // ============================================================================
-  // Step 4: Create hipBLASLt handle for matrix operations
-  // ============================================================================
-  %hipblas_ptr = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
-  %hipblas_ret = llvm.call @hipblasLtCreate(%hipblas_ptr) : (!llvm.ptr) -> i32
-
-  // Check if hipBLAS handle creation failed
-  %hipblas_failed = llvm.icmp "ne" %hipblas_ret, %c0_i32 : i32
-  llvm.cond_br %hipblas_failed, ^error_hipblas, ^cont5
-
-^cont5:
-  // Store hipBLAS handle in context.hipblasHandle (field 2)
+  // 4. Create hipBLAS handle
+  %hipblas_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
+  llvm.call @hipblasLtCreate(%hipblas_ptr) : (!llvm.ptr) -> i32
   %hipblas = llvm.load %hipblas_ptr : !llvm.ptr
   %hipblas_field = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %hipblas, %hipblas_field : !llvm.ptr
 
-  // ============================================================================
-  // Step 5: Allocate array to hold GPU constant pointers
-  // ============================================================================
+  // 5. Allocate gpu_constants array
   %count = llvm.call @get_constant_count() : () -> i64
   %ptr_size = llvm.mlir.constant(8 : i64) : i64
-  %array_size = llvm.mul %count, %ptr_size : i64  // count × sizeof(void*)
+  %array_size = llvm.mul %count, %ptr_size : i64
   %gpu_constants = llvm.call @malloc(%array_size) : (i64) -> !llvm.ptr
-
-  // Check if allocation failed
-  %constants_null = llvm.icmp "eq" %gpu_constants, %null : !llvm.ptr
-  llvm.cond_br %constants_null, ^error_constants_alloc, ^cont6
-
-^cont6:
-  // Store gpu_constants array pointer in context.gpu_constants (field 3)
   %gpu_constants_field = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %gpu_constants, %gpu_constants_field : !llvm.ptr
 
-  // ============================================================================
-  // Step 6: Upload constants to GPU and populate gpu_constants array
-  // ============================================================================
+  // 6. Initialize constants
   %init_ret = llvm.call @initialize_constants(%context) : (!llvm.ptr) -> i32
-
-  // Check if constant initialization failed
-  %init_failed = llvm.icmp "ne" %init_ret, %c0_i32 : i32
+  %init_failed = llvm.icmp "ne" %init_ret, %c0 : i32
   llvm.cond_br %init_failed, ^error_init, ^success
 
-// ==============================================================================
-// SUCCESS PATH: Return context pointer to caller
-// ==============================================================================
 ^success:
   llvm.store %context, %out_state : !llvm.ptr
-  llvm.return %c0_i32 : i32
-
-// ==============================================================================
-// ERROR PATHS: Clean up what was created, then return error code
-// ==============================================================================
+  llvm.return %c0 : i32
 
 ^error_init:
-  // initialize_constants failed - need to destroy ALL handles and free everything
-  // NOTE: initialize_constants cleans up its own partial work, so we don't
-  // need to call release_constants
-
-  // Load handles from context struct (they were stored successfully)
-  %hipblas_ptr_err = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %hipblas_err = llvm.load %hipblas_ptr_err : !llvm.ptr
-  llvm.call @hipblasLtDestroy(%hipblas_err) : (!llvm.ptr) -> i32
-
-  %miopen_ptr_err = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_err = llvm.load %miopen_ptr_err : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_err) : (!llvm.ptr) -> i32
-
-  %stream_ptr_err = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream_err = llvm.load %stream_ptr_err : !llvm.ptr
-  llvm.call @hipStreamDestroy(%stream_err) : (!llvm.ptr) -> i32
-
-  // Free gpu_constants array (was allocated successfully)
-  %gpu_constants_ptr_err = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_err = llvm.load %gpu_constants_ptr_err : !llvm.ptr
-  llvm.call @free(%gpu_constants_err) : (!llvm.ptr) -> ()
-
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c3_i32 = llvm.mlir.constant(3 : i32) : i32
-  llvm.return %c3_i32 : i32
-
-^error_constants_alloc:
-  // gpu_constants allocation failed - destroy all handles, free context
-  %hipblas_ptr_ca = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %hipblas_ca = llvm.load %hipblas_ptr_ca : !llvm.ptr
-  llvm.call @hipblasLtDestroy(%hipblas_ca) : (!llvm.ptr) -> i32
-
-  %miopen_ptr_ca = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_ca = llvm.load %miopen_ptr_ca : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_ca) : (!llvm.ptr) -> i32
-
-  %stream_ptr_ca = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream_ca = llvm.load %stream_ptr_ca : !llvm.ptr
-  llvm.call @hipStreamDestroy(%stream_ca) : (!llvm.ptr) -> i32
-
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c4_i32 = llvm.mlir.constant(4 : i32) : i32
-  llvm.return %c4_i32 : i32
-
-^error_hipblas:
-  // hipBLAS creation failed - destroy MIOpen handle and stream, free context
-  %miopen_ptr_hb = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_hb = llvm.load %miopen_ptr_hb : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_hb) : (!llvm.ptr) -> i32
-
-  %stream_ptr_hb = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream_hb = llvm.load %stream_ptr_hb : !llvm.ptr
-  llvm.call @hipStreamDestroy(%stream_hb) : (!llvm.ptr) -> i32
-
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c5_i32 = llvm.mlir.constant(5 : i32) : i32
-  llvm.return %c5_i32 : i32
-
-^error_miopen_stream:
-  // miopenSetStream failed - destroy MIOpen handle, destroy stream, free context
-  // Note: %miopen is in scope (loaded before setStream call)
-  llvm.call @miopenDestroy(%miopen) : (!llvm.ptr) -> i32
-
-  %stream_ptr_ms = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream_ms = llvm.load %stream_ptr_ms : !llvm.ptr
-  llvm.call @hipStreamDestroy(%stream_ms) : (!llvm.ptr) -> i32
-
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c6_i32 = llvm.mlir.constant(6 : i32) : i32
-  llvm.return %c6_i32 : i32
-
-^error_miopen:
-  // miopenCreate failed - destroy stream, free context
-  %stream_ptr_m = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream_m = llvm.load %stream_ptr_m : !llvm.ptr
-  llvm.call @hipStreamDestroy(%stream_m) : (!llvm.ptr) -> i32
-
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c7_i32 = llvm.mlir.constant(7 : i32) : i32
-  llvm.return %c7_i32 : i32
+  // Cleanup: destroy handles, free context
+  llvm.call @hipblasLtDestroy(%hipblas)
+  llvm.call @miopenDestroy(%miopen)
+  llvm.call @hipStreamDestroy(%stream)
+  llvm.call @free(%gpu_constants)
+  llvm.call @free(%context)
+  %c3 = llvm.mlir.constant(3 : i32) : i32
+  llvm.return %c3 : i32
 
 ^error_stream:
-  // Stream creation failed - only need to free context
-  llvm.call @free(%context) : (!llvm.ptr) -> ()
-  %c2_i32 = llvm.mlir.constant(2 : i32) : i32
-  llvm.return %c2_i32 : i32
+  llvm.call @free(%context)
+  %c2 = llvm.mlir.constant(2 : i32) : i32
+  llvm.return %c2 : i32
 
 ^error_alloc:
-  // Context allocation failed - nothing to clean up
-  %c1_i32 = llvm.mlir.constant(1 : i32) : i32
-  llvm.return %c1_i32 : i32
+  %c1 = llvm.mlir.constant(1 : i32) : i32
+  llvm.return %c1 : i32
 }
 ```
 
 **Error codes:**
 - 0: Success
-- 1: Context allocation failed (malloc returned NULL)
-- 2: Stream creation failed (hipStreamCreate failed)
-- 3: Constant initialization failed (initialize_constants failed)
-- 4: GPU constants array allocation failed
-- 5: hipBLAS handle creation failed
-- 6: MIOpen stream association failed (miopenSetStream failed)
-- 7: MIOpen handle creation failed (miopenCreate failed)
+- 1: Context allocation failed
+- 2: Handle creation failed
+- 3: Constant initialization failed
 
 ### Function 2: inference_compute
 
 **C Signature:**
 ```c
-int inference_compute(void* state, span_t inputs, span_t outputs);
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
 ```
 
 **MLIR Implementation:**
@@ -414,7 +317,11 @@ int inference_compute(void* state, span_t inputs, span_t outputs);
 llvm.func @inference_compute(%state: !llvm.ptr,
                               %inputs: !llvm.ptr,   // span_t*
                               %outputs: !llvm.ptr)  // span_t*
-                              -> i32 {
+                              -> i32
+    attributes {
+      llvm.emit_c_interface,
+      sym_visibility = "public"
+    } {
   // Read module metadata
   %expected_input_count = <from hipdnn.input_count attribute>
   %expected_input_ranks = <from hipdnn.input_ranks attribute>
@@ -513,7 +420,11 @@ int inference_cleanup(void* state);
 
 **MLIR Implementation:**
 ```mlir
-llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32 {
+llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
+    attributes {
+      llvm.emit_c_interface,
+      sym_visibility = "public"
+    } {
   // 1. Release constants
   llvm.call @release_constants(%state) : (!llvm.ptr) -> i32
 
@@ -544,6 +455,50 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32 {
   llvm.return %c0 : i32
 }
 ```
+
+---
+
+## Verifying C-ABI Compliance
+
+After generating LLVM IR and compiling to DLL, verify exports:
+
+**Windows:**
+```bash
+dumpbin /EXPORTS inference.dll
+# Should show:
+#   inference_init
+#   inference_compute
+#   inference_cleanup
+```
+
+**Linux:**
+```bash
+nm -D inference.so | grep inference
+# Should show:
+#   T inference_init
+#   T inference_compute
+#   T inference_cleanup
+```
+
+**Calling from C:**
+```c
+// Load DLL
+HMODULE dll = LoadLibrary("inference.dll");  // Windows
+// void* dll = dlopen("inference.so", RTLD_NOW);  // Linux
+
+// Get function pointers
+typedef int (*inference_init_t)(void**);
+inference_init_t init = (inference_init_t)GetProcAddress(dll, "inference_init");
+
+// Call
+void* state = NULL;
+int ret = init(&state);  // Must work without stack corruption
+```
+
+**Common Issues:**
+- Missing exports → Symbol not found at runtime
+- Wrong calling convention → Stack corruption, crashes
+- Name mangling → Can't find symbol (looks for `_Z14inference_initPPv` instead of `inference_init`)
 
 ---
 
@@ -603,11 +558,6 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count")) return false;
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants")) return false;
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants")) return false;
-
-    // Check interface functions DON'T exist (prevent double-run)
-    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_init")) return false;
-    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_compute")) return false;
-    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_cleanup")) return false;
 
     return true;
   }

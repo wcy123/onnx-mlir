@@ -73,7 +73,7 @@ int inference_init(void** out_state);
 
 ### 2. inference_compute
 ```c
-int inference_compute(void* state, span_t inputs, span_t outputs);
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
 ```
 - Parses input/output tensors from span_t
 - Executes GPU operations (all inline)
