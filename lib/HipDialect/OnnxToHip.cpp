@@ -109,19 +109,19 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // First argument should be the state (typed as !hip.context for now)
     auto &entryBlock = funcOp.getBody().front();
     if (entryBlock.getNumArguments() == 0) {
-      return rewriter.notifyMatchFailure(convOp, "Function has no arguments (expected state as first arg)");
+      return rewriter.notifyMatchFailure(convOp, "Function has no arguments (expected context as first arg)");
     }
 
-    Value state = entryBlock.getArgument(0);
+    Value context = entryBlock.getArgument(0);
 
-    // Verify it's a handle type (in Phase 1, state is represented as !hip.context)
-    if (!isa<hip::ContextType>(state.getType())) {
-      return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.context (expected state)");
+    // Verify it's a context type
+    if (!isa<hip::ContextType>(context.getType())) {
+      return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.context");
     }
 
-    // Pass state directly to hip.conv
-    // The hip.conv operation will use this state to access miopenHandle during HIP→LLVM lowering
-    Value handle = state;
+    // Pass context directly to hip.conv
+    // The hip.conv operation will use this context to access miopenHandle during HIP→LLVM lowering
+    Value handle = context;
 
     // ⭐ IN-PLACE SEMANTICS (Phase 1: Naive inline allocation)
     // Allocate output buffer on GPU using hip.alloc
@@ -353,6 +353,14 @@ public:
 
     // Step 2: Add %ctx: !hip.context parameter to function if not present
     // Do this BEFORE conversion so patterns see the correct function signature
+    //
+    // NOTE: Pure ONNX-MLIR functions never have a ctx argument - that's
+    // something we introduce during HIP lowering. However, we check for it
+    // anyway to make this pass idempotent (safe to run multiple times).
+    // This defensive check prevents adding duplicate context parameters if:
+    // - The pass is accidentally run twice on the same function
+    // - We're processing partially-lowered mixed IR
+    // - The function was already processed in an earlier pipeline stage
     auto &entryBlock = func.getBody().front();
     bool hasContext = false;
     if (entryBlock.getNumArguments() > 0) {
@@ -362,7 +370,15 @@ public:
       }
     }
 
-    if (!hasContext) {
+    // If context already exists, the function was already lowered - skip it
+    // Running conversion patterns on already-lowered code is both wasteful
+    // and potentially incorrect (patterns expect ONNX ops, not HIP ops)
+    if (hasContext) {
+      // Function is in HIP dialect 
+      return;
+    }
+
+    {
       // Insert context parameter as first argument
       OpBuilder builder(context);
       auto contextType = hip::ContextType::get(context);
@@ -412,9 +428,6 @@ public:
 
     // Step 3: Set up conversion target
     ConversionTarget target(*context);
-
-    // Mark HIP dialect as legal
-    target.addLegalDialect<hip::HipDialect>();
 
     // Mark HIP dialect as legal
     target.addLegalDialect<hip::HipDialect>();
