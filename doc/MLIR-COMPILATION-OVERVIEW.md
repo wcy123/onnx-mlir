@@ -89,9 +89,37 @@ int inference_cleanup(void* state);
 
 ---
 
+### Parameter Details
+
 **About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
 
-**About `span_t`:** Array of input/output tensors from CustomOp (CPU memory). Wrapper functions copy inputs to GPU (H2D), call computation, then copy outputs back to CPU (D2H). See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
+**About `span_t` and tensor interface:**
+
+The C interface uses these structs to pass tensors between CustomOp and compiled DLL:
+
+```c
+// Single tensor descriptor
+typedef struct {
+    void* data;        // Pointer to tensor data (CPU or GPU memory)
+    int64_t* shape;    // Runtime dimensions (e.g., [2, 3, 256, 256])
+    int rank;          // Number of dimensions (e.g., 4)
+    int data_type;     // Element type (float32, int64, etc.)
+} tensor_t;
+
+// Array of tensors
+typedef struct {
+    tensor_t* data;    // Array of tensor descriptors
+    size_t count;      // Number of tensors (N inputs or M outputs)
+} span_t;
+```
+
+**Usage in inference_compute:**
+- User provides `inputs` (span_t with N tensors) and `outputs` (span_t with M tensors)
+- `inference_compute` loads runtime dimensions from `tensor_t.shape`
+- Builds MLIR memref structs with these runtime values
+- Calls `@main` which executes GPU computation
+
+See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete interface specification.
 
 ---
 
