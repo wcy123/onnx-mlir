@@ -81,13 +81,6 @@ func.func @main(%ctx: !hip.context,
                 %input0: memref<...>, %input1: memref<...>, ..., %inputN: memref<...>,
                 %output0: memref<...>, %output1: memref<...>, ..., %outputM: memref<...>)
                 -> i32
-
-// Example: 2 inputs, 2 outputs (dynamic shapes)
-func.func @main(%ctx: !hip.context,
-                %input0: memref<?x?x?x?xf32>,
-                %input1: memref<?x?xf32>,
-                %output0: memref<?x?xf32>,
-                %output1: memref<?xf32>) -> i32
 ```
 
 **Module-level changes:**
