@@ -660,10 +660,13 @@ private:
 
     // 1. Generate get_constant_count() -> i64
     {
+      // Reset insertion point to end of module for each function
+      builder.setInsertionPointToEnd(module.getBody());
+
       auto i64Type = builder.getI64Type();
-      auto funcType = builder.getFunctionType({}, {i64Type});
+      auto llvmFuncType = LLVM::LLVMFunctionType::get(i64Type, {});
       auto funcOp = builder.create<LLVM::LLVMFuncOp>(
-          loc, "get_constant_count", funcType, LLVM::Linkage::External);
+          loc, "get_constant_count", llvmFuncType, LLVM::Linkage::External);
 
       Block *entryBlock = funcOp.addEntryBlock(builder);
       builder.setInsertionPointToStart(entryBlock);
@@ -679,6 +682,9 @@ private:
 
     // 2. Generate initialize_constants(%ctx: !hip.context) -> i32
     {
+      // Reset insertion point to end of module for each function
+      builder.setInsertionPointToEnd(module.getBody());
+
       auto contextType = hip::ContextType::get(builder.getContext());
       auto i32Type = builder.getI32Type();
       auto funcType = builder.getFunctionType({contextType}, {i32Type});
@@ -725,6 +731,9 @@ private:
 
     // 3. Generate release_constants(%ctx: !hip.context) -> i32
     {
+      // Reset insertion point to end of module for each function
+      builder.setInsertionPointToEnd(module.getBody());
+
       auto contextType = hip::ContextType::get(builder.getContext());
       auto i32Type = builder.getI32Type();
       auto funcType = builder.getFunctionType({contextType}, {i32Type});
