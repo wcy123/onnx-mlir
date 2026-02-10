@@ -420,8 +420,13 @@ public:
       return;
     }
 
+    // Phase 4: Generate initialization functions
+    if (failed(generateInitializationFunctions(module))) {
+      signalPassFailure();
+      return;
+    }
+
     // Phase 1: Process each ONNX function
-    // TODO Phase 4: Generate initialization functions
 
     for (auto func : module.getOps<func::FuncOp>()) {
       // Skip non-ONNX functions
@@ -567,6 +572,121 @@ private:
       llvm::errs() << "  Generated global: @" << info.name
                    << " : !llvm.array<" << numElements << " x "
                    << llvmElementType << ">\n";
+    }
+
+    return success();
+  }
+
+  /// Generate initialization functions for constant management
+  LogicalResult generateInitializationFunctions(ModuleOp module) {
+    if (constantRegistry_.empty()) {
+      return success();  // No constants, no initialization needed
+    }
+
+    OpBuilder builder(module.getBodyRegion());
+    auto loc = module.getLoc();
+
+    llvm::errs() << "[ONNX→HIP] Generating initialization functions\n";
+
+    // 1. Generate get_constant_count() -> i64
+    {
+      auto i64Type = builder.getI64Type();
+      auto funcType = builder.getFunctionType({}, {i64Type});
+      auto funcOp = builder.create<LLVM::LLVMFuncOp>(
+          loc, "get_constant_count", funcType, LLVM::Linkage::External);
+
+      Block *entryBlock = funcOp.addEntryBlock(builder);
+      builder.setInsertionPointToStart(entryBlock);
+
+      // Return constant count
+      Value count = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(constantRegistry_.size()));
+      builder.create<LLVM::ReturnOp>(loc, count);
+
+      llvm::errs() << "  Generated: get_constant_count() -> "
+                   << constantRegistry_.size() << "\n";
+    }
+
+    // 2. Generate initialize_constants(%ctx: !hip.context) -> i32
+    {
+      auto contextType = hip::ContextType::get(builder.getContext());
+      auto i32Type = builder.getI32Type();
+      auto funcType = builder.getFunctionType({contextType}, {i32Type});
+      auto funcOp = builder.create<func::FuncOp>(
+          loc, "initialize_constants", funcType);
+      funcOp.setPublic();
+
+      Block *entryBlock = funcOp.addEntryBlock();
+      builder.setInsertionPointToStart(entryBlock);
+
+      Value ctx = entryBlock->getArgument(0);
+
+      // For each constant: upload to GPU
+      for (const auto &entry : constantRegistry_) {
+        const auto &info = entry.second;
+
+        // Get address of global constant
+        auto ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+        Value dataPtr = builder.create<LLVM::AddressOfOp>(
+            loc, ptrType, info.name);
+
+        // Create index constant
+        Value index = builder.create<arith::ConstantOp>(
+            loc, builder.getI64Type(),
+            builder.getI64IntegerAttr(info.globalIndex));
+
+        // Create size constant
+        Value size = builder.create<arith::ConstantOp>(
+            loc, builder.getI64Type(),
+            builder.getI64IntegerAttr(info.sizeInBytes));
+
+        // Call hip.upload_constant
+        builder.create<hip::UploadConstantOp>(loc, ctx, index, dataPtr, size);
+      }
+
+      // Return success (0)
+      Value success = builder.create<arith::ConstantOp>(
+          loc, i32Type, builder.getI32IntegerAttr(0));
+      builder.create<func::ReturnOp>(loc, success);
+
+      llvm::errs() << "  Generated: initialize_constants() with "
+                   << constantRegistry_.size() << " uploads\n";
+    }
+
+    // 3. Generate release_constants(%ctx: !hip.context) -> i32
+    {
+      auto contextType = hip::ContextType::get(builder.getContext());
+      auto i32Type = builder.getI32Type();
+      auto funcType = builder.getFunctionType({contextType}, {i32Type});
+      auto funcOp = builder.create<func::FuncOp>(
+          loc, "release_constants", funcType);
+      funcOp.setPublic();
+
+      Block *entryBlock = funcOp.addEntryBlock();
+      builder.setInsertionPointToStart(entryBlock);
+
+      Value ctx = entryBlock->getArgument(0);
+
+      // For each constant: release from GPU
+      for (const auto &entry : constantRegistry_) {
+        const auto &info = entry.second;
+
+        // Create index constant
+        Value index = builder.create<arith::ConstantOp>(
+            loc, builder.getI64Type(),
+            builder.getI64IntegerAttr(info.globalIndex));
+
+        // Call hip.release_constant
+        builder.create<hip::ReleaseConstantOp>(loc, ctx, index);
+      }
+
+      // Return success (0)
+      Value success = builder.create<arith::ConstantOp>(
+          loc, i32Type, builder.getI32IntegerAttr(0));
+      builder.create<func::ReturnOp>(loc, success);
+
+      llvm::errs() << "  Generated: release_constants() with "
+                   << constantRegistry_.size() << " releases\n";
     }
 
     return success();

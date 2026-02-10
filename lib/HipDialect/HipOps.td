@@ -5,6 +5,7 @@ include "HipDialect.td"
 include "HipTypes.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpBase.td"
+include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 
 class Hip_Op<string mnemonic, list<Trait> traits = []> :
     Op<Hip_Dialect, mnemonic, traits>;
@@ -245,6 +246,109 @@ def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
   let assemblyFormat = [{
     `(` $handle `,` $input `,` $output `)` attr-dict
     `:` `(` type($handle) `,` type($input) `,` type($output) `)`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Constant Management Operations
+//===----------------------------------------------------------------------===//
+
+def Hip_UploadConstantOp : Hip_Op<"upload_constant", []> {
+  let summary = "Upload constant data to GPU memory";
+  let description = [{
+    Uploads constant data from host memory to GPU and stores the pointer
+    in state->gpu_constants[index].
+
+    This operation is used in the initialize_constants() function to upload
+    all ONNX constants to GPU during model initialization.
+
+    Arguments:
+    - ctx: HIP execution context (contains gpu_constants array)
+    - index: Index in gpu_constants array (0, 1, 2, ...)
+    - data: Pointer to host constant data (from llvm.mlir.addressof)
+    - size: Size in bytes to upload
+
+    Example:
+    ```mlir
+    %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
+    %size_0 = llvm.mlir.constant(6912 : i64) : i64
+    %index_0 = llvm.mlir.constant(0 : i64) : i64
+    hip.upload_constant(%ctx, %index_0, %data_0, %size_0) : (!llvm.ptr)
+    ```
+  }];
+
+  let arguments = (ins
+    Hip_ContextType:$ctx,
+    I64:$index,
+    AnyType:$data,
+    I64:$size
+  );
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $ctx `,` $index `,` $data `,` $size `)` attr-dict `:` `(` type($data) `)`
+  }];
+}
+
+def Hip_ReleaseConstantOp : Hip_Op<"release_constant", []> {
+  let summary = "Release GPU constant memory";
+  let description = [{
+    Frees GPU memory for a constant stored in state->gpu_constants[index].
+
+    This operation is used in the release_constants() function to free
+    all GPU constant memory during model cleanup.
+
+    Arguments:
+    - ctx: HIP execution context (contains gpu_constants array)
+    - index: Index in gpu_constants array (0, 1, 2, ...)
+
+    Example:
+    ```mlir
+    %index_0 = llvm.mlir.constant(0 : i64) : i64
+    hip.release_constant(%ctx, %index_0)
+    ```
+  }];
+
+  let arguments = (ins
+    Hip_ContextType:$ctx,
+    I64:$index
+  );
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $ctx `,` $index `)` attr-dict
+  }];
+}
+
+def Hip_GetConstantOp : Hip_Op<"get_constant", []> {
+  let summary = "Retrieve constant from GPU memory";
+  let description = [{
+    Retrieves a pre-uploaded constant from state->gpu_constants[index].
+
+    This operation is used in inference functions to access constants that
+    were uploaded during initialization.
+
+    Arguments:
+    - ctx: HIP execution context (contains gpu_constants array)
+    - index: Index in gpu_constants array (0, 1, 2, ...)
+
+    Returns:
+    - memref: GPU memory reference to the constant
+
+    Example:
+    ```mlir
+    %weight = hip.get_constant(%ctx, %index_0) : memref<64x3x3x3xf32, 1>
+    ```
+  }];
+
+  let arguments = (ins
+    Hip_ContextType:$ctx,
+    I64:$index
+  );
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = [{
+    `(` $ctx `,` $index `)` attr-dict `:` type($result)
   }];
 }
 
