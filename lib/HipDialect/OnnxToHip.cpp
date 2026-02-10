@@ -324,17 +324,74 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// ONNX to HIP Conversion Pass
+// ONNX Function Identification Helper
+//===----------------------------------------------------------------------===//
+
+/// Check if a function is an ONNX function (has tensor types + ONNX operations)
+/// This allows the pass to coexist with other MLIR passes and skip non-ONNX functions.
+/// Also makes the pass idempotent: already-transformed functions won't match.
+static bool isOnnxFunction(func::FuncOp funcOp) {
+  auto funcType = funcOp.getFunctionType();
+
+  // Quick filter: ONNX functions use tensor types
+  bool hasTensorTypes = llvm::any_of(funcType.getInputs(), [](Type t) {
+    return isa<TensorType>(t);
+  }) || llvm::any_of(funcType.getResults(), [](Type t) {
+    return isa<TensorType>(t);
+  });
+
+  if (!hasTensorTypes)
+    return false;
+
+  // Confirm: must have ONNX dialect operations
+  bool hasOnnxOps = false;
+  funcOp.walk([&](Operation *op) {
+    if (auto *dialect = op->getDialect()) {
+      if (isa<ONNXDialect>(dialect)) {
+        hasOnnxOps = true;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  return hasOnnxOps;
+}
+
+//===----------------------------------------------------------------------===//
+// Constant Information Storage
+//===----------------------------------------------------------------------===//
+
+struct ConstantInfo {
+  int64_t globalIndex;        // Sequential index (0, 1, 2, ...)
+  ElementsAttr value;         // Constant data (from onnx.Constant)
+  Type elementType;           // Element type (f32, i64, etc.)
+  SmallVector<int64_t, 4> shape;  // Tensor shape (owned storage)
+  size_t sizeInBytes;         // Total size in bytes
+  std::string name;           // Debug name (from operation location)
+
+  // Default constructor (required by DenseMap)
+  ConstantInfo() : globalIndex(-1), sizeInBytes(0) {}
+
+  ConstantInfo(int64_t idx, ElementsAttr val, Type elemType,
+               ArrayRef<int64_t> shp, size_t size, StringRef debugName)
+      : globalIndex(idx), value(val), elementType(elemType),
+        shape(shp.begin(), shp.end()), sizeInBytes(size),
+        name(debugName.str()) {}
+};
+
+//===----------------------------------------------------------------------===//
+// ONNX to HIP Conversion Pass (Module-Level)
 //===----------------------------------------------------------------------===//
 
 class ConvertOnnxToHipPass
-    : public PassWrapper<ConvertOnnxToHipPass, OperationPass<func::FuncOp>> {
+    : public PassWrapper<ConvertOnnxToHipPass, OperationPass<ModuleOp>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertOnnxToHipPass)
 
   StringRef getArgument() const final { return "convert-onnx-to-hip"; }
   StringRef getDescription() const final {
-    return "Convert ONNX dialect operations to HIP dialect operations";
+    return "Convert ONNX dialect operations to HIP dialect operations (module-level for constant handling)";
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
@@ -342,16 +399,129 @@ public:
     registry.insert<func::FuncDialect>();
     registry.insert<memref::MemRefDialect>();  // Needed for memref.dim and memref.copy
     registry.insert<arith::ArithDialect>();    // Needed for arith.constant (i32 status)
+    registry.insert<ONNXDialect>();            // Needed for ONNX operations
   }
 
   void runOnOperation() override {
-    auto func = getOperation();
+    ModuleOp module = getOperation();
     MLIRContext *context = &getContext();
 
-    // Step 1: Set up TypeConverter (tensor → memref with GPU address space)
+    // Phase 2: Discover constants and assign global indices
+    if (failed(discoverConstants(module))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Phase 1: Process each ONNX function
+    // TODO Phase 3: Generate LLVM globals for constants
+    // TODO Phase 4: Generate initialization functions
+
+    for (auto func : module.getOps<func::FuncOp>()) {
+      // Skip non-ONNX functions
+      if (!isOnnxFunction(func)) {
+        continue;
+      }
+
+      // Process this ONNX function
+      if (failed(processOnnxFunction(func, context))) {
+        signalPassFailure();
+        return;
+      }
+    }
+  }
+
+private:
+  /// Constant registry: maps SSA values to their global constant indices
+  DenseMap<Value, ConstantInfo> constantRegistry_;
+
+  /// Discover all onnx.Constant operations in the module and assign global indices
+  LogicalResult discoverConstants(ModuleOp module) {
+    int64_t nextIndex = 0;
+
+    // Walk all operations in all functions to find onnx.Constant
+    for (auto func : module.getOps<func::FuncOp>()) {
+      // Only process ONNX functions
+      if (!isOnnxFunction(func)) {
+        continue;
+      }
+
+      func.walk([&](Operation *op) {
+        // Check if this is an onnx.Constant operation
+        if (auto constantOp = dyn_cast<ONNXConstantOp>(op)) {
+          // Extract constant data
+          auto valueAttr = constantOp.getValue();
+          if (!valueAttr) {
+            // onnx.Constant without value attribute - skip
+            return WalkResult::advance();
+          }
+
+          auto elementsAttr = dyn_cast<ElementsAttr>(valueAttr.value());
+          if (!elementsAttr) {
+            // Not an ElementsAttr - skip (shouldn't happen for normal constants)
+            return WalkResult::advance();
+          }
+
+          // Get tensor type information
+          auto tensorType = cast<TensorType>(constantOp.getResult().getType());
+          auto elementType = tensorType.getElementType();
+          auto shape = tensorType.getShape();
+
+          // Calculate size in bytes
+          int64_t numElements = 1;
+          for (int64_t dim : shape) {
+            if (dim <= 0) {
+              // Dynamic or zero dimension - skip (shouldn't happen for constants)
+              return WalkResult::advance();
+            }
+            numElements *= dim;
+          }
+
+          size_t elementSize = elementType.getIntOrFloatBitWidth() / 8;
+          size_t totalSize = numElements * elementSize;
+
+          // Generate debug name from location
+          std::string debugName = "constant_" + std::to_string(nextIndex);
+          if (auto nameLoc = dyn_cast<NameLoc>(constantOp.getLoc())) {
+            debugName = nameLoc.getName().str();
+          }
+
+          // Store constant info
+          ConstantInfo info(nextIndex, elementsAttr, elementType, shape,
+                           totalSize, debugName);
+
+          constantRegistry_[constantOp.getResult()] = std::move(info);
+          nextIndex++;
+        }
+
+        return WalkResult::advance();
+      });
+    }
+
+    // Log discovery results
+    if (nextIndex > 0) {
+      llvm::errs() << "[ONNX→HIP] Discovered " << nextIndex << " constants:\n";
+      for (const auto &entry : constantRegistry_) {
+        const auto &info = entry.second;
+        llvm::errs() << "  [" << info.globalIndex << "] " << info.name
+                     << " : shape=[";
+        for (size_t i = 0; i < info.shape.size(); ++i) {
+          if (i > 0) llvm::errs() << "x";
+          llvm::errs() << info.shape[i];
+        }
+        llvm::errs() << "], size=" << info.sizeInBytes << " bytes\n";
+      }
+    }
+
+    return success();
+  }
+
+  /// Process a single ONNX function: add context, convert operations
+  LogicalResult processOnnxFunction(func::FuncOp func, MLIRContext *context) {
+
+    // Set up TypeConverter (tensor → memref with GPU address space)
     OnnxToHipTypeConverter typeConverter;
 
-    // Step 2: Add %ctx: !hip.context parameter to function if not present
+    // Add %ctx: !hip.context parameter to function if not present
     // Do this BEFORE conversion so patterns see the correct function signature
     //
     // NOTE: Pure ONNX-MLIR functions never have a ctx argument - that's
@@ -374,8 +544,8 @@ public:
     // Running conversion patterns on already-lowered code is both wasteful
     // and potentially incorrect (patterns expect ONNX ops, not HIP ops)
     if (hasContext) {
-      // Function is in HIP dialect 
-      return;
+      // Function is in HIP dialect
+      return success();
     }
 
     {
@@ -426,7 +596,7 @@ public:
       }
     }
 
-    // Step 3: Set up conversion target
+    // Set up conversion target
     ConversionTarget target(*context);
 
     // Mark HIP dialect as legal
@@ -453,15 +623,17 @@ public:
     // All other ONNX ops are legal for now (only converting Conv)
     target.addLegalDialect<ONNXDialect>();
 
-    // Step 4: Set up rewrite patterns (pass typeConverter to patterns)
+    // Set up rewrite patterns (pass typeConverter to patterns)
     RewritePatternSet patterns(context);
     patterns.add<ConvToHipPattern>(typeConverter, context);
     patterns.add<ReturnOpConversion>(typeConverter, context);
 
-    // Step 5: Apply conversion
+    // Apply conversion
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
-      signalPassFailure();
+      return failure();
     }
+
+    return success();
   }
 };
 
