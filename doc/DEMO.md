@@ -40,7 +40,10 @@ func.func @main(%input: tensor<1x3x224x224xf32>,
 
 ## After `--convert-onnx-to-hip`
 
-**Command**: `hip-opt test_conv_inplace.mlir --convert-onnx-to-hip`
+**Command** (run from project root):
+```bash
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe tools/hip-opt/test_conv_inplace.mlir --convert-onnx-to-hip
+```
 
 **Status**: ✅ **Working** (tested and verified)
 
@@ -113,7 +116,10 @@ func.func @main(%arg0: !hip.context,
 
 ## After `--convert-hip-to-llvm`
 
-**Command**: `hip-opt test_conv_inplace.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
+**Command** (run from project root):
+```bash
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe tools/hip-opt/test_conv_inplace.mlir --convert-onnx-to-hip --convert-hip-to-llvm
+```
 
 **Status**: ✅ **Working** (complete ONNX→HIP→LLVM lowering, 117 lines of pure LLVM IR)
 
@@ -382,13 +388,15 @@ extern "C" int miopenConvolutionForward(
 
 ### 📋 TODO: End-to-End Test
 
-**Test pipeline**:
+**Test pipeline** (run from project root):
 ```bash
 # 1. ONNX → HIP
-hip-opt test_conv_inplace.mlir --convert-onnx-to-hip -o test_hip.mlir
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe tools/hip-opt/test_conv_inplace.mlir \
+  --convert-onnx-to-hip -o test_hip.mlir
 
 # 2. HIP → LLVM
-hip-opt test_hip.mlir --convert-hip-to-llvm -o test_llvm.mlir
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe test_hip.mlir \
+  --convert-hip-to-llvm -o test_llvm.mlir
 
 # 3. LLVM → Object file
 mlir-translate --mlir-to-llvmir test_llvm.mlir | llc -filetype=obj -o test.o
