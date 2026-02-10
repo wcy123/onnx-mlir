@@ -69,7 +69,7 @@ func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
 - **Operations**: ONNX ops → HIP ops (e.g., `onnx.Conv` → `hip.conv`)
 - **Types**: `tensor<...>` → `memref<...>` (in-place semantics)
 - **Signature**: Add context parameter, output argument, status return
-- **Metadata**: Add module attributes (I/O counts, ranks) - Required for GenerateInterfacePass
+- **Metadata**: Add module attributes (I/O counts, ranks) - Required for [GenerateInterfacePass](passes/GenerateInterfacePass.md)
 - **Generated**: Constant management helpers
 
 **Why metadata is needed:** When @main signature becomes `(context, inputs, outputs) → i32` in Stage 3, type information is lost (arrays have no compile-time size). GenerateInterfacePass needs to know: (1) how many inputs/outputs to validate, (2) what rank each tensor has for memref struct construction, (3) loop bounds for processing I/O arrays. The metadata preserves this information.
