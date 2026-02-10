@@ -70,10 +70,6 @@ Embedded in ONNX EPContext
 
 The compiled DLL exports exactly 3 functions:
 
-**About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
-
-**About `span_t`:** Array of input/output tensors from CustomOp (CPU memory). Wrapper functions copy inputs to GPU (H2D), call computation, then copy outputs back to CPU (D2H). See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
-
 ### 1. inference_init
 ```c
 int inference_init(void** out_state);
@@ -98,6 +94,12 @@ int inference_cleanup(void* state);
 - Frees GPU constant memory
 - Destroys GPU handles
 - Frees state structure
+
+---
+
+**About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
+
+**About `span_t`:** Array of input/output tensors from CustomOp (CPU memory). Wrapper functions copy inputs to GPU (H2D), call computation, then copy outputs back to CPU (D2H). See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
 
 ---
 
