@@ -13,6 +13,9 @@ std::unique_ptr<Pass> createConvertOnnxToHipPass();
 /// Create a pass to convert HIP operations to LLVM dialect.
 std::unique_ptr<Pass> createConvertHipToLLVMPass();
 
+/// Create a pass to generate C interface wrapper functions.
+std::unique_ptr<Pass> createGenerateInterfacePass();
+
 /// Register all HIP passes.
 void registerHipPasses();
 

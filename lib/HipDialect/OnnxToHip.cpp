@@ -496,6 +496,13 @@ public:
       return;
     }
 
+    // Phase 4.5: Generate module metadata (BEFORE processing functions)
+    // CRITICAL: Must capture original function signature before transformation
+    if (failed(generateModuleMetadata(module))) {
+      signalPassFailure();
+      return;
+    }
+
     // Phase 1: Process each ONNX function
 
     for (auto func : module.getOps<func::FuncOp>()) {
@@ -643,6 +650,71 @@ private:
                    << " : !llvm.array<" << numElements << " x "
                    << llvmElementType << ">\n";
     }
+
+    return success();
+  }
+
+  /// Generate module metadata attributes required by GenerateInterfacePass
+  /// CRITICAL: Must be called BEFORE processOnnxFunction transforms signatures
+  LogicalResult generateModuleMetadata(ModuleOp module) {
+    // Find the main function (ONNX entry point)
+    auto mainFunc = module.lookupSymbol<func::FuncOp>("main");
+    if (!mainFunc) {
+      // No main function - this is fine for modules without entry points
+      return success();
+    }
+
+    // CRITICAL: Capture BEFORE transformation changes signature
+    auto originalFuncType = mainFunc.getFunctionType();
+
+    // Extract input metadata
+    int64_t inputCount = originalFuncType.getNumInputs();
+    SmallVector<int64_t> inputRanks;
+    for (Type inputType : originalFuncType.getInputs()) {
+      if (auto tensorType = dyn_cast<RankedTensorType>(inputType)) {
+        inputRanks.push_back(tensorType.getRank());
+      } else {
+        // Non-tensor input - skip metadata generation for this module
+        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor input in @main, skipping metadata\n";
+        return success();
+      }
+    }
+
+    // Extract output metadata
+    int64_t outputCount = originalFuncType.getNumResults();
+    SmallVector<int64_t> outputRanks;
+    for (Type resultType : originalFuncType.getResults()) {
+      if (auto tensorType = dyn_cast<RankedTensorType>(resultType)) {
+        outputRanks.push_back(tensorType.getRank());
+      } else {
+        // Non-tensor output - skip metadata generation
+        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor output in @main, skipping metadata\n";
+        return success();
+      }
+    }
+
+    // Set module attributes
+    OpBuilder builder(module.getContext());
+    module->setAttr("hipdnn.input_count", builder.getI64IntegerAttr(inputCount));
+    module->setAttr("hipdnn.input_ranks", builder.getDenseI64ArrayAttr(inputRanks));
+    module->setAttr("hipdnn.output_count", builder.getI64IntegerAttr(outputCount));
+    module->setAttr("hipdnn.output_ranks", builder.getDenseI64ArrayAttr(outputRanks));
+
+    llvm::errs() << "[ONNX→HIP] Generated module metadata:\n";
+    llvm::errs() << "  input_count = " << inputCount << "\n";
+    llvm::errs() << "  input_ranks = [";
+    for (size_t i = 0; i < inputRanks.size(); ++i) {
+      if (i > 0) llvm::errs() << ", ";
+      llvm::errs() << inputRanks[i];
+    }
+    llvm::errs() << "]\n";
+    llvm::errs() << "  output_count = " << outputCount << "\n";
+    llvm::errs() << "  output_ranks = [";
+    for (size_t i = 0; i < outputRanks.size(); ++i) {
+      if (i > 0) llvm::errs() << ", ";
+      llvm::errs() << outputRanks[i];
+    }
+    llvm::errs() << "]\n";
 
     return success();
   }

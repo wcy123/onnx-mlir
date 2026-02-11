@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -451,6 +452,8 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
   }
 };
 
+// NOTE: Main function transformation is handled post-conversion in runOnOperation
+
 // --- Pass
 struct ConvertHipToLLVMPass
     : public PassWrapper<ConvertHipToLLVMPass, OperationPass<ModuleOp>> {
@@ -508,6 +511,89 @@ struct ConvertHipToLLVMPass
 
     if (failed(applyPartialConversion(module, target, std::move(patterns))))
       signalPassFailure();
+
+    // Post-processing: Transform @main function signature
+    // After standard conversion, @main has unpacked memref parameters
+    // We need to pack them into arrays for the C interface
+    if (failed(transformMainFunction(module)))
+      signalPassFailure();
+  }
+
+private:
+  /// Transform @main from unpacked memrefs to array-based interface
+  LogicalResult transformMainFunction(ModuleOp module) {
+    // Find @main function
+    auto mainFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("main");
+    if (!mainFunc) {
+      // No main function - this is fine
+      return success();
+    }
+
+    // Read metadata
+    auto inputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.input_count");
+    auto outputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
+
+    if (!inputCountAttr || !outputCountAttr) {
+      llvm::errs() << "[HIP→LLVM] Warning: No metadata found, skipping @main transformation\n";
+      return success();
+    }
+
+    int64_t inputCount = inputCountAttr.getInt();
+    int64_t outputCount = outputCountAttr.getInt();
+
+    OpBuilder builder(module.getContext());
+    Location loc = mainFunc.getLoc();
+
+    // Calculate number of parameters per memref (from first input parameter if exists)
+    // Standard unpacked memref has: ptr, ptr, offset, sizes[rank], strides[rank]
+    // For a rank-4 tensor: 11 parameters (2 ptrs + 1 offset + 4 sizes + 4 strides)
+    auto funcType = mainFunc.getFunctionType();
+    unsigned totalParams = funcType.getNumParams();
+    unsigned expectedParams = 1;  // context
+
+    if (totalParams <= 1) {
+      llvm::errs() << "[HIP→LLVM] Warning: @main has no input/output parameters\n";
+      return success();
+    }
+
+    // Create new function with packed signature: (ptr, ptr, ptr) -> i32
+    Type ptrType = LLVM::LLVMPointerType::get(builder.getContext(), 0);
+    Type i32Type = builder.getI32Type();
+    SmallVector<Type> newParamTypes = {ptrType, ptrType, ptrType};
+    auto newFuncType = LLVM::LLVMFunctionType::get(i32Type, newParamTypes);
+
+    // Create new function
+    builder.setInsertionPoint(mainFunc);
+    auto newFunc = builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
+
+    // Move body from old to new
+    Block *newEntry = newFunc.addEntryBlock(builder);
+    Block &oldEntry = mainFunc.getBody().front();
+
+    // Get new arguments: (%ctx, %inputs_array, %outputs_array)
+    Value ctxArg = newEntry->getArgument(0);
+    Value inputsArg = newEntry->getArgument(1);
+    Value outputsArg = newEntry->getArgument(2);
+
+    builder.setInsertionPointToStart(newEntry);
+
+    // Build mapping from old arguments to new loaded values
+    IRMapping mapping;
+
+    // Map context (arg 0)
+    mapping.map(oldEntry.getArgument(0), ctxArg);
+
+    // For inputs and outputs, we need to determine how many params each memref uses
+    // This is tricky - for Phase 1, let's assume they're already structs (simplified)
+    // Phase 2 TODO: Properly handle unpacked memrefs
+
+    llvm::errs() << "[HIP→LLVM] Note: @main transformation not fully implemented yet\n";
+    llvm::errs() << "  Total params: " << totalParams << "\n";
+    llvm::errs() << "  Expected: context + " << inputCount << " inputs + " << outputCount << " outputs\n";
+
+    // For now, just keep the old function (Phase 1 incomplete)
+    newFunc.erase();
+    return success();
   }
 };
 
@@ -530,6 +616,12 @@ void registerHipPasses() {
   // ConvertHipToLLVMPass (defined in this file)
   // Registered via: --convert-hip-to-llvm
   PassRegistration<ConvertHipToLLVMPass>();
+
+  // GenerateInterfacePass (defined in GenerateInterfacePass.cpp)
+  // Registered via: --generate-interface
+  registerPass([]() -> std::unique_ptr<Pass> {
+    return createGenerateInterfacePass();
+  });
 }
 
 } // namespace hip
