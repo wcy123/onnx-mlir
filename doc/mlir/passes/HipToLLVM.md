@@ -407,15 +407,15 @@ llvm.call @miopenSet4dTensorDescriptor(%xDesc, %dataType,
 
 ## Prerequisites Met
 
-This pass satisfies Prerequisite 1 requirements from [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#prerequisite-1-main-function-signature):
+This pass satisfies **Prerequisite 1** for [GenerateInterfacePass.md](GenerateInterfacePass.md):
 
-✅ Transforms @main to signature: `(context, inputs, outputs) -> i32`
+✅ **Prerequisite 1:** Transforms @main to signature: `(context, inputs, outputs) -> i32` with memref struct arrays - see [GenerateInterfacePass.md - Prerequisite 1](GenerateInterfacePass.md#prerequisite-1-main-function-signature-dynamic-shape-ready)
 ✅ Uses memref struct arrays (struct-by-value)
 ✅ Supports dynamic shapes (dimensions extracted at runtime)
 ✅ Generates wrapper functions that handle runtime dimensions
 ✅ Lowers constant helpers to LLVM
 
-For detailed prerequisite specifications, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#generateinterfacepass-prerequisites).
+For complete interface design, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md).
 
 ---
 

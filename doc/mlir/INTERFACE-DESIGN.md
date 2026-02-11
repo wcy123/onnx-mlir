@@ -1,25 +1,31 @@
-# C Interface Design and GenerateInterfacePass Prerequisites
+# C Interface Design
 
-**Note:** This is the authoritative source for C interface specifications and GenerateInterfacePass prerequisites.
+**Note:** This document describes the **WHAT** and **WHY** of the C interface. For **HOW** to implement it (GenerateInterfacePass details), see [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md).
 
-**Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
-
----
-
-## Overview
-
-This document describes:
-1. The two-layer architecture (C interface vs internal computation)
-2. Prerequisites for implementing GenerateInterfacePass
-3. Detailed function designs for inference_init/compute/cleanup
+**Related:** [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md)
 
 ---
 
-## Two-Layer Architecture
+## 1. Overview
+
+This document describes the C interface exported from the compiled DLL. The interface provides three functions for model inference:
+- `inference_init` - One-time setup (create GPU handles, upload model weights)
+- `inference_compute` - Execute inference on input data
+- `inference_cleanup` - Release all GPU resources
+
+**Audience:** Users integrating the compiled DLL, designers planning the architecture
+
+**For implementers:** See [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) for MLIR code generation details and prerequisites.
+
+---
+
+## 2. Architecture
+
+### 2.1 Two-Layer Architecture
 
 The compiled DLL has **two layers of functions**:
 
-**Layer 1: C Interface (Public API for CustomOp)**
+**Layer 1: C Interface (Public API)**
 - `inference_init(void** out_state)` - Exported from DLL
 - `inference_compute(void* state, span_t* inputs, span_t* outputs)` - Exported from DLL
 - `inference_cleanup(void* state)` - Exported from DLL
@@ -30,7 +36,20 @@ The compiled DLL has **two layers of functions**:
 - `release_constants(context) -> i32` - Free GPU constant memory
 - `get_constant_count() -> i64` - Metadata helper
 
-### Why Two Layers?
+### 2.2 Call Chain (Conceptual)
+
+**High-level flow:**
+```
+inference_compute (C interface)
+    ↓ Parse span_t*, build memref structs
+@main (internal wrapper)
+    ↓ Load structs, unpack to scalars
+@main_internal (computation)
+    ↓ Call GPU operations
+Computation complete
+```
+
+**Why two layers?**
 
 **Problem:** Type system impedance mismatch
 - **CustomOp** (C code) uses: `span_t` (array of `tensor_t` structs with dynamic shapes)
@@ -40,413 +59,358 @@ The compiled DLL has **two layers of functions**:
 - `inference_compute` parses `span_t*` → builds `memref` descriptors → calls `@main`
 - `@main` operates on memrefs (natural for MLIR, works with existing passes)
 
----
+**Note:** For detailed call chain walkthrough showing pack/unpack operations and LLVM optimization, see [passes/GenerateInterfacePass.md - Call Chain Walkthrough](passes/GenerateInterfacePass.md#call-chain-walkthrough-inference_compute--main--main_internal).
 
-## GenerateInterfacePass Prerequisites
+### 2.3 Design Rationale
 
-### Overview
+**Why init/compute/cleanup pattern?**
+- Separate one-time setup from hot path (inference loop)
+- Reuse GPU resources across multiple inferences
+- Clean lifecycle management (acquire resources, use them, release them)
 
-Before implementing the `GenerateInterfacePass`, we must establish clear contracts and design decisions that this pass depends on. This section documents the prerequisites that must be satisfied by prior passes (OnnxToHip, HipToLLVM) and the assumptions the GenerateInterfacePass can rely on.
+**Why C-ABI compatibility?**
+- Cross-language DLL loading (C, C++, C#, Python, etc.)
+- No C++ name mangling
+- Standard calling conventions (cdecl/sysv)
 
-**CRITICAL REQUIREMENT: Dynamic Shape Support**
-
-All prerequisites MUST support **dynamic shapes from Day 1**. For complete dynamic shape design and rationale, see [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md).
-
-Summary:
-- ✅ Tensor **rank** is compile-time known (e.g., 4D tensor)
-- ✅ Dimension **values** are runtime (loaded from tensor_t.shape pointer)
-- ✅ No interface changes needed for dynamic shapes
-- ✅ All memref operations must work with runtime dimension values
-
-### Prerequisite 1: @main Function Signature (Dynamic Shape Ready)
-
-**✅ Implementation Status: COMPLETE**
-
-This prerequisite is satisfied by the **HipToLLVM pass** (`transformMainFunction()` method in `lib/HipDialect/HipToLLVM.cpp`).
-
-**Implementation approach:**
-1. Standard MLIR conversion unpacks @main memrefs to 23+ scalar parameters
-2. HipToLLVM renames unpacked @main → **@main_internal** (private, contains computation)
-3. HipToLLVM creates new **@main** with clean array-based interface (3 params, private)
-4. New @main:
-   - Loads memref structs from arrays using GEP + load operations
-   - Unpacks structs into scalars using extractvalue operations
-   - Calls @main_internal with all unpacked parameters
-5. GenerateInterfacePass calls the new @main (clean 3-param interface)
-
-**See:** `doc/mlir/passes/HipToLLVM.md` section "Transform @main Signature" for detailed documentation.
+**Why dynamic shape support?**
+- Same compiled DLL handles different batch sizes
+- No recompilation needed for shape changes
+- Runtime flexibility for deployment
+- See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design
 
 ---
 
-**Requirement:** The `@main` function must exist with a well-defined signature that supports multiple inputs and outputs with **dynamic shapes**.
+## 3. C Interface Specification
 
-**Design Decision:**
-- **Calling convention:** Struct-by-value memrefs (NOT unpacked descriptors)
-- **Multiple I/O support:** Arrays of memref structs
-- **Dynamic shape support:** Memref size/stride arrays contain **runtime values**
-- **Signature format:**
+### 3.1 Function Signatures
 
-```mlir
-llvm.func @main(%context: !llvm.ptr,
-                %inputs: !llvm.ptr,   // Pointer to array of input memref structs
-                %outputs: !llvm.ptr)  // Pointer to array of output memref structs
-                -> i32 {
-  // Computation logic here
-}
-```
+#### inference_init
 
-**Rationale:**
-- ✅ **Scalable:** Supports N inputs and M outputs without signature changes
-- ✅ **Consistent with MLIR best practices:** Struct-by-value for memrefs
-- ✅ **Future-proof:** Can handle models with varying numbers of I/O tensors
-- ✅ **Clean interface:** 3 parameters instead of 3 + (11×N) + (11×M) unpacked parameters
-- ✅ **Dynamic shape ready:** Memref structs contain runtime dimension values
-
-**What GenerateInterfacePass expects:**
-1. `@main` function exists in the module
-2. Signature matches the format above exactly
-3. First parameter is state/context pointer
-4. Second parameter points to array of input memref structs with **runtime dimensions**
-5. Third parameter points to array of output memref structs with **runtime dimensions**
-6. Returns i32 status code (0 = success, non-zero = error)
-7. **Critical:** Memref size/stride arrays populated with runtime values (from tensor_t.shape)
-
-**Example usage in @main (with dynamic shapes):**
-```mlir
-llvm.func @main(%context: !llvm.ptr,
-                %inputs: !llvm.ptr,
-                %outputs: !llvm.ptr) -> i32 {
-  // Access input 0 (memref struct at inputs[0])
-  %input_0_ptr = llvm.getelementptr %inputs[0] : (!llvm.ptr) -> !llvm.ptr
-  // Load memref struct - size array contains RUNTIME dimension values!
-  %input_0 = llvm.load %input_0_ptr : !llvm.ptr -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>
-
-  // Extract runtime dimensions from memref struct
-  %n = llvm.extractvalue %input_0[3, 0] : !llvm.struct<...> -> i64  // Batch size (runtime!)
-  %c = llvm.extractvalue %input_0[3, 1] : !llvm.struct<...> -> i64  // Channels (runtime!)
-  %h = llvm.extractvalue %input_0[3, 2] : !llvm.struct<...> -> i64  // Height (runtime!)
-  %w = llvm.extractvalue %input_0[3, 3] : !llvm.struct<...> -> i64  // Width (runtime!)
-
-  // Access output 0 (memref struct at outputs[0])
-  %output_0_ptr = llvm.getelementptr %outputs[0] : (!llvm.ptr) -> !llvm.ptr
-  %output_0 = llvm.load %output_0_ptr : !llvm.ptr -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>
-
-  // Computation using input_0 and output_0
-  // Wrapper functions extract dimensions from memref structs at runtime
-  // ...
-
-  %c0_i32 = llvm.mlir.constant(0 : i32) : i32
-  llvm.return %c0_i32 : i32
-}
-```
-
-**Dynamic Shape Flow:**
-```
-tensor_t.shape (runtime int64_t* in C)
-    ↓ loaded by inference_compute
-Runtime dimension values (N, C, H, W)
-    ↓ inserted into memref struct
-Memref struct.sizes[4] = {N, C, H, W}  (runtime values!)
-    ↓ passed to @main
-@main extracts dimensions via llvm.extractvalue
-    ↓ passed to wrapper functions
-Wrappers pass dimensions to MIOpen (runtime!)
-```
-
-### Call Chain Walkthrough: inference_compute → @main → @main_internal
-
-**How the layers connect:**
-
-```
-C Interface (GenerateInterfacePass generates):
-llvm.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr<span_t>, %outputs: !llvm.ptr<span_t>) -> i32 {
-  // 1. Parse span_t* to get tensor_t array
-  // 2. Build memref structs from tensor_t:
-  //    struct.data = tensor_t.data
-  //    struct.sizes[i] = load tensor_t.shape[i]  ← Runtime dimensions!
-  //    struct.strides[i] = calculated from sizes
-  // 3. Store structs in stack-allocated arrays
-  %input_array = alloca [1 x memref_struct]
-  %output_array = alloca [1 x memref_struct]
-  store %input_struct, %input_array[0]
-  store %output_struct, %output_array[0]
-
-  // 4. Call @main with struct arrays
-  %ret = llvm.call @main(%state, %input_array, %output_array)
-  llvm.return %ret
-}
-
-Wrapper Layer (HipToLLVM generates):
-llvm.func @main(%ctx: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {
-  // 5. Load structs from arrays
-  %input_struct = llvm.load %inputs[0]
-  %output_struct = llvm.load %outputs[0]
-
-  // 6. Unpack structs to scalars (11 extracts per rank-4 tensor = 22 total)
-  %allocated = llvm.extractvalue %input_struct[0]
-  %aligned = llvm.extractvalue %input_struct[1]
-  // ... 20 more extracts
-
-  // 7. Call @main_internal with scalars
-  %ret = llvm.call @main_internal(%ctx, %allocated, %aligned, ...[23 params])
-  llvm.return %ret
-}
-
-Computation Layer (Standard MLIR generates):
-llvm.func @main_internal(23 scalar params) {
-  // 8. Repack scalars to structs (11 inserts per tensor = 22 total)
-  %struct = llvm.mlir.poison
-  %s1 = llvm.insertvalue %struct, %allocated, 0
-  // ... 20 more inserts
-
-  // 9. Actual computation with structs
-  %const = llvm.call @hip_get_constant(...)
-  %ret = llvm.call @miopenConvolutionForward(...)
-  llvm.return %ret
-}
-```
-
-**Performance Note:**
-
-This looks like 3 levels of redundant pack/unpack, but **LLVM optimizes it to zero cost**:
-
-1. **Inlining**: `@main_internal` inlined into `@main`, then `@main` inlined into `@inference_compute`
-2. **SSA forwarding**: `extractvalue %s[0] → %v`, then `insertvalue %v → %s2[0]` becomes direct use of `%s`
-3. **Dead code elimination**: All extract/insert pairs eliminated
-
-**After optimization:** Only struct building in `inference_compute`, direct use in computation. No intermediate pack/unpack operations.
-
-Can verify with: `mlir-translate --mlir-to-llvmir | opt -O2`
-
-### Prerequisite 2: Constant Management Function Contracts
-
-**Requirement:** Three helper functions for managing constants must exist with well-defined contracts.
-
-#### Function: `get_constant_count()`
-
-```mlir
-llvm.func @get_constant_count() -> i64 {
-  %count = llvm.mlir.constant(4 : i64) : i64  // Example: 4 constants
-  llvm.return %count : i64
-}
-```
-
-**Contract:**
-- **Inputs:** None
-- **Outputs:** Number of constants in the model (i64)
-- **Side effects:** None (pure function)
-- **Guarantees:** Returns compile-time constant count
-
-#### Function: `initialize_constants(context)`
-
-```mlir
-llvm.func @initialize_constants(%context: !llvm.ptr) -> i32 {
-  // Upload all constants to GPU
-  // Store GPU pointers in context.gpu_constants array
-  llvm.return %status : i32
-}
-```
-
-**Contract:**
-- **Inputs:** Fully initialized context pointer
-- **Preconditions (what initialize_constants expects):**
-  1. ✅ Context struct already allocated (by inference_init)
-  2. ✅ GPU handles already created:
-     - `context.stream` (hipStream_t) created and valid
-     - `context.miopenHandle` (miopenHandle_t) created and set to use stream
-     - `context.hipblasHandle` (hipblasLtHandle_t) created
-  3. ✅ `context.gpu_constants` pointer already allocated:
-     - Array size = `get_constant_count() × sizeof(void*)`
-     - Array is uninitialized (initialize_constants fills it)
-- **Postconditions (what initialize_constants guarantees):**
-  1. All constants uploaded to GPU memory
-  2. `context.gpu_constants[i]` points to GPU memory for constant i
-  3. GPU memory allocated with `hipMalloc` on `context.stream`
-  4. Returns 0 on success, non-zero on error
-- **Side effects:** Allocates GPU memory, modifies context.gpu_constants array
-
-#### Function: `release_constants(context)`
-
-```mlir
-llvm.func @release_constants(%context: !llvm.ptr) -> i32 {
-  // Free all GPU constant memory
-  llvm.return %status : i32
-}
-```
-
-**Contract:**
-- **Inputs:** Context pointer with initialized constants
-- **Preconditions:**
-  1. ✅ `initialize_constants` was called successfully
-  2. ✅ `context.gpu_constants` array contains valid GPU pointers
-- **Postconditions:**
-  1. All GPU memory freed (via hipFree)
-  2. `context.gpu_constants` array is in undefined state (caller should free array itself)
-  3. Returns 0 on success, non-zero on error
-- **Side effects:** Frees GPU memory
-
-### Prerequisite 3: Context Struct Layout
-
-**Requirement:** The runtime context struct must have a well-defined layout.
-
-**Design Decision (from STATE-AND-CONTEXT.md):**
-
+**Signature:**
 ```c
-// C struct (for reference - not in MLIR)
-struct HipExecutionContext {
-    hipStream_t stream;              // field 0: GPU stream for async operations
-    miopenHandle_t miopenHandle;     // field 1: MIOpen library handle
-    hipblasLtHandle_t hipblasHandle; // field 2: hipBLAS library handle
-    void** gpu_constants;            // field 3: POINTER to dynamically allocated array
+int inference_init(void** out_state);
+```
+
+**Purpose:** One-time setup - create GPU handles and upload model weights
+
+**Responsibilities:**
+1. Allocate execution context (HipExecutionContext struct)
+2. Create GPU stream (hipStream_t)
+3. Create MIOpen handle and associate with stream
+4. Create hipBLAS handle
+5. Allocate array for GPU constant pointers
+6. Upload model weights/constants to GPU via `initialize_constants`
+
+**Parameters:**
+- `out_state` (output): Pointer to receive allocated context pointer
+
+**Return value:** Status code
+- 0: Success - context created and weights uploaded
+- 1: Context allocation failed (malloc failed)
+- 2: GPU handle creation failed (stream, MIOpen, or hipBLAS)
+- 3: Constant initialization failed (upload to GPU failed)
+
+**Usage:**
+```c
+void* state = NULL;
+int ret = inference_init(&state);
+if (ret != 0) {
+    // Handle error
+}
+```
+
+**Implementation details:** See [passes/GenerateInterfacePass.md - Function 1: inference_init](passes/GenerateInterfacePass.md#function-1-inference_init)
+
+#### inference_compute
+
+**Signature:**
+```c
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
+```
+
+**Purpose:** Execute inference on input tensors
+
+**Responsibilities:**
+1. Validate input/output counts and tensor ranks
+2. Load runtime dimensions from `tensor_t.shape` pointers (dynamic shapes!)
+3. Allocate temporary GPU buffers for inputs and outputs
+4. Copy input data from CPU to GPU (H2D transfer)
+5. Build memref descriptors with runtime dimensions
+6. Call `@main` to perform computation
+7. Copy output data from GPU back to CPU (D2H transfer)
+8. Synchronize GPU stream to ensure completion
+9. Free temporary GPU buffers
+
+**Parameters:**
+- `state` (input): Context pointer from `inference_init`
+- `inputs` (input): Pointer to span_t containing input tensors (CPU memory)
+- `outputs` (input/output): Pointer to span_t containing output tensors (CPU memory)
+
+**Return value:** Status code
+- 0: Success - inference completed
+- 5: Invalid input (wrong count, rank, or null pointers)
+- 8: Computation failed (@main returned error or GPU operation failed)
+- 9: Memory transfer failed (H2D or D2H)
+
+**Usage:**
+```c
+// Prepare input tensor
+int64_t input_shape[] = {1, 3, 224, 224};
+tensor_t input = {
+    .data = input_data,
+    .shape = input_shape,
+    .rank = 4,
+    .data_type = 0  // FLOAT32
+};
+span_t inputs = { .data = &input, .count = 1 };
+
+// Prepare output tensor
+int64_t output_shape[] = {1, 1000};
+tensor_t output = {
+    .data = output_data,
+    .shape = output_shape,
+    .rank = 2,
+    .data_type = 0  // FLOAT32
+};
+span_t outputs = { .data = &output, .count = 1 };
+
+// Run inference
+int ret = inference_compute(state, &inputs, &outputs);
+if (ret != 0) {
+    // Handle error
+}
+```
+
+**Implementation details:** See [passes/GenerateInterfacePass.md - Function 2: inference_compute](passes/GenerateInterfacePass.md#function-2-inference_compute)
+
+#### inference_cleanup
+
+**Signature:**
+```c
+int inference_cleanup(void* state);
+```
+
+**Purpose:** Release all GPU resources
+
+**Responsibilities:**
+1. Synchronize GPU stream (wait for pending operations)
+2. Free GPU constant memory via `release_constants`
+3. Destroy GPU handles (hipBLAS, MIOpen, stream) in reverse creation order
+4. Free constant pointer array
+5. Free execution context struct
+
+**Parameters:**
+- `state` (input): Context pointer from `inference_init`
+
+**Return value:** Status code
+- 0: Success - all resources released cleanly
+- 10: Stream destruction failed
+- 11: MIOpen destruction failed
+- 12: hipBLAS destruction failed
+- 13: Constant release failed (potential GPU memory leak)
+- 14: Stream synchronization failed (GPU may still be working)
+
+**Note:** Even on error, the function attempts best-effort cleanup to prevent memory leaks. CPU memory is always freed.
+
+**Usage:**
+```c
+int ret = inference_cleanup(state);
+if (ret != 0) {
+    // Log error, but context is freed
+}
+state = NULL;  // Mark as invalid
+```
+
+**Implementation details:** See [passes/GenerateInterfacePass.md - Function 3: inference_cleanup](passes/GenerateInterfacePass.md#function-3-inference_cleanup)
+
+### 3.2 Data Structures
+
+#### tensor_t
+
+**Definition:**
+```c
+typedef struct {
+    void* data;        // Pointer to tensor data (CPU or GPU memory)
+    int64_t* shape;    // Pointer to shape array (runtime dimension values)
+    int rank;          // Number of dimensions (compile-time known rank)
+    int data_type;     // Element type enumeration
+} tensor_t;
+```
+
+**Fields:**
+- `data`: Pointer to contiguous tensor data
+  - For inputs: CPU memory (user-provided)
+  - For outputs: CPU memory (user-allocated, function fills)
+- `shape`: Pointer to array of dimension sizes
+  - Example: For 4D tensor with shape [2, 3, 224, 224], shape[0]=2, shape[1]=3, etc.
+  - **Critical:** Runtime values - enables dynamic shapes
+- `rank`: Number of dimensions (must match model's expected rank)
+  - Example: 4 for NCHW image tensor, 2 for fully connected output
+- `data_type`: Element type (see table below)
+
+**Example:**
+```c
+// Input: batch=2, channels=3, height=224, width=224
+int64_t input_shape[] = {2, 3, 224, 224};
+float* input_data = malloc(2 * 3 * 224 * 224 * sizeof(float));
+
+tensor_t input = {
+    .data = input_data,
+    .shape = input_shape,
+    .rank = 4,
+    .data_type = 0  // FLOAT32
 };
 ```
 
-**MLIR type representation:**
-```mlir
-// Context is opaque !llvm.ptr at LLVM level
-// Access fields via getelementptr:
-%stream_ptr = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-%miopen_ptr = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-%hipblas_ptr = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
-%gpu_constants_ptr_ptr = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
-```
+#### span_t
 
-**Key Points:**
-- ✅ **Terminology:** Use "context" internally, "state" externally (C interface)
-- ✅ **gpu_constants is a POINTER:** Not a fixed-size array
-  - Allocated dynamically: `malloc(get_constant_count() × sizeof(void*))`
-  - Freed by inference_cleanup after calling release_constants
-- ✅ **All handles created before initialize_constants:**
-  - Stream created first
-  - MIOpen/hipBLAS handles created and associated with stream
-  - Then initialize_constants can safely use handles
-
-### Prerequisite 4: Error Handling Strategy
-
-**Requirement:** Clear error handling policy for GenerateInterfacePass-generated functions.
-
-**Design Decision:**
-
-#### Error Codes
+**Definition:**
 ```c
-#define HIPDNN_SUCCESS 0
-#define HIPDNN_ERROR_ALLOCATION 1      // malloc/hipMalloc failed
-#define HIPDNN_ERROR_HANDLE_CREATION 2 // Stream/handle creation failed
-#define HIPDNN_ERROR_CONSTANT_INIT 3   // initialize_constants failed
-#define HIPDNN_ERROR_COMPUTATION 4     // @main returned error
-#define HIPDNN_ERROR_INVALID_INPUT 5   // Invalid span_t/tensor_t data
-```
-
-#### inference_init Error Handling Example
-```mlir
-llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32 {
-  // 1. Allocate context
-  %context = llvm.call @malloc(%size) : (i64) -> !llvm.ptr
-  %is_null = llvm.icmp "eq" %context, %null : !llvm.ptr
-  llvm.cond_br %is_null, ^error_alloc, ^cont1
-
-^cont1:
-  // 2. Create stream
-  %stream_ret = llvm.call @hipStreamCreate(%stream_ptr) : ...
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0 : i32
-  llvm.cond_br %stream_failed, ^error_stream, ^cont2
-
-  // ... more operations
-
-^success:
-  llvm.store %context, %out_state : !llvm.ptr
-  llvm.return %c0 : i32
-
-^error_init:
-  // Cleanup: destroy handles, free context
-  llvm.call @hipblasLtDestroy(%hipblas)
-  llvm.call @miopenDestroy(%miopen)
-  llvm.call @hipStreamDestroy(%stream)
-  llvm.call @free(%context)
-  llvm.return %c3_i32 : i32  // HIPDNN_ERROR_CONSTANT_INIT
-}
-```
-
-**Policy:**
-- ✅ **Fail fast:** Return error immediately on failure, don't continue
-- ✅ **Cleanup on error:** Free all resources allocated before error
-- ✅ **Propagate errors:** Pass through error codes from @main and helpers
-- ✅ **No exceptions:** Pure C ABI, use integer error codes
-- ✅ **Validate inputs:** Check span_t/tensor_t pointers are non-null
-
-### Prerequisite 5: Tensor Interface (span_t and tensor_t)
-
-**Requirement:** C interface types for dynamic tensor data.
-
-**Design (defined in custom-op header):**
-
-```c
-// C struct for tensor metadata
-typedef struct {
-    void* data;        // Pointer to tensor data (CPU or GPU)
-    int64_t* shape;    // Pointer to shape array (runtime dimensions)
-    int rank;          // Number of dimensions (compile-time known rank)
-    int data_type;     // Enum: FLOAT32=0, FLOAT16=1, INT8=2, etc.
-} tensor_t;
-
-// C struct for array of tensors
 typedef struct {
     tensor_t* data;    // Pointer to array of tensor_t
     size_t count;      // Number of tensors in array
 } span_t;
 ```
 
-**What GenerateInterfacePass must do (CRITICAL: Dynamic Shape Support):**
-1. Parse `span_t` to get `tensor_t` array
-2. For each `tensor_t`:
-   - Extract `data` pointer (cast to !llvm.ptr<1> for GPU address space)
-   - Extract `shape` pointer (**LOAD RUNTIME DIMENSION VALUES**)
-   - Extract `rank` (compile-time constant for this model)
-3. Build memref struct with **runtime dimensions** - see code example in LOWERING-PIPELINE.md
+**Fields:**
+- `data`: Pointer to array of tensor_t structures
+- `count`: Number of tensors in the array
 
-**Key Design Decisions:**
-- ✅ **Keep tensor_t simple:** Don't match memref structure exactly
-- ✅ **CRITICAL: Support dynamic shapes from Day 1:** `shape` pointer provides runtime dimensions
-- ✅ **No interface changes needed:** Same interface works for static and dynamic shapes
-- ✅ **Runtime stride calculation:** Compute strides from runtime dimension values
-- ✅ **Type system:** Rank (4D) is compile-time, dimension values (N, C, H, W) are runtime
+**Purpose:** Support models with multiple inputs and/or outputs
 
-### Summary of Prerequisites
+**Example:**
+```c
+// Model with 2 inputs (image and metadata)
+tensor_t inputs[2] = { ... };
+span_t input_span = {
+    .data = inputs,
+    .count = 2
+};
+```
 
-**CRITICAL: All prerequisites MUST support dynamic shapes from Day 1!**
+#### data_type Enumeration
 
-**Before GenerateInterfacePass can be implemented, the module must have:**
+**Element types:**
 
-1. ✅ **@main function** with signature: `(context, inputs, outputs) -> i32`
-   - **Dynamic shape ready:** Memref structs contain runtime dimension values
-2. ✅ **Constant helpers:**
-   - `get_constant_count() -> i64`
-   - `initialize_constants(context) -> i32`
-   - `release_constants(context) -> i32`
-3. ✅ **Context struct layout:** stream, miopenHandle, hipblasHandle, gpu_constants*
-4. ✅ **Error handling policy:** Fail fast, cleanup on error, integer error codes
-5. ✅ **Tensor interface:** span_t and tensor_t structs (defined in custom-op)
-   - **Dynamic shape ready:** tensor_t.shape provides runtime dimensions
+| Value | Type    | Element Size | Description              |
+|-------|---------|--------------|--------------------------|
+| 0     | FLOAT32 | 4 bytes      | 32-bit floating point    |
+| 1     | FLOAT16 | 2 bytes      | 16-bit floating point    |
+| 2     | INT8    | 1 byte       | 8-bit signed integer     |
 
-**What GenerateInterfacePass generates:**
+**Note:** Current implementation focuses on FLOAT32. Additional types may be added in the future.
 
-1. ✅ **inference_init:** Allocate context, create handles, call initialize_constants
-2. ✅ **inference_compute:** Parse span_t*, **load runtime dimensions**, build memrefs, call @main
-3. ✅ **inference_cleanup:** Call release_constants, destroy handles, free context
+### 3.3 Error Codes (Consolidated)
 
-**Dynamic Shape Support Summary:**
-- Rank: Compile-time known (e.g., 4D tensor)
-- Dimensions: Runtime values loaded from tensor_t.shape
-- Strides: Calculated at runtime from dimension values
-- No interface changes: Same C API for static and dynamic shapes
-- See [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for full details
+**Complete error code table:**
+
+| Code | Name                          | Function           | Description                          |
+|------|-------------------------------|--------------------|--------------------------------------|
+| 0    | SUCCESS                       | All                | Operation completed successfully     |
+| 1    | ERROR_ALLOCATION              | inference_init     | Context allocation failed (malloc)   |
+| 2    | ERROR_HANDLE_CREATION         | inference_init     | GPU handle creation failed           |
+| 3    | ERROR_CONSTANT_INIT           | inference_init     | Constant upload to GPU failed        |
+| 5    | ERROR_INVALID_INPUT           | inference_compute  | Invalid span_t/tensor_t data         |
+| 8    | ERROR_COMPUTATION             | inference_compute  | GPU computation failed               |
+| 9    | ERROR_MEMORY_TRANSFER         | inference_compute  | H2D or D2H copy failed               |
+| 10   | ERROR_STREAM_DESTROY          | inference_cleanup  | Stream destruction failed            |
+| 11   | ERROR_MIOPEN_DESTROY          | inference_cleanup  | MIOpen destruction failed            |
+| 12   | ERROR_HIPBLAS_DESTROY         | inference_cleanup  | hipBLAS destruction failed           |
+| 13   | ERROR_CONSTANT_RELEASE        | inference_cleanup  | GPU constant free failed             |
+| 14   | ERROR_STREAM_SYNC             | inference_cleanup  | Stream synchronization failed        |
+
+**Error handling policy:**
+- Fail fast: Return error immediately, don't continue
+- Cleanup on error: Free all resources allocated before error
+- Propagate errors: Pass through error codes from internal functions
+- No exceptions: Pure C ABI, use integer error codes
+- Best-effort cleanup: Even if cleanup fails, free CPU memory to prevent leaks
 
 ---
 
-## Related Documents
+## 4. Design Decisions
 
-- [MODULE-STRUCTURE.md](MODULE-STRUCTURE.md) - MLIR module organization
-- [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Detailed implementations of inference functions
-- [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) - Constant handling details
-- [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md) - Runtime state structure
-- [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape support
+### 4.1 Why init/compute/cleanup Pattern?
+
+**Problem:** GPU setup is expensive (handle creation, constant upload)
+
+**Solution:** Separate one-time setup from hot path
+
+**Benefits:**
+- Initialization cost amortized across many inferences
+- Reuse GPU handles and constant memory
+- Clear resource lifecycle (acquire → use → release)
+
+**Alternative considered:** Single `inference(inputs, outputs)` function
+- **Rejected:** Would recreate handles and upload constants on every inference
+- **Performance impact:** 10-100ms overhead per inference vs. 0.1-1ms for compute-only
+
+### 4.2 Why span_t/tensor_t Structures?
+
+**Problem:** Need to support models with variable numbers of inputs/outputs
+
+**Solution:** Array-based interface with dynamic counts
+
+**Benefits:**
+- Single interface supports all model topologies
+- No recompilation for different I/O configurations
+- Dynamic shape support (runtime dimension values)
+- Simple C-compatible structures (no vtables, no name mangling)
+
+**Alternative considered:** Fixed arrays `inference_compute(input1, input2, ..., output1, output2, ...)`
+- **Rejected:** Requires different signature for each model topology
+- **Scalability problem:** Cannot compile generic DLL loader
+
+### 4.3 Why Dynamic Shape Support?
+
+**Problem:** Production models need batch size flexibility
+
+**Solution:** Runtime dimension values via `tensor_t.shape` pointer
+
+**Benefits:**
+- Same DLL handles batch size 1 (inference) and batch size 32 (training)
+- No recompilation needed for shape changes
+- Deployment flexibility (single artifact for all batch sizes)
+
+**Design invariants:**
+- Tensor **rank** is compile-time known (e.g., always 4D for images)
+- Dimension **values** are runtime (loaded from tensor_t.shape)
+- No interface changes needed (same C API for static and dynamic)
+
+**See:** [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete dynamic shape architecture
+
+### 4.4 Why C-ABI Compatibility?
+
+**Problem:** Need to load DLL from multiple languages
+
+**Solution:** C calling convention and no name mangling
+
+**Benefits:**
+- Cross-language compatibility (C, C++, C#, Python, Rust, etc.)
+- Standard DLL export format (Windows: dllexport, Linux: visibility=public)
+- Predictable stack layout and calling conventions
+
+**Requirements:**
+- All exported functions use `extern "C"` semantics
+- No C++ features in interface (no classes, templates, exceptions)
+- Standard types only (void*, int, struct)
+
+---
+
+## 5. Related Documents
+
+**Core design:**
+- [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) - Overall compilation pipeline
+- [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape support details
+- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - Runtime state structure
+
+**Implementation:**
+- [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) - How to implement the C interface in MLIR
+- [passes/OnnxToHip.md](passes/OnnxToHip.md) - Generates constant helpers and metadata
+- [passes/HipToLLVM.md](passes/HipToLLVM.md) - Transforms @main signature
+
+**Supporting details:**
+- [mlir/MODULE-STRUCTURE.md](mlir/MODULE-STRUCTURE.md) - MLIR module organization
+- [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Complete lowering flow
+- [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md) - Constant handling
