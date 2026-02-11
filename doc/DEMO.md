@@ -71,9 +71,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     %3 = hip.get_constant(%arg0, %c2_i64) : memref<64x64x3x3xf32, 1>
     %c3_i64 = arith.constant 3 : i64
     %4 = hip.get_constant(%arg0, %c3_i64) : memref<64xf32, 1>
-    %5 = hip.alloc(%arg0) : memref<1x64x112x112xf32, 1>
-    hip.conv(%arg0, %2, %3, %4, %5) {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]} : (!hip.context, memref<1x64x224x224xf32, 1>, memref<64x64x3x3xf32, 1>, memref<64xf32, 1>, memref<1x64x112x112xf32, 1>)
-    memref.copy %5, %arg2 : memref<1x64x112x112xf32, 1> to memref<1x64x112x112xf32, 1>
+    hip.conv(%arg0, %2, %3, %4, %arg2) {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]} : (!hip.context, memref<1x64x224x224xf32, 1>, memref<64x64x3x3xf32, 1>, memref<64xf32, 1>, memref<1x64x112x112xf32, 1>)
     %c0_i32 = arith.constant 0 : i32
     return %c0_i32 : i32
   }
@@ -120,6 +118,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
 - ✅ **Module metadata** in first line: `hipdnn.input_count = 1`, `hipdnn.input_ranks = array<i64: 4>`, etc.
 - ✅ **4 LLVM globals** for constants: `@constant_0` through `@constant_3`
 - ✅ **@main function** uses `!hip.context` and `memref` types with address space 1 (GPU)
+- ✅ **Destination-passing optimization**: Final conv writes directly to `%arg2` (no temp buffer, no memref.copy!)
 - ✅ **Helper functions**: `get_constant_count()`, `initialize_constants()`, `release_constants()`
 
 ### After `--convert-hip-to-llvm`
@@ -170,10 +169,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     // Call MIOpen
     %status = llvm.call @miopenConvolutionForward(%arg0, %input_ptr, %weights_ptr, %bias_ptr, %output_ptr, %params...)
 
-    // ... (similar for second conv layer)
-
-    // Copy output
-    "llvm.intr.memcpy"(%dest, %src, %size) <{isVolatile = false}> : (!llvm.ptr<1>, !llvm.ptr<1>, i64) -> ()
+    // ... (similar for second conv layer, writes directly to output argument)
 
     %c0_i32 = llvm.mlir.constant(0 : i32) : i32
     llvm.return %c0_i32 : i32
@@ -330,9 +326,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     %3 = hip.get_constant(%arg0, %c2_i64) : memref<64x64x3x3xf32, 1>
     %c3_i64 = arith.constant 3 : i64
     %4 = hip.get_constant(%arg0, %c3_i64) : memref<64xf32, 1>
-    %5 = hip.alloc(%arg0) : memref<1x64x112x112xf32, 1>
-    hip.conv(%arg0, %2, %3, %4, %5) {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]} : (!hip.context, memref<1x64x224x224xf32, 1>, memref<64x64x3x3xf32, 1>, memref<64xf32, 1>, memref<1x64x112x112xf32, 1>)
-    memref.copy %5, %arg2 : memref<1x64x112x112xf32, 1> to memref<1x64x112x112xf32, 1>
+    hip.conv(%arg0, %2, %3, %4, %arg2) {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]} : (!hip.context, memref<1x64x224x224xf32, 1>, memref<64x64x3x3xf32, 1>, memref<64xf32, 1>, memref<1x64x112x112xf32, 1>)
     %c0_i32 = arith.constant 0 : i32
     return %c0_i32 : i32
   }

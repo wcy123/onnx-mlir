@@ -4,9 +4,9 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
   llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
   llvm.func @hipMalloc(i64) -> !llvm.ptr
   llvm.func @hip_get_constant(!llvm.ptr, i64) -> !llvm.ptr
-  llvm.mlir.global internal constant @constant_2(dense<2.000000e+00> : tensor<64x64x3x3xf32>) {addr_space = 0 : i32} : !llvm.array<36864 x f32>
-  llvm.mlir.global internal constant @constant_1(dense<5.000000e-01> : tensor<64xf32>) {addr_space = 0 : i32} : !llvm.array<64 x f32>
   llvm.mlir.global internal constant @constant_3(dense<1.000000e-01> : tensor<64xf32>) {addr_space = 0 : i32} : !llvm.array<64 x f32>
+  llvm.mlir.global internal constant @constant_1(dense<5.000000e-01> : tensor<64xf32>) {addr_space = 0 : i32} : !llvm.array<64 x f32>
+  llvm.mlir.global internal constant @constant_2(dense<2.000000e+00> : tensor<64x64x3x3xf32>) {addr_space = 0 : i32} : !llvm.array<36864 x f32>
   llvm.mlir.global internal constant @constant_0(dense<1.000000e+00> : tensor<64x3x3x3xf32>) {addr_space = 0 : i32} : !llvm.array<1728 x f32>
   llvm.func @main(%arg0: !llvm.ptr, %arg1: !llvm.ptr<1>, %arg2: !llvm.ptr<1>, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64, %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64, %arg12: !llvm.ptr<1>, %arg13: !llvm.ptr<1>, %arg14: i64, %arg15: i64, %arg16: i64, %arg17: i64, %arg18: i64, %arg19: i64, %arg20: i64, %arg21: i64, %arg22: i64) -> i32 {
     %0 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
@@ -151,91 +151,45 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     %139 = llvm.insertvalue %138, %137[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)> 
     %140 = llvm.insertvalue %133, %139[3, 0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)> 
     %141 = llvm.insertvalue %134, %140[4, 0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)> 
-    %142 = llvm.mlir.constant(1 : index) : i64
-    %143 = llvm.mlir.constant(64 : index) : i64
-    %144 = llvm.mlir.constant(112 : index) : i64
-    %145 = llvm.mlir.constant(112 : index) : i64
-    %146 = llvm.mlir.constant(1 : index) : i64
-    %147 = llvm.mlir.constant(12544 : index) : i64
-    %148 = llvm.mlir.constant(802816 : index) : i64
-    %149 = llvm.mlir.constant(802816 : index) : i64
-    %150 = llvm.mlir.zero : !llvm.ptr
-    %151 = llvm.getelementptr %150[%149] : (!llvm.ptr, i64) -> !llvm.ptr, f32
-    %152 = llvm.ptrtoint %151 : !llvm.ptr to i64
-    %153 = llvm.call @hipMalloc(%152) : (i64) -> !llvm.ptr
-    %154 = llvm.addrspacecast %153 : !llvm.ptr to !llvm.ptr<1>
-    %155 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %156 = llvm.insertvalue %154, %155[0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %157 = llvm.insertvalue %154, %156[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %158 = llvm.mlir.constant(0 : index) : i64
-    %159 = llvm.insertvalue %158, %157[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %160 = llvm.insertvalue %142, %159[3, 0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %161 = llvm.insertvalue %143, %160[3, 1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %162 = llvm.insertvalue %144, %161[3, 2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %163 = llvm.insertvalue %145, %162[3, 3] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %164 = llvm.insertvalue %148, %163[4, 0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %165 = llvm.insertvalue %147, %164[4, 1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %166 = llvm.insertvalue %145, %165[4, 2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %167 = llvm.insertvalue %146, %166[4, 3] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %168 = llvm.extractvalue %85[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %169 = llvm.addrspacecast %168 : !llvm.ptr<1> to !llvm.ptr
-    %170 = llvm.extractvalue %129[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %171 = llvm.addrspacecast %170 : !llvm.ptr<1> to !llvm.ptr
-    %172 = llvm.extractvalue %167[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %173 = llvm.addrspacecast %172 : !llvm.ptr<1> to !llvm.ptr
-    %174 = llvm.extractvalue %141[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)> 
-    %175 = llvm.addrspacecast %174 : !llvm.ptr<1> to !llvm.ptr
-    %176 = llvm.mlir.constant(3 : i64) : i64
-    %177 = llvm.mlir.constant(3 : i64) : i64
-    %178 = llvm.mlir.constant(2 : i64) : i64
-    %179 = llvm.mlir.constant(2 : i64) : i64
-    %180 = llvm.mlir.constant(1 : i64) : i64
-    %181 = llvm.mlir.constant(1 : i64) : i64
-    %182 = llvm.mlir.constant(1 : i64) : i64
-    %183 = llvm.mlir.constant(1 : i64) : i64
-    %184 = llvm.mlir.constant(1 : i64) : i64
-    %185 = llvm.mlir.constant(1 : i64) : i64
-    %186 = llvm.mlir.constant(1 : i64) : i64
-    %187 = llvm.call @miopenConvolutionForward(%arg0, %169, %171, %175, %173, %176, %177, %178, %179, %180, %181, %182, %183, %184, %185, %186) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
-    %188 = llvm.mlir.constant(1 : index) : i64
-    %189 = llvm.extractvalue %167[3, 0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %190 = llvm.mul %188, %189 : i64
-    %191 = llvm.extractvalue %167[3, 1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %192 = llvm.mul %190, %191 : i64
-    %193 = llvm.extractvalue %167[3, 2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %194 = llvm.mul %192, %193 : i64
-    %195 = llvm.extractvalue %167[3, 3] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %196 = llvm.mul %194, %195 : i64
-    %197 = llvm.mlir.zero : !llvm.ptr
-    %198 = llvm.getelementptr %197[1] : (!llvm.ptr) -> !llvm.ptr, f32
-    %199 = llvm.ptrtoint %198 : !llvm.ptr to i64
-    %200 = llvm.mul %196, %199 : i64
-    %201 = llvm.extractvalue %167[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %202 = llvm.extractvalue %167[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %203 = llvm.getelementptr %201[%202] : (!llvm.ptr<1>, i64) -> !llvm.ptr<1>, f32
-    %204 = llvm.extractvalue %11[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %205 = llvm.extractvalue %11[2] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
-    %206 = llvm.getelementptr %204[%205] : (!llvm.ptr<1>, i64) -> !llvm.ptr<1>, f32
-    "llvm.intr.memcpy"(%206, %203, %200) <{isVolatile = false}> : (!llvm.ptr<1>, !llvm.ptr<1>, i64) -> ()
-    %207 = llvm.mlir.constant(0 : i32) : i32
-    llvm.return %207 : i32
+    %142 = llvm.extractvalue %85[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
+    %143 = llvm.addrspacecast %142 : !llvm.ptr<1> to !llvm.ptr
+    %144 = llvm.extractvalue %129[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
+    %145 = llvm.addrspacecast %144 : !llvm.ptr<1> to !llvm.ptr
+    %146 = llvm.extractvalue %11[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)> 
+    %147 = llvm.addrspacecast %146 : !llvm.ptr<1> to !llvm.ptr
+    %148 = llvm.extractvalue %141[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<1 x i64>, array<1 x i64>)> 
+    %149 = llvm.addrspacecast %148 : !llvm.ptr<1> to !llvm.ptr
+    %150 = llvm.mlir.constant(3 : i64) : i64
+    %151 = llvm.mlir.constant(3 : i64) : i64
+    %152 = llvm.mlir.constant(2 : i64) : i64
+    %153 = llvm.mlir.constant(2 : i64) : i64
+    %154 = llvm.mlir.constant(1 : i64) : i64
+    %155 = llvm.mlir.constant(1 : i64) : i64
+    %156 = llvm.mlir.constant(1 : i64) : i64
+    %157 = llvm.mlir.constant(1 : i64) : i64
+    %158 = llvm.mlir.constant(1 : i64) : i64
+    %159 = llvm.mlir.constant(1 : i64) : i64
+    %160 = llvm.mlir.constant(1 : i64) : i64
+    %161 = llvm.call @miopenConvolutionForward(%arg0, %143, %145, %149, %147, %150, %151, %152, %153, %154, %155, %156, %157, %158, %159, %160) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
+    %162 = llvm.mlir.constant(0 : i32) : i32
+    llvm.return %162 : i32
   }
   llvm.func @get_constant_count() -> i64 {
     %0 = llvm.mlir.constant(4 : i64) : i64
     llvm.return %0 : i64
   }
   llvm.func @initialize_constants(%arg0: !llvm.ptr) -> i32 {
-    %0 = llvm.mlir.addressof @constant_2 : !llvm.ptr
-    %1 = llvm.mlir.constant(2 : i64) : i64
-    %2 = llvm.mlir.constant(147456 : i64) : i64
+    %0 = llvm.mlir.addressof @constant_3 : !llvm.ptr
+    %1 = llvm.mlir.constant(3 : i64) : i64
+    %2 = llvm.mlir.constant(256 : i64) : i64
     llvm.call @hip_upload_constant(%arg0, %1, %0, %2) : (!llvm.ptr, i64, !llvm.ptr, i64) -> ()
     %3 = llvm.mlir.addressof @constant_1 : !llvm.ptr
     %4 = llvm.mlir.constant(1 : i64) : i64
     %5 = llvm.mlir.constant(256 : i64) : i64
     llvm.call @hip_upload_constant(%arg0, %4, %3, %5) : (!llvm.ptr, i64, !llvm.ptr, i64) -> ()
-    %6 = llvm.mlir.addressof @constant_3 : !llvm.ptr
-    %7 = llvm.mlir.constant(3 : i64) : i64
-    %8 = llvm.mlir.constant(256 : i64) : i64
+    %6 = llvm.mlir.addressof @constant_2 : !llvm.ptr
+    %7 = llvm.mlir.constant(2 : i64) : i64
+    %8 = llvm.mlir.constant(147456 : i64) : i64
     llvm.call @hip_upload_constant(%arg0, %7, %6, %8) : (!llvm.ptr, i64, !llvm.ptr, i64) -> ()
     %9 = llvm.mlir.addressof @constant_0 : !llvm.ptr
     %10 = llvm.mlir.constant(0 : i64) : i64
@@ -245,11 +199,11 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     llvm.return %12 : i32
   }
   llvm.func @release_constants(%arg0: !llvm.ptr) -> i32 {
-    %0 = llvm.mlir.constant(2 : i64) : i64
+    %0 = llvm.mlir.constant(3 : i64) : i64
     llvm.call @hip_release_constant(%arg0, %0) : (!llvm.ptr, i64) -> ()
     %1 = llvm.mlir.constant(1 : i64) : i64
     llvm.call @hip_release_constant(%arg0, %1) : (!llvm.ptr, i64) -> ()
-    %2 = llvm.mlir.constant(3 : i64) : i64
+    %2 = llvm.mlir.constant(2 : i64) : i64
     llvm.call @hip_release_constant(%arg0, %2) : (!llvm.ptr, i64) -> ()
     %3 = llvm.mlir.constant(0 : i64) : i64
     llvm.call @hip_release_constant(%arg0, %3) : (!llvm.ptr, i64) -> ()
