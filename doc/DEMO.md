@@ -29,12 +29,14 @@ Two-layer convolution network (ResNet-style):
 
 ## 2. Live Demo First (~5 min)
 
-### Build the Compiler
+### Build the Tools
 
 ```bash
 cd /path/to/onnx-hipdnn-ep
-cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON
-cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
+
+# Build both tools in one step
+cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
+cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler
 ```
 
 ### Stage 1: ONNX → HIP Dialect
@@ -77,6 +79,44 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
 - 3 exported functions: `inference_init()`, `inference_compute()`, `inference_cleanup()`
 - C-ABI compliance attributes
 - Error handling and validation logic
+
+### Stage 4: Compile to Native DLL
+
+```bash
+# First, save the interface-generated MLIR to a file
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
+  tools/hip-opt/demo_two_layer_conv.mlir \
+  --convert-onnx-to-hip \
+  --convert-hip-to-llvm \
+  --generate-interface \
+  > demo_with_interface.mlir
+
+# Then compile to DLL
+../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
+  demo_with_interface.mlir \
+  -o inference.dll \
+  -v \
+  --keep
+```
+
+**What you'll see**:
+- LLVM IR translation progress
+- Optimization at O2 level
+- Object file generation (.obj)
+- DLL linking with runtime libraries (HipDnnRuntime.lib, amdhip64.lib, MIOpen.lib)
+- DLL export verification (inference_init, inference_compute, inference_cleanup)
+- Intermediate files kept: .ll (LLVM IR), .obj (object file)
+
+**Verify DLL exports**:
+```bash
+# On Windows
+dumpbin /EXPORTS inference.dll
+
+# Expected output:
+#   inference_init
+#   inference_compute
+#   inference_cleanup
+```
 
 ---
 
@@ -252,6 +292,58 @@ llvm.func @inference_cleanup(%state_ptr: !llvm.ptr) -> i32
 
 ---
 
+### Stage 4: DLL Compilation
+
+**Four-step pipeline**: MLIR (LLVM dialect) → LLVM IR → Object File → DLL
+
+**Step 1: Translate to LLVM IR**
+- Convert MLIR to LLVM IR using MLIR's translation infrastructure
+- Preserves all function declarations and C-ABI attributes
+- Output: `.ll` file (LLVM IR text format)
+
+**Step 2: Optimize LLVM IR**
+- Run LLVM optimization passes (default: -O2)
+- Function inlining, constant propagation, dead code elimination
+- Output: Optimized LLVM IR
+
+**Step 3: Compile to Object File**
+- Generate native machine code for target platform (x86-64 Windows)
+- Output: `.obj` file (PE/COFF format)
+
+**Step 4: Link to DLL**
+- Link object file with runtime libraries:
+  - **HipDnnRuntime.lib** - Custom runtime (GPU handles, constant management)
+  - **amdhip64.lib** - AMD HIP runtime
+  - **MIOpen.lib** - Convolution operations
+  - **hipblaslt.lib** - BLAS operations
+- Use LLD-LINK (LLVM's linker) to create DLL
+- Verify exported symbols: `inference_init`, `inference_compute`, `inference_cleanup`
+- Output: `.dll` file (Windows) or `.so` (Linux)
+
+**Tool**: `mlir-hip-compiler` (uses LLVMBackend + DLLLinker libraries)
+
+**Options**:
+- `--from-onnx-mlir` - Run ONNX→HIP→LLVM→Interface passes before compilation
+- `-o <output>` - Output DLL filename
+- `--mode <ir|object|dll>` - Stop after IR, object, or full DLL
+- `-O <0-3>` - Optimization level (default: 2)
+- `-v` - Verbose output
+- `--keep` - Keep intermediate files (.ll, .obj)
+
+**Alternative workflow** (one command):
+```bash
+# Skip hip-opt step entirely using --from-onnx-mlir flag
+../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
+  tools/hip-opt/demo_two_layer_conv.mlir \
+  -o inference.dll \
+  --from-onnx-mlir \
+  -v
+```
+
+This runs all passes (ONNX→HIP→LLVM→Interface) + compilation in one step.
+
+---
+
 ## 4. Key Innovations (~5 min)
 
 ### 1. Smart Constant Handling
@@ -321,8 +413,19 @@ func.func @main(%ctx, %input, %output) -> i32  // 0 = success
 
 ### 4. AOT Compilation
 
+**Development Workflow** (Standalone Tools):
+```
+ONNX MLIR → hip-opt (passes) → mlir-hip-compiler → DLL
+```
+
+**Production Workflow** (ONNX Runtime Integration):
+```
+ONNX Model → onnx-mlir → Level-1 Pass → DLL → EPContext
+```
+
 **Compile time** (Level-1 Pass):
 - Dependencies: LLVM, MLIR, ONNX-MLIR, HIP (~500MB)
+- Tools: Built-in MLIR passes + LLVMBackend + DLLLinker
 - Output: Native DLL embedded in EPContext
 
 **Runtime** (Custom Op):
@@ -334,6 +437,7 @@ func.func @main(%ctx, %input, %output) -> i32  // 0 = success
 - Tiny runtime footprint
 - Fast startup (no JIT compilation)
 - Embed model + weights + code in single artifact
+- Same backend used in both standalone and integrated workflows
 
 ---
 
@@ -378,32 +482,49 @@ struct ONNXConvOpLoweringPattern : public OpConversionPattern<ONNXConvOp> {
 - [x] **Constant handling** with upload/release helper functions
 - [x] **Error handling** with proper return codes and validation
 - [x] **Two-layer convolution demo** working end-to-end
+- [x] **LLVM IR → DLL compilation** via mlir-hip-compiler (implemented)
+- [x] **DLL export verification** with automated checks
+- [x] **End-to-end testing infrastructure** in test/mlir/ directory
 
 ### ⚠️ In Progress
 
-- [ ] GPU resource management (hipStreamCreate, miopenCreate)
+- [ ] GPU resource management in runtime library (hipStreamCreate, miopenCreate)
 - [ ] Build memref descriptors from tensor_t runtime dimensions
 - [ ] Call @main from inference_compute after descriptor building
 - [ ] Call initialize_constants from inference_init
 - [ ] Call release_constants from inference_cleanup
+- [ ] HipDnnRuntime.lib implementation (miopenConvolutionForward wrapper)
 
 ### 📋 Next Steps
 
-1. **Complete interface pass TODOs** (GPU handles, descriptor building)
-2. **Runtime library implementation** (miopenConvolutionForward wrapper)
-3. **LLVM IR → DLL compilation** (mlir-translate to LLVM IR, llc to object file, lld to DLL)
-4. **End-to-end integration test**: MLIR → DLL → EPContext → Custom Op
-5. **ResNet50 support** (1000+ layer model)
+1. **Complete runtime library implementation** (HipDnnRuntime.lib)
+   - GPU resource initialization (hipStreamCreate, miopenCreate)
+   - Descriptor building from tensor_t
+   - Call @main, initialize_constants, release_constants from C interface
+
+2. ~~**LLVM IR → DLL compilation**~~ ✅ **COMPLETED** via mlir-hip-compiler
+
+3. **End-to-end integration test**: MLIR → DLL → EPContext → Custom Op
+
+4. **ResNet50 support** (1000+ layer model)
+
+5. **Level-1 Pass integration** with ONNX Runtime
 
 ### Output Files (Verified Real Compiler Output)
 
 ```bash
-ls -lh ../output/demo_stage*.mlir
+ls -lh ../output/demo_*.mlir ../output/demo_*.dll
 ```
 
 - `demo_stage1_onnx_to_hip.mlir` (60 lines) - HIP dialect with constants
 - `demo_stage2_hip_to_llvm.mlir` (260 lines) - LLVM IR with unpacking
 - `demo_stage3_with_interface.mlir` (105 lines) - C-ABI interface functions
+- `demo_stage4_inference.dll` - Native DLL with embedded runtime
+- `demo_stage3.ll` (if --keep used) - LLVM IR text format
+- `demo_stage3.obj` (if --keep used) - Native object file
+
+**End-to-End Test:**
+See `test/mlir/` directory for automated testing of the complete MLIR → DLL pipeline.
 
 ---
 
@@ -412,10 +533,10 @@ ls -lh ../output/demo_stage*.mlir
 ### Quick Start Commands
 
 ```bash
-# 1. Build the compiler
+# 1. Build the tools
 cd /path/to/onnx-hipdnn-ep
-cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON
-cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
+cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
+cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler
 
 # 2. Run Stage 1: ONNX → HIP
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
@@ -436,6 +557,17 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
   --convert-onnx-to-hip \
   --generate-interface \
   > ../output/my_stage3.mlir
+
+# 5. Run Stage 4: Compile to DLL
+../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
+  ../output/my_stage3.mlir \
+  -o ../output/my_inference.dll \
+  -v \
+  --keep
+
+# 6. Verify DLL Exports
+dumpbin /EXPORTS ../output/my_inference.dll
+# Expected: inference_init, inference_compute, inference_cleanup
 ```
 
 ### Expected Output
@@ -462,16 +594,23 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
 
 ```bash
 # Count functions
-grep "llvm.func @" my_stage2.mlir | wc -l
+grep "llvm.func @" ../output/my_stage2.mlir | wc -l
 # Expected: 6 (malloc, free, get_constant_count, init, compute, cleanup)
 
 # Check exports
-grep "sym_visibility.*public" my_stage3.mlir
+grep "sym_visibility.*public" ../output/my_stage3.mlir
 # Expected: 3 lines (inference_init, inference_compute, inference_cleanup)
 
 # Check metadata
-grep "hipdnn\." my_stage1.mlir
+grep "hipdnn\." ../output/my_stage1.mlir
 # Expected: 4 attributes (input_count, input_ranks, output_count, output_ranks)
+
+# Verify DLL exports
+dumpbin /EXPORTS ../output/my_inference.dll | grep "inference_"
+# Expected: inference_init, inference_compute, inference_cleanup
+
+# Check intermediate files (if --keep used)
+ls -lh ../output/my_stage3.ll ../output/my_stage3.obj ../output/my_inference.dll
 ```
 
 ---
@@ -486,21 +625,29 @@ grep "hipdnn\." my_stage1.mlir
 └────────────────────┬────────────────────────────────────────┘
                      │
                 ┌────▼────────────────────────────────┐
-                │  COMPILE TIME (Level-1 Pass)        │
-                │  Dependencies: LLVM, MLIR, HIP      │
+                │  COMPILE TIME (Two Paths)           │
                 ├─────────────────────────────────────┤
-                │  1. ONNX → MLIR (onnx-mlir)        │
-                │  2. Pattern lowering: ONNX → HIP    │
-                │     • Discover constants            │
-                │     • Generate LLVM globals         │
-                │     • Create init/cleanup functions │
-                │  3. HIP → LLVM lowering             │
-                │     • Two-function architecture     │
-                │     • Memref descriptor unpacking   │
-                │  4. Interface generation            │
-                │     • 3 C-ABI wrapper functions     │
-                │  5. LLVM IR → Native DLL            │
-                │  6. Embed DLL in EPContext          │
+                │                                      │
+                │  PATH A: Standalone Tools (Dev)     │
+                │  --------------------------------     │
+                │  1. hip-opt: ONNX → MLIR            │
+                │     • --convert-onnx-to-hip          │
+                │     • --convert-hip-to-llvm          │
+                │     • --generate-interface           │
+                │  2. mlir-hip-compiler: MLIR → DLL   │
+                │     • Translate to LLVM IR           │
+                │     • Optimize (O2)                  │
+                │     • Compile to object file         │
+                │     • Link to DLL with runtime libs  │
+                │                                      │
+                │  PATH B: Integrated (Production)     │
+                │  --------------------------------     │
+                │  1. onnx-mlir: ONNX → MLIR          │
+                │  2. Level-1 Pass:                    │
+                │     • Run same MLIR passes           │
+                │     • Use same LLVMBackend/DLLLinker │
+                │     • Embed DLL in EPContext         │
+                │                                      │
                 └────┬────────────────────────────────┘
                      │
                      ▼
@@ -526,10 +673,37 @@ grep "hipdnn\." my_stage1.mlir
                 └─────────────────────────────────────┘
 ```
 
+### Tools Reference
+
+**hip-opt** (tools/hip-opt/):
+- Purpose: MLIR transformation and pass testing
+- Input: ONNX MLIR, HIP dialect MLIR
+- Output: Transformed MLIR (text format)
+- Passes: --convert-onnx-to-hip, --convert-hip-to-llvm, --generate-interface
+- Usage: Development, debugging, testing individual passes
+
+**mlir-hip-compiler** (tools/mlir-hip-compiler/):
+- Purpose: End-to-end DLL compilation
+- Input: MLIR in LLVM dialect (assumes passes already run) or ONNX-MLIR (with --from-onnx-mlir)
+- Output: Native DLL (.dll) with exported C-ABI functions
+- Options: -o <output>, --mode <ir|object|dll>, -O <0-3>, -v, --keep, --from-onnx-mlir
+- Usage: Production artifact generation, standalone testing
+- Dependencies: Links with HipDnnRuntime.lib, amdhip64.lib, MIOpen.lib, hipblaslt.lib
+
+**Workflow:**
+```bash
+# Two-step workflow (development)
+hip-opt input.mlir --convert-onnx-to-hip --convert-hip-to-llvm --generate-interface -o transformed.mlir
+mlir-hip-compiler transformed.mlir -o output.dll -v
+
+# One-step workflow (production-like)
+mlir-hip-compiler input.mlir -o output.dll --from-onnx-mlir -v
+```
+
 ### For Deep Dive
 
-**Architecture & Design Documents**:
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Complete system architecture, EPContext integration
+**Architecture & Design Documents** (✅ = self-reviewed):
+- ✅ [ARCHITECTURE.md](ARCHITECTURE.md) - Complete system architecture, EPContext integration (v2.3)
 - [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - MLIR module structure, lowering pipeline
 - [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - State lifecycle, naming conventions
 - [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Full constant handling design (6 phases)
