@@ -23,7 +23,6 @@ Licensed under the MIT License.
   - [4. Synchronous Execution vs Async](#4-synchronous-execution-vs-async)
   - [5. Full Model Fusion vs Per-Op Execution](#5-full-model-fusion-vs-per-op-execution)
   - [6. Standalone Resources vs Shared Context](#6-standalone-resources-vs-shared-context)
-- [Quality Attributes](#quality-attributes)
 - [Design Principles](#design-principles)
 - [ONNX-MLIR Integration](#onnx-mlir-integration)
 - [Open Architectural Questions](#open-architectural-questions)
@@ -261,73 +260,6 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 
 ---
 
-## Quality Attributes
-
-### Performance
-
-**Approach:**
-- [Stateful interface](#2-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
-- Ahead-of-time compilation: Reduce or eliminate JIT overhead
-- Fast artifact loading: Details depend on chosen storage format (see [Open Questions](#open-architectural-questions))
-
-**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#2-stateful-interface-initcomputecleanup)
-
-### Scalability
-
-**Dynamic shapes:**
-- Compile with static ranks, runtime dimensions
-- Example: `memref<1x?x?x?xf32>` (batch=1 static, height/width dynamic)
-- Dimensions loaded at runtime from tensor metadata
-
-**Variable I/O:**
-- Interface uses `span_t` to handle N inputs/M outputs
-- No recompilation needed for different input/output counts
-
-See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design.
-
-### Portability
-
-**Current State:**
-- Interface is backend-agnostic (C ABI, no GPU-specific types)
-- Implementation is HIP-specific (all passes target HIP/MIOpen)
-
-**Design Intention:**
-- CustomOp has zero GPU backend dependencies ([Decision #6](#6-standalone-resources-vs-shared-context))
-- Theoretically can swap backends via different compiled DLL
-- However: Current passes hardcode HIP operations throughout
-
-**Realistic Assessment:**
-- Interface provides abstraction layer for future portability
-- Full backend portability would require new dialect + lowering passes
-
-### Reliability
-
-**Error handling strategy:**
-- Status codes returned from all interface functions (0=success, non-zero=error)
-- Validation at interface boundaries (input/output count, state pointer validity)
-- Type safety enforced at [MLIR](https://mlir.llvm.org/) compilation time
-
-**Known Limitations:**
-- Runtime validation is minimal (no DLL signature checking)
-- GPU architecture mismatch detection planned but not required for MVP
-
-### Security
-
-**Type safety:**
-- [MLIR](https://mlir.llvm.org/) provides compile-time type checking
-- Operation type mismatches caught during compilation
-
-**Runtime validation:**
-- Limited: DLL loaded from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html) without signature verification
-- Trust model: EPContext is part of ONNX model (user must trust the model)
-
-**Known Gaps:**
-- No DLL signature validation
-- No GPU architecture validation at runtime
-- No bounds checking on tensor dimensions
-
----
-
 ## Design Principles
 
 These principles guided the architectural decisions:
@@ -476,6 +408,7 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 ---
 
 **Document History:**
+- v2.3 (2026-02-11): Removed "Quality Attributes" section (redundant bureaucracy)
 - v2.2 (2026-02-11): Moved "Memory DLL Loading vs Disk Files" to NATIVE-VS-IR-COMPARISON.md as Native DLL sub-decision
 - v2.1 (2026-02-11): Moved Native DLL vs LLVM IR decision to "Open Questions", created separate comparison document
 - v2.0 (2026-02-11): Restructured to focus on architectural decisions, removed implementation details
