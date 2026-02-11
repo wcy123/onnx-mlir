@@ -35,77 +35,15 @@ This pass requires 5 prerequisites to be met by prior passes. For detailed speci
 
 ## Generated Code Overview
 
-GenerateInterfacePass generates three C-compatible functions that form the public interface of the compiled DLL. These functions manage the complete lifecycle of GPU inference execution.
+GenerateInterfacePass generates three C-compatible functions that form the public interface of the compiled DLL:
 
-### High-Level Function Roles
+1. **`inference_init`** - Allocates context, creates GPU handles, uploads constants
+2. **`inference_compute`** - Parses input tensors, performs computation, returns outputs
+3. **`inference_cleanup`** - Releases all GPU resources
 
-**1. `inference_init` - One-Time Setup**
+For detailed function contracts, responsibilities, and architectural rationale, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md).
 
-Creates and initializes all GPU resources needed for inference:
-- Allocates an opaque state structure (the "context")
-- Creates GPU handles (stream, MIOpen, hipBLAS)
-- Uploads model constants (weights, biases) to GPU memory
-- Stores GPU constant pointers in the state structure
-- Returns the state pointer to the caller
-
-**Purpose:** Do all expensive initialization work once, so subsequent inference calls are fast.
-
-**Analogy:** Like loading a program into memory and initializing it - done once at startup.
-
----
-
-**2. `inference_compute` - The Fast Path**
-
-Executes the actual inference using pre-initialized resources:
-- Receives input/output tensors from caller (via `span_t` structures - CPU memory)
-- Validates tensor counts and ranks match model expectations
-- Loads runtime dimension values from `tensor_t.shape` pointers
-- **Copies input data from CPU to GPU (H2D transfer)** via hipMemcpy
-- Builds MLIR memref descriptors with runtime dimensions (pointing to GPU memory)
-- Calls the internal `@main` function to perform GPU computation
-- **Copies output data from GPU back to CPU (D2H transfer)** via hipMemcpy
-- Returns status code (0 = success)
-
-**Purpose:** Fast execution path - all resources already created, just run the model.
-
-**Analogy:** Like calling an already-loaded function - minimal overhead, maximum speed.
-
-**Critical features:**
-- Supports dynamic shapes - dimension values are loaded at runtime from the caller's tensor metadata
-- Handles data movement transparently - caller provides CPU pointers, GPU computation happens automatically
-
----
-
-**3. `inference_cleanup` - Teardown**
-
-Releases all GPU resources created by `inference_init`:
-- Calls `release_constants` to free GPU memory for weights/biases
-- Destroys GPU handles (hipBLAS, MIOpen, stream) in reverse order
-- Frees the gpu_constants array
-- Frees the state structure itself
-- State pointer becomes invalid after this call
-
-**Purpose:** Clean shutdown - prevent GPU memory leaks.
-
-**Analogy:** Like shutting down a program - release all resources back to the OS.
-
----
-
-### Usage Pattern
-
-```c
-// Once at startup
-void* state;
-inference_init(&state);
-
-// Many times (hot path)
-for (int i = 0; i < num_requests; i++) {
-  inference_compute(state, inputs, outputs);
-}
-
-// Once at shutdown
-inference_cleanup(state);
-```
+This document focuses on the **MLIR implementation details** of these functions.
 
 ---
 
