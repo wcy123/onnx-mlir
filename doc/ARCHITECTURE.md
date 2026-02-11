@@ -44,23 +44,19 @@ The goal is to create a unified MLIR compilation pipeline with ahead-of-time (AO
 │  1. MorphiZen Framework (PR #1)                             │
 │     └─→ ONNX → MLIR ModuleOp (ONNX-MLIR)                   │
 │                                                              │
-│  2. ONNX-Level Optimizations (Placeholder)                  │
-│     └─→ Operator fusion, constant folding, layout opt.     │
-│                                                              │
-│  3. Pattern-Based Lowering (New Component)                  │
+│  2. Pattern-Based Lowering (OnnxToHip Pass)                 │
 │     └─→ ONNX dialect → HIP dialect (with MIOpen ops)       │
-│     └─→ Inspired by PR #2/#3 pattern matching approaches   │
 │                                                              │
-│  4. HIP-Level Optimizations (Placeholder)                   │
-│     └─→ Memory optimization, kernel fusion                  │
-│                                                              │
-│  5. HIP → LLVM Conversion (PR #4)                           │
+│  3. HIP → LLVM Conversion (HipToLLVM Pass)                  │
 │     └─→ HIP dialect → LLVM dialect                          │
 │                                                              │
-│  6. LLVM Compilation                                         │
+│  4. Interface Generation (GenerateInterfacePass)            │
+│     └─→ Generate C interface functions (init/compute/cleanup)│
+│                                                              │
+│  5. LLVM Compilation                                         │
 │     └─→ LLVM IR → Native DLL (GPU-specific)                │
 │                                                              │
-│  7. EPContext Serialization                                  │
+│  6. EPContext Serialization                                  │
 │     └─→ Embed DLL bytes in ONNX model EPContext node       │
 │                                                              │
 │  Output: ONNX model with EPContext (cached compilation)     │
@@ -168,32 +164,22 @@ void populateOnnxToHipPatterns(RewritePatternSet &patterns) {
 }
 ```
 
-### 4. Multi-Level Optimization Pipeline
-
-**Decision:** Optimizations at ONNX, HIP, and LLVM levels (placeholders for future work).
-
-**Rationale:**
-- **ONNX-level**: High-level semantic optimizations (operator fusion, layout)
-- **HIP-level**: Backend-specific optimizations (memory planning, kernel fusion)
-- **LLVM-level**: Standard compiler optimizations (CSE, DCE, inlining)
-- **Research-friendly**: Can experiment with optimizations at appropriate abstraction level
+### 4. Compilation Pipeline
 
 **Pipeline structure:**
 ```cpp
 PassManager pm(context);
 
-// Phase 1: ONNX optimizations (future)
-pm.addPass(createOnnxConstantFoldingPass());
-pm.addPass(createOnnxOperatorFusionPass());
-
-// Phase 2: Lowering
+// Phase 1: Lowering ONNX to HIP dialect
 pm.addPass(createConvertOnnxToHipPass());
 
-// Phase 3: HIP optimizations (future)
-pm.addPass(createHipMemoryOptimizationPass());
-
-// Phase 4: Final lowering + LLVM opts
+// Phase 2: Lowering HIP to LLVM dialect
 pm.addPass(createConvertHipToLLVMPass());
+
+// Phase 3: Generate C interface functions
+pm.addPass(createGenerateInterfacePass());
+
+// Phase 4: Standard LLVM optimizations
 pm.addPass(createCanonicalizerPass());
 
 pm.run(module);
@@ -1064,87 +1050,46 @@ void Level1MlirPass::process(IPass &self, Graph &graph) {
 
 ---
 
-## Migration Strategy
+## Implementation Status
 
-### Phase 1: Foundation (Current)
+### Completed Components
 
-**Goal:** Integrate PR #1 + PR #4 into single compilation pipeline
+**✅ MLIR Compilation Pipeline:**
+1. OnnxToHip Pass - Pattern-based lowering from ONNX to HIP dialect
+2. HipToLLVM Pass - Lowering HIP dialect to LLVM dialect with MIOpen wrappers
+3. GenerateInterfacePass - C interface generation (inference_init/compute/cleanup)
+4. HIP Dialect - Complete with MIOpen operations (Conv, Gemm, Pool, etc.)
 
-**Status:** In progress on `mlir-integration` branch
+**✅ Build System:**
+- CMake integration with LLVM/MLIR
+- Build options for modular compilation
+- onnx-mlir integration as submodule
 
-**Tasks:**
-1. ✅ Rename `level-1-pass-mlir/` → `level-1-pass-mlir-compiler/`
-2. ✅ Create directory structure: `lib/HipDialect/`, `tools/hip-opt/`
-3. ✅ Update CMakeLists.txt with build options
-4. ⏳ Merge PR #4 (hip-opt) dialect to `lib/HipDialect/`
-5. ⏳ Extend `HipOps.td` with MIOpen operations (Conv, Gemm, Pool)
-6. ⏳ Implement `OnnxToHip.cpp` with basic patterns (Conv only)
-7. ⏳ Modify Level-1 Pass to run full pipeline
-8. ⏳ Verify: Can compile simple Conv model to LLVM IR
+**✅ Documentation:**
+- Complete MLIR compilation overview
+- Pass-specific documentation (OnnxToHip, HipToLLVM, GenerateInterfacePass)
+- Interface design specification
+- Dynamic shape support design
+- Constant handling design
 
-**Deliverables:**
-- ONNX Conv model → HIP dialect → LLVM IR (end-to-end)
-- Unit tests for Conv pattern matching
-- Updated CMake build system
+### In Progress
 
-### Phase 2: Native Compilation
+**⏳ Native Compilation:**
+- LLVM IR → native DLL generation
+- EPContext serialization
 
-**Goal:** Add LLVM → native DLL compilation
+**⏳ Runtime Integration:**
+- MemoryModule integration for DLL loading
+- Custom Op modifications for EPContext execution
 
-**Tasks:**
-1. Integrate LLVM backend (JIT or AOT compilation)
-2. Generate DLL from LLVM IR
-3. Add GPU architecture detection/validation
-4. Create EPContext node with DLL bytes
+### Future Work
 
-**Deliverables:**
-- LLVM IR → native DLL compilation working
-- EPContext model with embedded DLL
-- Architecture validation logic
+**Potential Optimizations (Not Currently Planned):**
+- ONNX-level operator fusion
+- HIP-level kernel fusion
+- Memory layout optimizations
 
-### Phase 3: Runtime Integration
-
-**Goal:** Custom Op loads and executes from EPContext
-
-**Tasks:**
-1. Integrate MemoryModule library
-2. Modify Custom Op to load DLL from EPContext
-3. Implement entry point resolution and execution
-4. Error handling and diagnostics
-
-**Deliverables:**
-- End-to-end inference: ONNX model → EPContext → GPU execution
-- ResNet50 Conv layers working
-- Performance benchmarks
-
-### Phase 4: Expand Operations
-
-**Goal:** Support full ResNet50 model
-
-**Tasks:**
-1. Add patterns for Gemm, Pool, BatchNorm, ReLU, etc.
-2. Extend `HipOps.td` with all necessary operations
-3. Implement corresponding lowering to MIOpen calls
-4. Test with ResNet50 E2E
-
-**Deliverables:**
-- Full ResNet50 inference working
-- Accuracy validation vs CPU reference
-- Performance comparison vs PR #2 baseline
-
-### Phase 5: Optimizations (Ongoing)
-
-**Goal:** Add optimization passes
-
-**Tasks:**
-1. ONNX-level: Operator fusion, constant folding
-2. HIP-level: Memory optimization, kernel fusion
-3. Performance tuning and benchmarking
-
-**Deliverables:**
-- Measurable performance improvements
-- Optimization pass framework
-- Research findings documentation
+These optimizations are not required for the current architecture to work and can be added incrementally as performance needs dictate.
 
 ---
 
