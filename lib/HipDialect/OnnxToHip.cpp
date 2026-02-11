@@ -277,8 +277,14 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 // - Original ONNX: return %result : tensor<...>
 // - After conversion: Write to output argument, return i32 status
 //
-// The pattern finds where return values should be written (output arguments)
-// and generates stores, then returns status code 0 (success).
+// Optimization: If the return value comes from hip.alloc and that buffer
+// has exactly one use (an operation writing to it), redirect that operation
+// to write directly to the output argument, eliminating the temporary buffer
+// and memref.copy. This avoids GPU-to-GPU copies via CPU memcpy intrinsics.
+//
+// Example transformation:
+//   Before: %tmp = hip.alloc(...) ; hip.conv(..., %tmp) ; memref.copy %tmp, %out
+//   After:  hip.conv(..., %out)  // Zero-copy, writes directly to output!
 
 struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -289,14 +295,6 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
       ConversionPatternRewriter &rewriter) const override {
 
     auto loc = returnOp.getLoc();
-
-    // Destination-passing: outputs are already written to output arguments
-    // by the operations (hip.conv, etc. use in-place semantics)
-    //
-    // For each return value, we need to copy it to the corresponding output argument.
-    // The output arguments are the last N arguments of the function, where N is
-    // the number of return values.
-
     auto funcOp = returnOp->getParentOfType<func::FuncOp>();
     if (!funcOp) {
       return rewriter.notifyMatchFailure(returnOp, "Not inside a function");
@@ -306,20 +304,69 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
     unsigned numResults = returnOp.getNumOperands();
     unsigned numArgs = entryBlock.getNumArguments();
 
-    // Output arguments are the last numResults arguments
-    // (context + inputs + outputs)
     if (numArgs < numResults) {
       return rewriter.notifyMatchFailure(
           returnOp, "Function has fewer arguments than return values");
     }
 
-    // Copy return values to output arguments
+    // Process each return value
     for (unsigned i = 0; i < numResults; ++i) {
       Value returnValue = adaptor.getOperands()[i];
       Value outputArg = entryBlock.getArgument(numArgs - numResults + i);
 
-      // Generate memref.copy to write result to output argument
-      rewriter.create<memref::CopyOp>(loc, returnValue, outputArg);
+      // Try to apply destination-passing optimization
+      // Check if returnValue comes from hip.alloc
+      auto allocOp = returnValue.getDefiningOp<hip::AllocOp>();
+      if (!allocOp) {
+        // Not from hip.alloc - must copy
+        rewriter.create<memref::CopyOp>(loc, returnValue, outputArg);
+        continue;
+      }
+
+      // Count uses (excluding return operation)
+      unsigned numUses = 0;
+      Operation* writeOp = nullptr;
+      for (Operation* user : allocOp.getResult().getUsers()) {
+        // Skip the return operation itself
+        if (user == returnOp.getOperation()) {
+          continue;
+        }
+
+        numUses++;
+
+        // Check if this is a hip.conv writing to the buffer
+        if (auto convOp = dyn_cast<hip::ConvOp>(user)) {
+          // hip.conv signature: (%ctx, %input, %weights, %bias?, %output)
+          // Output is the last operand
+          if (convOp.getOperands().back() == allocOp.getResult()) {
+            writeOp = convOp;
+          }
+        }
+        // TODO: Support hip.gemm, hip.add, etc.
+      }
+
+      if (numUses != 1 || !writeOp) {
+        // Either multiple uses or no writing operation found - must copy
+        rewriter.create<memref::CopyOp>(loc, returnValue, outputArg);
+        continue;
+      }
+
+      // Optimization: Redirect operation to write directly to output argument
+      SmallVector<Value> newOperands(writeOp->getOperands());
+      newOperands.back() = outputArg;
+
+      OperationState newState(writeOp->getLoc(), writeOp->getName(),
+                             newOperands, {}, writeOp->getAttrs());
+      rewriter.setInsertionPoint(writeOp);
+      rewriter.create(newState);
+
+      // Erase the original operation (must do this before erasing allocOp)
+      rewriter.eraseOp(writeOp);
+
+      // Erase the now-dead allocation
+      rewriter.eraseOp(allocOp);
+
+      // No memref.copy needed - optimization applied!
     }
 
     // Return success status (i32 0)
