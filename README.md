@@ -29,7 +29,7 @@ The goal is to create a unified MLIR compilation pipeline for ONNX Runtime HipDN
 onnx-hipdnn-ep/
 ├── CMakeLists.txt              # Root CMake configuration
 ├── README.md                   # This file
-├── LICENSE                     # Apache 2.0 License
+├── LICENSE                     # MIT License
 ├── .gitignore                  # Git ignore rules
 ├── cmake/                      # CMake modules
 │   └── deps.cmake              # Dependency management
@@ -236,4 +236,4 @@ See [doc/TESTING.md](doc/TESTING.md).
 
 Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
 
-Licensed under the Apache License, Version 2.0. See LICENSE file for details.
+Licensed under the MIT License. See LICENSE file for details.
