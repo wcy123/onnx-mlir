@@ -757,12 +757,16 @@ Full outputs available in `../output/` directory.
 
 ### Purpose of DEMO.md
 
-This document is designed for **tech meeting presentations**. It should enable:
+This document is designed for **free-form tech meeting discussions**. It should enable:
 1. **Live demonstration** of the MLIR compilation pipeline
 2. **Technical deep-dive** into the transformation stages
 3. **Architecture review** discussions with the team
 
-**Critical**: This is NOT a boring architecture document to read alone. It's meant to be presented interactively.
+**Critical principles**:
+- This is NOT a boring architecture document to read alone - it's meant to be presented interactively
+- This is NOT a rigid script - it's a guide for free discussion
+- Don't prescribe what topics will be discussed or how long they'll take
+- Provide the tools (commands, examples) and let the discussion flow naturally
 
 ### Target Audience
 
