@@ -17,9 +17,12 @@ list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 include(AddLLVM)
 include(AddMLIR)
 
-# Create static library
+# Create static libraries
 add_library(LLVMBackend STATIC
     LLVMBackend.cpp
+)
+
+add_library(DLLLinker STATIC
     DLLLinker.cpp
 )
 
@@ -82,8 +85,30 @@ else()
     target_compile_options(LLVMBackend PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+# DLLLinker include directories and link libraries
+target_include_directories(DLLLinker
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE
+        ${LLVM_INCLUDE_DIRS}
+)
+
+target_link_libraries(DLLLinker
+    PUBLIC
+        LLVMSupport
+)
+
+target_compile_features(DLLLinker PRIVATE cxx_std_17)
+target_compile_definitions(DLLLinker PRIVATE ${LLVM_DEFINITIONS})
+
+if(MSVC)
+    target_compile_options(DLLLinker PRIVATE /W4 /wd4141 /wd4146 /wd4244 /wd4267)
+else()
+    target_compile_options(DLLLinker PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
 # Install rules
-install(TARGETS LLVMBackend
+install(TARGETS LLVMBackend DLLLinker
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
 )

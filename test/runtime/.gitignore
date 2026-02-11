@@ -1,0 +1,25 @@
+# Build artifacts - use out-of-source builds
+build/
+build_standalone/
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+
+# Generated files
+*.ll
+*.bc
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS files
+.DS_Store
+Thumbs.db

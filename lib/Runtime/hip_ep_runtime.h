@@ -11,6 +11,71 @@ extern "C" {
 // Opaque handle for runtime state
 typedef struct RuntimeState RuntimeState;
 
+// Runtime state management functions
+// These provide high-level initialization and cleanup that can be called
+// directly from generated interface functions, reducing MLIR pass complexity
+
+// Initialize runtime state (creates stream, MIOpen handle, hipBLAS handle)
+// Returns allocated RuntimeState pointer via out_state
+// Return codes:
+//   0 = success
+//   1 = allocation failed
+//   2 = stream creation failed
+//   3 = MIOpen creation failed
+//   4 = set stream failed
+//   5 = hipBLAS creation failed
+int runtime_state_init(RuntimeState** out_state);
+
+// Cleanup runtime state (destroys handles, frees memory)
+// Best-effort cleanup - continues even if individual operations fail
+// Returns 0 always (best-effort)
+int runtime_state_cleanup(RuntimeState* state);
+
+// Inference data structures for runtime helpers
+
+// Represents a tensor with host data and shape information
+typedef struct {
+    void* data;       // Host data pointer
+    int64_t* shape;   // Array of dimension sizes
+    size_t rank;      // Number of dimensions
+} tensor_t;
+
+// Represents a span of tensors (inputs or outputs)
+typedef struct {
+    tensor_t* data;   // Array of tensors
+    size_t count;     // Number of tensors
+} span_t;
+
+// Prepared inference data (returned by runtime_prepare_inference)
+typedef struct {
+    void** input_gpu_buffers;    // Array of GPU buffer pointers for inputs
+    void** output_gpu_buffers;   // Array of GPU buffer pointers for outputs
+    int64_t* input_sizes;        // Array of input buffer sizes in bytes
+    int64_t* output_sizes;       // Array of output buffer sizes in bytes
+    size_t input_count;
+    size_t output_count;
+} InferenceData;
+
+// Prepare inference: allocate GPU buffers, H2D copy for inputs
+// Returns allocated InferenceData structure with GPU buffers
+// Return codes:
+//   0 = success
+//   1 = invalid parameters
+//   2 = memory allocation failed
+//   3 = GPU allocation failed
+//   4 = H2D copy failed
+int runtime_prepare_inference(RuntimeState* state,
+                               span_t* inputs,
+                               span_t* outputs,
+                               InferenceData** out_data);
+
+// Cleanup inference: D2H copy for outputs, free GPU buffers
+// Best-effort cleanup - continues even if operations fail
+// Returns 0 always
+int runtime_cleanup_inference(RuntimeState* state,
+                               InferenceData* data,
+                               span_t* outputs);
+
 // Constant management functions
 // Called by initialize_constants during inference_init
 // Uploads constant data from DLL .data section to GPU memory

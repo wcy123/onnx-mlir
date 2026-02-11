@@ -33,5 +33,31 @@ else()
   message(STATUS "  Hint: Ensure onnxruntime is installed and CMAKE_PREFIX_PATH includes the installation directory")
 endif()
 
+# Mock Runtime Test - Tests runtime library without ROCm dependencies
+# Only built when BUILD_MOCK_RUNTIME=1 is set
+if(BUILD_MOCK_RUNTIME)
+    message(STATUS "Building Mock Runtime Test (BUILD_MOCK_RUNTIME=1)")
+
+    add_executable(test_mock_runtime
+        runtime/test_mock_runtime.cpp
+    )
+
+    target_link_libraries(test_mock_runtime PRIVATE
+        HipDnnRuntime
+    )
+
+    target_compile_definitions(test_mock_runtime PRIVATE
+        BUILD_MOCK_RUNTIME=1
+    )
+
+    # Enable testing
+    enable_testing()
+    add_test(NAME MockRuntime COMMAND test_mock_runtime)
+
+    set_target_properties(test_mock_runtime PROPERTIES FOLDER "mlir-tests")
+else()
+    message(STATUS "Mock Runtime Test disabled (set BUILD_MOCK_RUNTIME=1 to enable)")
+endif()
+
 # Integration tests for MLIR to DLL pipeline
 add_subdirectory(integration)

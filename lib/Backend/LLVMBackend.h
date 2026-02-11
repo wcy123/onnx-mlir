@@ -4,6 +4,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/Target/TargetMachine.h>
 
 #include <memory>
 #include <string>

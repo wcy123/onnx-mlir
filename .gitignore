@@ -37,6 +37,10 @@
 /build-*/
 /out/
 
+# Nested build directories (for standalone tests and other builds)
+**/build_*/
+**/build/
+
 # CMake
 /.cache/
 /build.ninja/

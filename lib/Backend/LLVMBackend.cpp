@@ -173,7 +173,7 @@ bool LLVMBackend::compileToObjectFile(llvm::Module* module, const std::string& o
 
     // Set module data layout and target triple
     module->setDataLayout(TM->createDataLayout());
-    module->setTargetTriple(TM->getTargetTriple().str());
+    module->setTargetTriple(TM->getTargetTriple());
 
     // Open output file
     std::error_code EC;

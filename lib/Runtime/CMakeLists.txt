@@ -4,14 +4,19 @@
 cmake_minimum_required(VERSION 3.18)
 
 # Find ROCm components (optional - mock versions used if not available)
-find_package(hip QUIET)
-find_package(MIOpen QUIET)
-find_package(hipblaslt QUIET)
+# Allow explicit BUILD_MOCK_RUNTIME=1 to force mock mode
+if(NOT BUILD_MOCK_RUNTIME)
+    find_package(hip QUIET)
+    find_package(MIOpen QUIET)
+    find_package(hipblaslt QUIET)
 
-if(NOT hip_FOUND OR NOT MIOpen_FOUND OR NOT hipblaslt_FOUND)
-    message(WARNING "ROCm components not found. Building mock runtime library for testing.")
-    message(WARNING "  To build full runtime, install ROCm and ensure it's in CMAKE_PREFIX_PATH")
-    set(BUILD_MOCK_RUNTIME TRUE)
+    if(NOT hip_FOUND OR NOT MIOpen_FOUND OR NOT hipblaslt_FOUND)
+        message(WARNING "ROCm components not found. Building mock runtime library for testing.")
+        message(WARNING "  To build full runtime, install ROCm and ensure it's in CMAKE_PREFIX_PATH")
+        set(BUILD_MOCK_RUNTIME TRUE)
+    endif()
+else()
+    message(STATUS "Building mock runtime (BUILD_MOCK_RUNTIME explicitly set)")
 endif()
 
 # Create static library
