@@ -1,11 +1,11 @@
 # MLIR AOT Compilation Demo
 ## From ONNX Model → Native AMD GPU Code
 
-**Presentation Guide**: 20-30 minute tech meeting with live demo capability
+**Presentation Guide**: Tech meeting with live demo capability
 
 ---
 
-## 1. Opening Hook (~2 min)
+## 1. Opening Hook
 
 ### The Big Idea
 
@@ -27,7 +27,7 @@ Two-layer convolution network (ResNet-style):
 
 ---
 
-## 2. Live Demo First (~5 min)
+## 2. Live Demo First
 
 ### Build the Tools
 
@@ -120,7 +120,7 @@ dumpbin /EXPORTS inference.dll
 
 ---
 
-## 3. Pipeline Breakdown (~8-10 min)
+## 3. Pipeline Breakdown
 
 ### Stage 1: ONNX → HIP Dialect
 
@@ -344,7 +344,7 @@ This runs all passes (ONNX→HIP→LLVM→Interface) + compilation in one step.
 
 ---
 
-## 4. Key Innovations (~5 min)
+## 4. Key Innovations
 
 ### 1. Smart Constant Handling
 
@@ -471,18 +471,18 @@ struct ONNXConvOpLoweringPattern : public OpConversionPattern<ONNXConvOp> {
 
 ---
 
-## 5. Current Status & Next Steps (~3 min)
+## 5. Current Status & Next Steps
 
 ### ✅ Fully Implemented
 
-- [x] **ONNX → HIP conversion** with constant discovery (60 lines output)
-- [x] **HIP → LLVM lowering** with two-function architecture (260 lines output)
-- [x] **Interface generation** with 3 C-ABI exports (105 lines output)
+- [x] **ONNX → HIP conversion** with constant discovery
+- [x] **HIP → LLVM lowering** with two-function architecture
+- [x] **Interface generation** with 3 C-ABI exports
 - [x] **Module metadata** captures input/output counts and ranks
 - [x] **Constant handling** with upload/release helper functions
 - [x] **Error handling** with proper return codes and validation
 - [x] **Two-layer convolution demo** working end-to-end
-- [x] **LLVM IR → DLL compilation** via mlir-hip-compiler (implemented)
+- [x] **LLVM IR → DLL compilation** via mlir-hip-compiler
 - [x] **DLL export verification** with automated checks
 - [x] **End-to-end testing infrastructure** in test/mlir/ directory
 
@@ -516,9 +516,9 @@ struct ONNXConvOpLoweringPattern : public OpConversionPattern<ONNXConvOp> {
 ls -lh ../output/demo_*.mlir ../output/demo_*.dll
 ```
 
-- `demo_stage1_onnx_to_hip.mlir` (60 lines) - HIP dialect with constants
-- `demo_stage2_hip_to_llvm.mlir` (260 lines) - LLVM IR with unpacking
-- `demo_stage3_with_interface.mlir` (105 lines) - C-ABI interface functions
+- `demo_stage1_onnx_to_hip.mlir` - HIP dialect with constants
+- `demo_stage2_hip_to_llvm.mlir` - LLVM IR with unpacking
+- `demo_stage3_with_interface.mlir` - C-ABI interface functions
 - `demo_stage4_inference.dll` - Native DLL with embedded runtime
 - `demo_stage3.ll` (if --keep used) - LLVM IR text format
 - `demo_stage3.obj` (if --keep used) - Native object file
@@ -757,7 +757,7 @@ Full outputs available in `../output/` directory.
 
 ### Purpose of DEMO.md
 
-This document is designed for **small tech meeting presentations** (20-30 minutes). It should enable:
+This document is designed for **tech meeting presentations**. It should enable:
 1. **Live demonstration** of the MLIR compilation pipeline
 2. **Technical deep-dive** into the transformation stages
 3. **Architecture review** discussions with the team
@@ -780,7 +780,6 @@ This document is designed for **small tech meeting presentations** (20-30 minute
 - Demo-first approach (not theory-first)
 - Commands should be prominent and copy-paste ready
 - Code examples should be condensed in main flow, full details in appendix
-- Include timing guidance for pacing a 20-30 min presentation
 - Current status should be visible but not buried at the end
 
 ### When Maintaining This Document
@@ -799,7 +798,7 @@ This document is designed for **small tech meeting presentations** (20-30 minute
 - ✅ **ALWAYS** run the actual commands and copy the real output
 - ✅ When updating examples, re-run the compiler and verify output matches
 - ✅ Keep output files in `../output/` directory as source of truth
-- ✅ Line counts in descriptions (e.g., "60 lines", "260 lines") must match actual files
+- ✅ Avoid specific line counts in descriptions (files change as implementation evolves)
 
 **How to verify**:
 ```bash

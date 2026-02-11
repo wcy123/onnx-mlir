@@ -527,9 +527,9 @@ struct ONNXConvOpLoweringPattern :
 
 # ✅ Fully Implemented
 
-- [x] **ONNX → HIP conversion** with constant discovery (60 lines)
-- [x] **HIP → LLVM lowering** with two-function architecture (260 lines)
-- [x] **Interface generation** with 3 C-ABI exports (105 lines)
+- [x] **ONNX → HIP conversion** with constant discovery
+- [x] **HIP → LLVM lowering** with two-function architecture
+- [x] **Interface generation** with 3 C-ABI exports
 - [x] **Module metadata** captures input/output counts and ranks
 - [x] **Constant handling** with upload/release helpers
 - [x] **Error handling** with proper return codes
@@ -574,13 +574,13 @@ struct ONNXConvOpLoweringPattern :
 
 ```
 ../output/demo_stage1_onnx_to_hip.mlir
-  → 60 lines, HIP dialect with constants
+  → HIP dialect with constants
 
 ../output/demo_stage2_hip_to_llvm.mlir
-  → 260 lines, LLVM IR with unpacking
+  → LLVM IR with unpacking
 
 ../output/demo_stage3_with_interface.mlir
-  → 105 lines, C-ABI interface functions
+  → C-ABI interface functions
 
 ../output/demo_stage4_inference.dll
   → Native DLL with embedded runtime
