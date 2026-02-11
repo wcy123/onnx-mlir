@@ -179,6 +179,7 @@ See [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete specification.
 - Deployment simplicity: No external dependencies or file paths
 - Compiled code controls layout: Can optimize constant organization
 - Semantic consistency: Constants are part of compiled code, not configuration
+- Testing simplicity: No need to manage external file paths during test setup
 
 **Trade-offs:**
 
@@ -188,6 +189,7 @@ See [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete specification.
 | **Deployment** | Single ONNX file | ONNX + weight files |
 | **Weight updates** | Requires recompilation | Can swap files |
 | **Loading** | Constants ready at init | Extra I/O on startup |
+| **Testing** | Simple (no file path management) | Requires path configuration |
 
 See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementation details.
 
