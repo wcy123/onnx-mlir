@@ -15,7 +15,7 @@ This document describes the C interface exported from the compiled DLL. The inte
 
 **Audience:** Users integrating the compiled DLL, designers planning the architecture
 
-**For implementers:** See [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) for MLIR code generation details and prerequisites.
+**For implementers:** See [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) for MLIR code generation details.
 
 ---
 
