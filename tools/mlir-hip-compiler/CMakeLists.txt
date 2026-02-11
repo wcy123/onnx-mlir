@@ -32,6 +32,8 @@ set(MLIR_LIBS
     MLIRLLVMDialect
     MLIRFuncDialect
     MLIRLLVMToLLVMIRTranslation
+    MLIRMemRefDialect
+    MLIRArithDialect
 )
 
 # Our backend libraries
