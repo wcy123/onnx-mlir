@@ -102,6 +102,8 @@ int inference_init(void** out_state);
 5. Allocate array for GPU constant pointers
 6. Upload model weights/constants to GPU via `initialize_constants`
 
+**Note:** For detailed constant management design (extraction, upload, retrieval, cleanup), see [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md).
+
 **Parameters:**
 - `out_state` (output): Pointer to receive allocated context pointer
 
