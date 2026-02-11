@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.18)
+project(MinimalTest)
+
+add_executable(minimal_build_test minimal_build_test.cpp)
+target_compile_features(minimal_build_test PRIVATE cxx_std_17)
