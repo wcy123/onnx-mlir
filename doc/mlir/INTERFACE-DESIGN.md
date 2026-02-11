@@ -60,6 +60,24 @@ Summary:
 
 ### Prerequisite 1: @main Function Signature (Dynamic Shape Ready)
 
+**✅ Implementation Status: COMPLETE**
+
+This prerequisite is satisfied by the **HipToLLVM pass** (`transformMainFunction()` method in `lib/HipDialect/HipToLLVM.cpp`).
+
+**Implementation approach:**
+1. Standard MLIR conversion unpacks @main memrefs to 23+ scalar parameters
+2. HipToLLVM renames unpacked @main → **@main_internal** (private, contains computation)
+3. HipToLLVM creates new **@main** with clean array-based interface (3 params, private)
+4. New @main:
+   - Loads memref structs from arrays using GEP + load operations
+   - Unpacks structs into scalars using extractvalue operations
+   - Calls @main_internal with all unpacked parameters
+5. GenerateInterfacePass calls the new @main (clean 3-param interface)
+
+**See:** `doc/mlir/passes/HipToLLVM.md` section "Transform @main Signature" for detailed documentation.
+
+---
+
 **Requirement:** The `@main` function must exist with a well-defined signature that supports multiple inputs and outputs with **dynamic shapes**.
 
 **Design Decision:**

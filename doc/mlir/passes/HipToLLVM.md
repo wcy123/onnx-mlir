@@ -215,7 +215,108 @@ module attributes {
 
 ## Key Transformations
 
-### 1. Generate Wrapper Functions
+### 1. Transform @main Signature (Array-Based Interface)
+
+**Critical transformation to satisfy GenerateInterfacePass Prerequisite 1.**
+
+**Problem:** Standard MLIR memref-to-llvm conversion unpacks memrefs into scalar components. For a rank-4 tensor, this creates **11 parameters** (2 pointers + 1 offset + 4 sizes + 4 strides). With 1 input and 1 output, @main gets **23 parameters** - barely readable and doesn't scale.
+
+**Solution:** Two-function wrapper architecture:
+
+1. **@main** (3 parameters): Clean array-based interface
+   - Signature: `(context: !llvm.ptr, inputs: !llvm.ptr, outputs: !llvm.ptr) -> i32`
+   - Loads memref structs from arrays using GEP + load
+   - Unpacks structs using extractvalue (11 extracts per rank-4 tensor)
+   - Calls @main_internal with unpacked parameters
+   - Private (not exported from DLL)
+
+2. **@main_internal** (23+ parameters): Computation logic
+   - Original unpacked signature from standard conversion
+   - Contains actual computation (calls to MIOpen wrappers, etc.)
+   - Private (not exported from DLL)
+
+**Transformation Flow:**
+
+```
+Standard MLIR conversion
+    ↓
+@main with 23 unpacked params (allocated, aligned, offset, sizes[4], strides[4] for each tensor)
+    ↓ transformMainFunction()
+Rename to @main_internal (private)
+    ↓
+Create new @main (3 params)
+    ↓
+@main loads memref structs from arrays
+    ↓
+@main extracts 11 fields per tensor using llvm.extractvalue
+    ↓
+@main calls @main_internal with 23 unpacked params
+```
+
+**Code Example:**
+
+```mlir
+// NEW: Clean 3-parameter wrapper
+llvm.func private @main(%ctx: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {
+  // Load input memref struct from inputs[0]
+  %c0 = llvm.mlir.constant(0 : i32) : i32
+  %input_ptr = llvm.getelementptr %inputs[%c0] : (!llvm.ptr, i32) -> !llvm.ptr, !llvm.ptr
+  %input = llvm.load %input_ptr : !llvm.ptr
+    -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>
+
+  // Extract 11 fields
+  %allocated = llvm.extractvalue %input[0] : !llvm.struct<...> -> !llvm.ptr<1>
+  %aligned = llvm.extractvalue %input[1] : !llvm.struct<...> -> !llvm.ptr<1>
+  %offset = llvm.extractvalue %input[2] : !llvm.struct<...> -> i64
+  %size0 = llvm.extractvalue %input[3, 0] : !llvm.struct<...> -> i64  // Runtime dimension!
+  // ... extract remaining sizes and strides
+
+  // Load output struct (similar)
+  // ...
+
+  // Call computation function with 23 unpacked params
+  %result = llvm.call @main_internal(%ctx, %allocated, %aligned, %offset,
+                                      %size0, %size1, %size2, %size3,
+                                      %stride0, %stride1, %stride2, %stride3,
+                                      %out_allocated, %out_aligned, ...)
+  llvm.return %result : i32
+}
+
+// Internal computation (original body, 23 parameters)
+llvm.func private @main_internal(%ctx: !llvm.ptr, %arg1: !llvm.ptr<1>, ..., %arg22: i64) -> i32 {
+  // Rebuild memref descriptors from unpacked params
+  %0 = llvm.mlir.poison : !llvm.struct<...>
+  %1 = llvm.insertvalue %arg12, %0[0] : ...
+  // ... (computation logic)
+}
+```
+
+**Metadata-Driven:** Uses module attributes to determine structure:
+- `hipdnn.input_count` - number of input tensors
+- `hipdnn.input_ranks` - rank of each input (e.g., [4] for one rank-4 tensor)
+- `hipdnn.output_count` - number of output tensors
+- `hipdnn.output_ranks` - rank of each output
+
+For each tensor with rank R, unpacking extracts **2 + 1 + R + R** parameters.
+
+**Dynamic Shape Support:**
+- Rank is compile-time (from metadata)
+- Dimension values are runtime (loaded from memref struct)
+- Unpacking preserves runtime dimension values
+- No special handling needed - works automatically!
+
+**Benefits:**
+- ✅ Readable: 3 parameters instead of 23+
+- ✅ Scalable: Works for any number of inputs/outputs
+- ✅ Type-safe: Memref structs preserve shape information
+- ✅ Satisfies Prerequisite 1: Required by GenerateInterfacePass
+- ✅ Dynamic shape ready: Runtime dimensions flow through unchanged
+
+**Implementation:** `lib/HipDialect/HipToLLVM.cpp`, method `transformMainFunction()`
+
+---
+
+### 2. Generate Wrapper Functions
 
 **Why?** MIOpen/hipBLAS have complex APIs (13+ parameters). Wrappers encapsulate this complexity.
 
@@ -240,40 +341,6 @@ static LLVM::LLVMFuncOp getOrCreateConvWrapper(ModuleOp module, OpBuilder &build
 - Call MIOpen with extracted values
 
 See [../HIP-DIALECT-DESIGN.md](../HIP-DIALECT-DESIGN.md) for complete wrapper design.
-
-### 2. Transform @main Signature
-
-**Critical change for Prerequisite 1:**
-
-**Before (HIP dialect):**
-```mlir
-func.func @main(%ctx: !hip.context,
-                %input: memref<1x3x224x224xf32>,
-                %output: memref<1x64x224x224xf32>) -> i32
-```
-
-**After (LLVM dialect):**
-```mlir
-llvm.func @main(%context: !llvm.ptr,
-                %inputs: !llvm.ptr,   // Pointer to array of memref structs
-                %outputs: !llvm.ptr)  // Pointer to array of memref structs
-                -> i32
-```
-
-**Why this change?**
-- Supports multiple inputs/outputs (scalable)
-- Memref structs contain runtime dimensions (dynamic shapes!)
-- Matches GenerateInterfacePass expectations (Prerequisite 1)
-
-**How @main accesses tensors:**
-```mlir
-// Get input 0
-%input_0_ptr = llvm.getelementptr %inputs[0] : (!llvm.ptr) -> !llvm.ptr
-%input_0 = llvm.load %input_0_ptr : !llvm.ptr -> !llvm.struct<...>
-
-// Extract runtime dimensions
-%batch = llvm.extractvalue %input_0[3, 0] : !llvm.struct<...> -> i64  // Runtime!
-```
 
 ### 3. Lower HIP Operations to Wrapper Calls
 

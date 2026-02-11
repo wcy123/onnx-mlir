@@ -520,79 +520,163 @@ struct ConvertHipToLLVMPass
   }
 
 private:
+  /// Returns LLVM struct type for memref: (ptr, ptr, i64, array<rank x i64>, array<rank x i64>)
+  Type getMemRefStructType(OpBuilder &builder, int64_t rank, unsigned addrSpace) {
+    MLIRContext *ctx = builder.getContext();
+    Type ptrType = LLVM::LLVMPointerType::get(ctx, addrSpace);
+    Type i64Type = builder.getI64Type();
+    Type sizeArrayType = LLVM::LLVMArrayType::get(i64Type, rank);
+    Type strideArrayType = LLVM::LLVMArrayType::get(i64Type, rank);
+
+    return LLVM::LLVMStructType::getLiteral(
+        ctx, {ptrType, ptrType, i64Type, sizeArrayType, strideArrayType});
+  }
+
+  /// Unpacks memref struct into scalar values (2 + 1 + rank + rank)
+  void unpackMemRefStruct(OpBuilder &builder, Location loc, Value memrefStruct,
+                          int64_t rank, SmallVectorImpl<Value> &args) {
+    // Extract allocated pointer (field 0)
+    args.push_back(builder.create<LLVM::ExtractValueOp>(
+        loc, memrefStruct, ArrayRef<int64_t>{0}));
+
+    // Extract aligned pointer (field 1)
+    args.push_back(builder.create<LLVM::ExtractValueOp>(
+        loc, memrefStruct, ArrayRef<int64_t>{1}));
+
+    // Extract offset (field 2)
+    args.push_back(builder.create<LLVM::ExtractValueOp>(
+        loc, memrefStruct, ArrayRef<int64_t>{2}));
+
+    // Extract sizes (field 3, array elements 0..rank-1)
+    for (int64_t dim = 0; dim < rank; dim++) {
+      args.push_back(builder.create<LLVM::ExtractValueOp>(
+          loc, memrefStruct, ArrayRef<int64_t>{3, dim}));
+    }
+
+    // Extract strides (field 4, array elements 0..rank-1)
+    for (int64_t dim = 0; dim < rank; dim++) {
+      args.push_back(builder.create<LLVM::ExtractValueOp>(
+          loc, memrefStruct, ArrayRef<int64_t>{4, dim}));
+    }
+  }
+
   /// Transform @main from unpacked memrefs to array-based interface
   LogicalResult transformMainFunction(ModuleOp module) {
     // Find @main function
     auto mainFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("main");
     if (!mainFunc) {
-      // No main function - this is fine
-      return success();
+      return success(); // No main function - this is fine
     }
 
     // Read metadata
     auto inputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.input_count");
     auto outputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
+    auto inputRanksAttr = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.input_ranks");
+    auto outputRanksAttr = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.output_ranks");
 
-    if (!inputCountAttr || !outputCountAttr) {
-      llvm::errs() << "[HIP→LLVM] Warning: No metadata found, skipping @main transformation\n";
-      return success();
+    if (!inputCountAttr || !outputCountAttr || !inputRanksAttr || !outputRanksAttr) {
+      llvm::errs() << "[HipToLLVM] Warning: No metadata found, skipping @main transformation\n";
+      return success(); // Graceful degradation
     }
 
     int64_t inputCount = inputCountAttr.getInt();
     int64_t outputCount = outputCountAttr.getInt();
+    auto inputRanks = inputRanksAttr.asArrayRef();
+    auto outputRanks = outputRanksAttr.asArrayRef();
+
+    // Validate metadata
+    if (inputRanks.size() != inputCount || outputRanks.size() != outputCount) {
+      return module.emitError("Metadata mismatch: ranks array size != count");
+    }
+
+    // Calculate expected parameter count (1 context + unpacked memrefs)
+    unsigned expectedParams = 1; // context
+    for (int64_t rank : inputRanks) {
+      expectedParams += 2 + 1 + rank + rank; // 2 ptrs + offset + sizes + strides
+    }
+    for (int64_t rank : outputRanks) {
+      expectedParams += 2 + 1 + rank + rank;
+    }
+
+    unsigned actualParams = mainFunc.getFunctionType().getNumParams();
+    if (actualParams != expectedParams) {
+      return module.emitError()
+          << "[HipToLLVM] Parameter count mismatch: expected " << expectedParams
+          << ", got " << actualParams;
+    }
 
     OpBuilder builder(module.getContext());
     Location loc = mainFunc.getLoc();
 
-    // Calculate number of parameters per memref (from first input parameter if exists)
-    // Standard unpacked memref has: ptr, ptr, offset, sizes[rank], strides[rank]
-    // For a rank-4 tensor: 11 parameters (2 ptrs + 1 offset + 4 sizes + 4 strides)
-    auto funcType = mainFunc.getFunctionType();
-    unsigned totalParams = funcType.getNumParams();
-    unsigned expectedParams = 1;  // context
+    // Phase 1: Rename @main → @main_internal (make private)
+    mainFunc.setName("main_internal");
+    mainFunc.setLinkage(LLVM::Linkage::Private);
 
-    if (totalParams <= 1) {
-      llvm::errs() << "[HIP→LLVM] Warning: @main has no input/output parameters\n";
-      return success();
-    }
-
-    // Create new function with packed signature: (ptr, ptr, ptr) -> i32
+    // Phase 2: Create new @main with array-based interface
     Type ptrType = LLVM::LLVMPointerType::get(builder.getContext(), 0);
     Type i32Type = builder.getI32Type();
     SmallVector<Type> newParamTypes = {ptrType, ptrType, ptrType};
     auto newFuncType = LLVM::LLVMFunctionType::get(i32Type, newParamTypes);
 
-    // Create new function
     builder.setInsertionPoint(mainFunc);
-    auto newFunc = builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
+    auto newMainFunc = builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
+    newMainFunc.setLinkage(LLVM::Linkage::Private);
 
-    // Move body from old to new
-    Block *newEntry = newFunc.addEntryBlock(builder);
-    Block &oldEntry = mainFunc.getBody().front();
+    Block *entryBlock = newMainFunc.addEntryBlock(builder);
+    builder.setInsertionPointToStart(entryBlock);
 
-    // Get new arguments: (%ctx, %inputs_array, %outputs_array)
-    Value ctxArg = newEntry->getArgument(0);
-    Value inputsArg = newEntry->getArgument(1);
-    Value outputsArg = newEntry->getArgument(2);
+    Value ctxArg = entryBlock->getArgument(0);      // %context
+    Value inputsArg = entryBlock->getArgument(1);   // %inputs
+    Value outputsArg = entryBlock->getArgument(2);  // %outputs
 
-    builder.setInsertionPointToStart(newEntry);
+    // Build arguments for @main_internal
+    SmallVector<Value> mainInternalArgs;
+    mainInternalArgs.push_back(ctxArg); // arg0: context
 
-    // Build mapping from old arguments to new loaded values
-    IRMapping mapping;
+    // Phase 3: Unpack inputs
+    for (int64_t i = 0; i < inputCount; i++) {
+      int64_t rank = inputRanks[i];
 
-    // Map context (arg 0)
-    mapping.map(oldEntry.getArgument(0), ctxArg);
+      // GEP to get pointer to inputs[i]
+      Value inputIdxVal = builder.create<LLVM::ConstantOp>(
+          loc, i32Type, builder.getI32IntegerAttr(i));
+      Value inputStructPtr = builder.create<LLVM::GEPOp>(
+          loc, ptrType, ptrType, inputsArg, ValueRange{inputIdxVal});
 
-    // For inputs and outputs, we need to determine how many params each memref uses
-    // This is tricky - for Phase 1, let's assume they're already structs (simplified)
-    // Phase 2 TODO: Properly handle unpacked memrefs
+      // Load memref struct from array
+      Type memrefStructType = getMemRefStructType(builder, rank, 1); // addr space 1 (GPU)
+      Value inputMemref = builder.create<LLVM::LoadOp>(
+          loc, memrefStructType, inputStructPtr);
 
-    llvm::errs() << "[HIP→LLVM] Note: @main transformation not fully implemented yet\n";
-    llvm::errs() << "  Total params: " << totalParams << "\n";
-    llvm::errs() << "  Expected: context + " << inputCount << " inputs + " << outputCount << " outputs\n";
+      // Extract fields (for rank-4: 2 ptrs + offset + 4 sizes + 4 strides = 11)
+      unpackMemRefStruct(builder, loc, inputMemref, rank, mainInternalArgs);
+    }
 
-    // For now, just keep the old function (Phase 1 incomplete)
-    newFunc.erase();
+    // Phase 4: Unpack outputs
+    for (int64_t i = 0; i < outputCount; i++) {
+      int64_t rank = outputRanks[i];
+
+      Value outputIdxVal = builder.create<LLVM::ConstantOp>(
+          loc, i32Type, builder.getI32IntegerAttr(i));
+      Value outputStructPtr = builder.create<LLVM::GEPOp>(
+          loc, ptrType, ptrType, outputsArg, ValueRange{outputIdxVal});
+
+      Type memrefStructType = getMemRefStructType(builder, rank, 1);
+      Value outputMemref = builder.create<LLVM::LoadOp>(
+          loc, memrefStructType, outputStructPtr);
+
+      unpackMemRefStruct(builder, loc, outputMemref, rank, mainInternalArgs);
+    }
+
+    // Phase 5: Call @main_internal with unpacked arguments
+    auto callOp = builder.create<LLVM::CallOp>(loc, mainFunc, mainInternalArgs);
+    Value result = callOp.getResult();
+
+    // Return the result
+    builder.create<LLVM::ReturnOp>(loc, result);
+
+    llvm::errs() << "[HipToLLVM] Transformed @main signature: "
+                 << actualParams << " params → 3 params\n";
     return success();
   }
 };

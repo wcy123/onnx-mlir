@@ -125,22 +125,27 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
 
 **Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
 
-**Real Output** (saved to `output/demo_stage2_hip_to_llvm.mlir`, 260 lines):
+**Real Output** (saved to `output/demo_stage2_hip_to_llvm.mlir`):
 
 Key transformations:
 1. **Metadata preserved**: `module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64: 4>, ...}`
 2. **Runtime function declarations**: `hip_get_constant`, `hip_upload_constant`, `hipMalloc`, `miopenConvolutionForward`
-3. **@main signature**: Memrefs unpacked to 23 parameters (1 context + 11 input params + 11 output params)
+3. **Two-function architecture**:
+   - **@main** (3 params): Clean array-based interface, unpacks memref structs, delegates to @main_internal
+   - **@main_internal** (23 params): Computation logic, uses unpacked memref descriptors
 4. **Memref descriptors**: Built using `llvm.mlir.poison` + `llvm.insertvalue` chains
 5. **Constants lowered**: `llvm.mlir.global` with `addr_space = 0`
 
-Excerpt showing @main signature and memref unpacking:
+**Excerpt showing both functions:**
 
 ```mlir
-module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64: 4>, hipdnn.output_count = 1 : i64, hipdnn.output_ranks = array<i64: 4>} {
+module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64: 4>,
+                   hipdnn.output_count = 1 : i64, hipdnn.output_ranks = array<i64: 4>} {
+  // Runtime function declarations
   llvm.func @hip_release_constant(!llvm.ptr, i64)
   llvm.func @hip_upload_constant(!llvm.ptr, i64, !llvm.ptr, i64)
-  llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
+  llvm.func @miopenConvolutionForward(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr,
+                                       i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i32
   llvm.func @hipMalloc(i64) -> !llvm.ptr
   llvm.func @hip_get_constant(!llvm.ptr, i64) -> !llvm.ptr
 
@@ -149,12 +154,50 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
   llvm.mlir.global internal constant @constant_3(dense<1.000000e-01> : tensor<64xf32>) {addr_space = 0 : i32} : !llvm.array<64 x f32>
   llvm.mlir.global internal constant @constant_0(dense<1.000000e+00> : tensor<64x3x3x3xf32>) {addr_space = 0 : i32} : !llvm.array<1728 x f32>
 
-  // Memrefs unpacked: 1 context + 11 input params (2 ptrs, 1 offset, 4 sizes, 4 strides) + 11 output params
-  llvm.func @main(%arg0: !llvm.ptr, %arg1: !llvm.ptr<1>, %arg2: !llvm.ptr<1>, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64, %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64, %arg12: !llvm.ptr<1>, %arg13: !llvm.ptr<1>, %arg14: i64, %arg15: i64, %arg16: i64, %arg17: i64, %arg18: i64, %arg19: i64, %arg20: i64, %arg21: i64, %arg22: i64) -> i32 {
+  // ✅ NEW: Clean 3-parameter wrapper function
+  llvm.func private @main(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) -> i32 {
+    // Unpack input 0 memref from array
+    %c0_i32 = llvm.mlir.constant(0 : i32) : i32
+    %0 = llvm.getelementptr %arg1[%c0_i32] : (!llvm.ptr, i32) -> !llvm.ptr, !llvm.ptr
+    %1 = llvm.load %0 : !llvm.ptr -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+
+    // Extract 11 fields from input memref struct
+    %2 = llvm.extractvalue %1[0] : !llvm.struct<...> -> !llvm.ptr<1>  // allocated ptr
+    %3 = llvm.extractvalue %1[1] : !llvm.struct<...> -> !llvm.ptr<1>  // aligned ptr
+    %4 = llvm.extractvalue %1[2] : !llvm.struct<...> -> i64           // offset
+    %5 = llvm.extractvalue %1[3, 0] : !llvm.struct<...> -> i64        // size[0]
+    %6 = llvm.extractvalue %1[3, 1] : !llvm.struct<...> -> i64        // size[1]
+    %7 = llvm.extractvalue %1[3, 2] : !llvm.struct<...> -> i64        // size[2]
+    %8 = llvm.extractvalue %1[3, 3] : !llvm.struct<...> -> i64        // size[3]
+    %9 = llvm.extractvalue %1[4, 0] : !llvm.struct<...> -> i64        // stride[0]
+    %10 = llvm.extractvalue %1[4, 1] : !llvm.struct<...> -> i64       // stride[1]
+    %11 = llvm.extractvalue %1[4, 2] : !llvm.struct<...> -> i64       // stride[2]
+    %12 = llvm.extractvalue %1[4, 3] : !llvm.struct<...> -> i64       // stride[3]
+
+    // Unpack output 0 memref from array (similar to input, 11 more extracts)
+    %13 = llvm.getelementptr %arg2[%c0_i32] : (!llvm.ptr, i32) -> !llvm.ptr, !llvm.ptr
+    %14 = llvm.load %13 : !llvm.ptr -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %15 = llvm.extractvalue %14[0] : !llvm.struct<...> -> !llvm.ptr<1>
+    // ... (extract remaining 10 fields)
+
+    // Call internal computation function with all 23 unpacked parameters
+    %result = llvm.call @main_internal(%arg0, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12,
+                                        %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25)
+                                        : (!llvm.ptr, !llvm.ptr<1>, ...) -> i32
+    llvm.return %result : i32
+  }
+
+  // Internal computation function with unpacked memrefs (23 parameters)
+  llvm.func private @main_internal(%arg0: !llvm.ptr, %arg1: !llvm.ptr<1>, %arg2: !llvm.ptr<1>,
+                                   %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64, %arg7: i64,
+                                   %arg8: i64, %arg9: i64, %arg10: i64, %arg11: i64,
+                                   %arg12: !llvm.ptr<1>, %arg13: !llvm.ptr<1>, %arg14: i64,
+                                   %arg15: i64, %arg16: i64, %arg17: i64, %arg18: i64,
+                                   %arg19: i64, %arg20: i64, %arg21: i64, %arg22: i64) -> i32 {
     // Rebuild output memref descriptor from 11 params
     %0 = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %1 = llvm.insertvalue %arg12, %0[0] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
-    %2 = llvm.insertvalue %arg13, %1[1] : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4 x i64>, array<4 x i64>)>
+    %1 = llvm.insertvalue %arg12, %0[0] : !llvm.struct<...>
+    %2 = llvm.insertvalue %arg13, %1[1] : !llvm.struct<...>
     // ... (22 more insertvalue ops to build complete descriptor)
 
     // Get constants from GPU
@@ -167,9 +210,10 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
     %72 = llvm.addrspacecast %71 : !llvm.ptr to !llvm.ptr<1>
 
     // Call MIOpen
-    %status = llvm.call @miopenConvolutionForward(%arg0, %input_ptr, %weights_ptr, %bias_ptr, %output_ptr, %params...)
+    %status = llvm.call @miopenConvolutionForward(%arg0, %input_ptr, %weights_ptr,
+                                                   %bias_ptr, %output_ptr, %params...)
 
-    // ... (similar for second conv layer, writes directly to output argument)
+    // ... (similar for second conv layer)
 
     %c0_i32 = llvm.mlir.constant(0 : i32) : i32
     llvm.return %c0_i32 : i32
@@ -183,11 +227,13 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
 ```
 
 **Key transformations**:
+- ✅ **Two-function architecture**: @main (3 params, wrapper) + @main_internal (23 params, computation)
+- ✅ **Array-based interface**: @main receives pointers to memref struct arrays
+- ✅ **Unpacking logic**: @main uses GEP → load → extractvalue to unpack structs
 - ✅ **Pure LLVM dialect**: No more `func.func`, `!hip.context`, `memref<>`, or `arith.constant`
-- ✅ **Memref unpacking**: Each rank-4 memref becomes 11 parameters (allocated ptr, aligned ptr, offset, 4 sizes, 4 strides)
-- ✅ **Runtime calls**: `hip.get_constant` → `llvm.call @hip_get_constant`, `hip.conv` → `llvm.call @miopenConvolutionForward`
-- ✅ **Address space casts**: Generic `!llvm.ptr` → GPU `!llvm.ptr<1>` where needed
-- ✅ **Ready for LLVM IR translation** via `mlir-translate --mlir-to-llvmir`
+- ✅ **Scalable**: Works for N inputs/outputs via metadata-driven loops
+- ✅ **Dynamic shape ready**: Runtime dimension values flow through memref structs
+- ✅ **Ready for GenerateInterfacePass**: Satisfies Prerequisite 1 from INTERFACE-DESIGN.md
 
 ---
 
