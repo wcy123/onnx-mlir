@@ -5,29 +5,25 @@
 
 ---
 
-## 1. Opening Hook
+## Overview
 
-### The Big Idea
+Compile ONNX models ahead-of-time to native DLLs:
+- No runtime LLVM/MLIR dependencies
+- Embedded constant weights in compiled code
+- Direct MIOpen/HIP calls
+- Native GPU performance
 
-Compile entire ONNX models **ahead-of-time** to native DLLs with:
-- ✅ No runtime LLVM/MLIR dependencies
-- ✅ Embedded constant weights in compiled code
-- ✅ Direct MIOpen/HIP calls
-- ✅ Native GPU performance
-
-### Today's Demo
-
-Two-layer convolution network (ResNet-style):
-- **Input**: 1×3×224×224 (RGB image)
-- **Layer 1**: 64 filters, 3×3 conv, stride=1 → 1×64×224×224
-- **Layer 2**: 64 filters, 3×3 conv, stride=2 → 1×64×112×112
-- **4 constant tensors** embedded in compiled code
+**Demo model**: Two-layer convolution network (ResNet-style)
+- Input: 1×3×224×224 (RGB image)
+- Layer 1: 64 filters, 3×3 conv, stride=1 → 1×64×224×224
+- Layer 2: 64 filters, 3×3 conv, stride=2 → 1×64×112×112
+- 4 constant tensors embedded in compiled code
 
 **Pipeline**: `ONNX → HIP Dialect → LLVM IR → C Interface → Native DLL`
 
 ---
 
-## 2. Live Demo First
+## Live Demo
 
 ### Build the Tools
 
@@ -120,7 +116,7 @@ dumpbin /EXPORTS inference.dll
 
 ---
 
-## 3. Pipeline Breakdown
+## Pipeline Breakdown
 
 ### Stage 1: ONNX → HIP Dialect
 
@@ -344,191 +340,7 @@ This runs all passes (ONNX→HIP→LLVM→Interface) + compilation in one step.
 
 ---
 
-## 4. Key Innovations
-
-### 1. Smart Constant Handling
-
-**Problem**: ResNet50 has 1000+ weight tensors - can't pass as function parameters
-
-**Solution**: Discover, hoist, and embed constants at compile time
-```mlir
-// Compile time: Generate globals
-llvm.mlir.global @constant_0(dense<1.0> : tensor<64x3x3x3xf32>) : !llvm.array<1728 x f32>
-
-// Runtime init: Upload once to GPU
-hip.upload_constant(%ctx, 0, @constant_0, 6912 bytes)
-
-// Runtime compute: Zero-overhead access
-%weights = hip.get_constant(%ctx, 0)  // Just an array lookup!
-```
-
-**Benefits**:
-- No constants in function signatures (scales to 1000+ layers)
-- Upload once during initialization
-- Zero overhead during inference
-
----
-
-### 2. State-Based Architecture
-
-**Design**:
-- **C interface**: Opaque `void* state` (backend-agnostic)
-- **MLIR internals**: Concrete `!hip.context` (HIP-specific)
-- **Contents**: GPU handles, pre-uploaded constant pointers, streams
-
-**Lifecycle**:
-```c
-void* state;
-inference_init(&state);        // Create GPU handles, upload constants
-inference_compute(state, ...);  // Use pre-uploaded constants
-inference_compute(state, ...);  // Reuse same state (efficient!)
-inference_cleanup(state);       // Free GPU resources
-```
-
-**Benefits**:
-- Clean separation of initialization vs. execution
-- Amortize constant upload over many inferences
-- Backend-agnostic C API
-
----
-
-### 3. In-Place Semantics
-
-**Operations**: Output as parameter, no return value
-```mlir
-hip.conv(%ctx, %input, %weights, %bias, %output)  // Writes to %output
-```
-
-**Functions**: Return i32 status code
-```mlir
-func.func @main(%ctx, %input, %output) -> i32  // 0 = success
-```
-
-**Benefits**:
-- Matches GPU library APIs (MIOpen, hipBLAS) directly
-- No temporary allocations for intermediate results
-- Destination-passing optimization built-in
-
----
-
-### 4. AOT Compilation
-
-**Development Workflow** (Standalone Tools):
-```
-ONNX MLIR → hip-opt (passes) → mlir-hip-compiler → DLL
-```
-
-**Production Workflow** (ONNX Runtime Integration):
-```
-ONNX Model → onnx-mlir → Level-1 Pass → DLL → EPContext
-```
-
-**Compile time** (Level-1 Pass):
-- Dependencies: LLVM, MLIR, ONNX-MLIR, HIP (~500MB)
-- Tools: Built-in MLIR passes + LLVMBackend + DLLLinker
-- Output: Native DLL embedded in EPContext
-
-**Runtime** (Custom Op):
-- Dependencies: HIP runtime, MIOpen (~5MB)
-- **NO LLVM/MLIR!**
-- Load DLL from EPContext memory (MemoryModule)
-
-**Benefits**:
-- Tiny runtime footprint
-- Fast startup (no JIT compilation)
-- Embed model + weights + code in single artifact
-- Same backend used in both standalone and integrated workflows
-
----
-
-### 5. Type Safety via MLIR
-
-**ONNX-MLIR provides**:
-- Typed operations: `ONNXConvOp` (not string matching)
-- Pattern matching at compile time
-- Semantic operand access: `convOp.getX()` (not `getOperand(0)`)
-
-**Example from ConvertOnnxToHip.cpp**:
-```cpp
-// Type-safe pattern matching
-struct ONNXConvOpLoweringPattern : public OpConversionPattern<ONNXConvOp> {
-  LogicalResult matchAndRewrite(ONNXConvOp op, OpAdaptor adaptor, ...) {
-    // Semantic access (catches errors at compile time!)
-    Value input = adaptor.getX();      // Not getOperand(0)
-    Value weights = adaptor.getW();    // Not getOperand(1)
-    ArrayAttr pads = op.getPads();     // Typed attribute access
-
-    // Build HIP operation with type checking
-    builder.create<HIPConvOp>(loc, ctx, input, weights, bias, output, pads, ...);
-  }
-};
-```
-
-**Benefits**:
-- Compiler errors instead of runtime crashes
-- Refactoring-safe (rename operations automatically)
-- IDE autocomplete for MLIR operations
-
----
-
-## 5. Current Status & Next Steps
-
-### ✅ Fully Implemented
-
-- [x] **ONNX → HIP conversion** with constant discovery
-- [x] **HIP → LLVM lowering** with two-function architecture
-- [x] **Interface generation** with 3 C-ABI exports
-- [x] **Module metadata** captures input/output counts and ranks
-- [x] **Constant handling** with upload/release helper functions
-- [x] **Error handling** with proper return codes and validation
-- [x] **Two-layer convolution demo** working end-to-end
-- [x] **LLVM IR → DLL compilation** via mlir-hip-compiler
-- [x] **DLL export verification** with automated checks
-- [x] **End-to-end testing infrastructure** in test/mlir/ directory
-
-### ⚠️ In Progress
-
-- [ ] GPU resource management in runtime library (hipStreamCreate, miopenCreate)
-- [ ] Build memref descriptors from tensor_t runtime dimensions
-- [ ] Call @main from inference_compute after descriptor building
-- [ ] Call initialize_constants from inference_init
-- [ ] Call release_constants from inference_cleanup
-- [ ] HipDnnRuntime.lib implementation (miopenConvolutionForward wrapper)
-
-### 📋 Next Steps
-
-1. **Complete runtime library implementation** (HipDnnRuntime.lib)
-   - GPU resource initialization (hipStreamCreate, miopenCreate)
-   - Descriptor building from tensor_t
-   - Call @main, initialize_constants, release_constants from C interface
-
-2. ~~**LLVM IR → DLL compilation**~~ ✅ **COMPLETED** via mlir-hip-compiler
-
-3. **End-to-end integration test**: MLIR → DLL → EPContext → Custom Op
-
-4. **ResNet50 support** (1000+ layer model)
-
-5. **Level-1 Pass integration** with ONNX Runtime
-
-### Output Files (Verified Real Compiler Output)
-
-```bash
-ls -lh ../output/demo_*.mlir ../output/demo_*.dll
-```
-
-- `demo_stage1_onnx_to_hip.mlir` - HIP dialect with constants
-- `demo_stage2_hip_to_llvm.mlir` - LLVM IR with unpacking
-- `demo_stage3_with_interface.mlir` - C-ABI interface functions
-- `demo_stage4_inference.dll` - Native DLL with embedded runtime
-- `demo_stage3.ll` (if --keep used) - LLVM IR text format
-- `demo_stage3.obj` (if --keep used) - Native object file
-
-**End-to-End Test:**
-See `test/mlir/` directory for automated testing of the complete MLIR → DLL pipeline.
-
----
-
-## 6. Try It Yourself (~2 min + Q&A)
+## Try It Yourself
 
 ### Quick Start Commands
 
@@ -615,7 +427,7 @@ ls -lh ../output/my_stage3.ll ../output/my_stage3.obj ../output/my_inference.dll
 
 ---
 
-## 7. Architecture Reference (Appendix)
+## Architecture Reference (Appendix)
 
 ### Full Pipeline Diagram
 
@@ -753,80 +565,14 @@ Full outputs available in `../output/` directory.
 
 ---
 
-## Document Maintenance Guide
+## Maintenance Notes
 
-### Purpose of DEMO.md
+**What is this document?**
+A guide for live MLIR compilation demos. Use it for free-form technical discussions, not as a rigid script.
 
-This document is designed for **free-form tech meeting discussions**. It should enable:
-1. **Live demonstration** of the MLIR compilation pipeline
-2. **Technical deep-dive** into the transformation stages
-3. **Architecture review** discussions with the team
+**Two simple principles:**
 
-**Critical principles**:
-- This is NOT a boring architecture document to read alone - it's meant to be presented interactively
-- This is NOT a rigid script - it's a guide for free discussion
-- Don't prescribe what topics will be discussed or how long they'll take
-- Provide the tools (commands, examples) and let the discussion flow naturally
+1. **Use real output** - Copy examples from actual compiler runs (files in `../output/`), not made-up code
+2. **Don't make stale claims** - Avoid line counts, timing estimates, or other numbers that change frequently
 
-### Target Audience
-
-- **Primary**: Technical team familiar with MLIR
-- **Secondary**: Mixed audience including managers and engineers
-- Balance technical depth with high-level understanding
-
-### Focus Areas
-
-1. **Show the transformation pipeline** - Emphasize ONNX → HIP → LLVM → DLL flow with examples
-2. **Enable hands-on experimentation** - Make it easy for attendees to try commands during/after meeting
-
-### Structural Requirements
-
-- Demo-first approach (not theory-first)
-- Commands should be prominent and copy-paste ready
-- Code examples should be condensed in main flow, full details in appendix
-- Current status should be visible but not buried at the end
-
-### When Maintaining This Document
-
-- Keep the live demo section near the top
-- Don't add more MLIR code to the main flow - use appendix instead
-- Update status section when milestones change
-- Ensure "Try It Yourself" commands remain accurate and tested
-- Remember: attendees should be able to follow along and run commands themselves
-
-**DON'T make specific claims that require constant maintenance:**
-- ❌ Don't add line counts ("60 lines", "105 lines") - files change as code evolves
-- ❌ Don't add timing estimates ("~5 min", "20-30 minutes") - you can't predict discussion topics
-- ✅ Instead: describe what the output contains ("HIP dialect with constants")
-- ✅ Let the actual output files speak for themselves
-
-### **CRITICAL: Real Output Only**
-
-**All code examples MUST come from actual compiler runs, not theoretical output.**
-
-- ❌ **NEVER** write placeholder or imagined MLIR/LLVM code
-- ❌ **NEVER** add specific line counts or timing estimates (they become stale)
-- ✅ **ALWAYS** run the actual commands and copy the real output
-- ✅ When updating examples, re-run the compiler and verify output matches
-- ✅ Keep output files in `../output/` directory as source of truth
-- ✅ Describe what output contains, not how many lines or how long it takes
-
-**How to verify**:
-```bash
-# Before updating DEMO.md, regenerate all outputs
-cd tools/hip-opt
-../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip > ../../output/demo_stage1.mlir
-../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip --convert-hip-to-llvm > ../../output/demo_stage2.mlir
-../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip --generate-interface > ../../output/demo_stage3.mlir
-
-# Verify line counts
-wc -l ../../output/demo_stage*.mlir
-
-# Then copy-paste from these files into DEMO.md
-```
-
-**This principle ensures**:
-- Examples are accurate and reproducible
-- Attendees see exactly what they'll get when they run commands
-- Documentation stays synchronized with actual implementation
-- No surprises during live demos
+That's it. Keep the demos working, keep the examples real.
