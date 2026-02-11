@@ -63,23 +63,48 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 
 ## System Architecture
 
-### Conceptual Overview
+### Two-Stage Architecture
 
 The system separates compilation from execution into two distinct stages:
 
-**Compile-time (Level-1 Pass):**
-- Heavy dependencies: LLVM, MLIR, onnx-mlir, GPU vendor SDKs
-- Transforms ONNX model through multiple [MLIR dialect levels](mlir/LOWERING-PIPELINE.md)
-- Produces native DLL with embedded weights
-- Stores DLL in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html)
-- **Runs once:** At model conversion or first load
-
-**Runtime (Custom Op):**
-- Minimal dependencies: MemoryModule, HIP runtime, MIOpen
-- **Zero MLIR/LLVM dependencies** (eliminates large runtime overhead)
-- Loads pre-compiled DLL from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html) memory
-- Executes via 3-function interface: init/compute/cleanup
-- **Runs repeatedly:** Every inference session
+```
+┌─────────────────────────────────────────────────────────────┐
+│               COMPILE-TIME (Level-1 Pass)                    │
+├─────────────────────────────────────────────────────────────┤
+│  Dependencies: LLVM, MLIR, onnx-mlir, HIP headers, MIOpen   │
+│                                                              │
+│  ONNX Model                                                 │
+│      ↓                                                       │
+│  ONNX → MLIR (onnx-mlir)                                    │
+│      ↓                                                       │
+│  ONNX dialect → HIP dialect (OnnxToHip Pass)                │
+│      ↓                                                       │
+│  HIP dialect → LLVM dialect (HipToLLVM Pass)                │
+│      ↓                                                       │
+│  Generate C interface (GenerateInterfacePass)               │
+│      ↓                                                       │
+│  LLVM IR → Native DLL                                       │
+│      ↓                                                       │
+│  Embed DLL in EPContext → ONNX model with EPContext         │
+│                                                              │
+│  Runs once: At model conversion or first load               │
+└─────────────────────────────────────────────────────────────┘
+                     ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  RUNTIME (Custom Op)                         │
+├─────────────────────────────────────────────────────────────┤
+│  Dependencies: MemoryModule, HIP runtime, MIOpen            │
+│  NO LLVM/MLIR at runtime                                    │
+│                                                              │
+│  Load EPContext → Extract DLL bytes → Load DLL from memory  │
+│      ↓                                                       │
+│  Resolve entry points (inference_init/compute/cleanup)      │
+│      ↓                                                       │
+│  Execute GPU inference → Return results                     │
+│                                                              │
+│  Runs repeatedly: Every inference session                   │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ### Architectural Rationale
 
