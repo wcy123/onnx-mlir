@@ -88,16 +88,15 @@ The goal is to create a unified MLIR compilation pipeline with ahead-of-time (AO
 
 ### Data Flow
 
-| Stage | Input | Processing | Output | Size |
-|-------|-------|------------|--------|------|
-| **MorphiZen Parse** | ONNX model | Parse to MLIR | MLIR ModuleOp (bytecode) | ~KB |
-| **ONNX Optimization** | MLIR ModuleOp | Fusion, folding, etc. | Optimized MLIR | ~KB |
-| **Dialect Lowering** | Generic MLIR | Pattern matching | HIP dialect MLIR | ~KB |
-| **HIP Optimization** | HIP MLIR | Memory/kernel opt. | Optimized HIP MLIR | ~KB |
-| **LLVM Lowering** | HIP MLIR | Conversion pass | LLVM IR | ~10-100 KB |
-| **Native Compilation** | LLVM IR | AOT compilation | Native DLL | ~100KB-1MB |
-| **EPContext Storage** | Native DLL | Embed in ONNX | ONNX + EPContext | +DLL size |
-| **Runtime Loading** | EPContext DLL | Memory load | Executable code | In-memory |
+| Stage | Input | Processing | Output |
+|-------|-------|------------|--------|
+| **MorphiZen Parse** | ONNX model | Parse to MLIR | MLIR ModuleOp (bytecode) |
+| **ONNX to HIP Lowering** | MLIR ModuleOp | Pattern matching | HIP dialect MLIR |
+| **HIP to LLVM Lowering** | HIP MLIR | Conversion pass | LLVM IR |
+| **Interface Generation** | LLVM IR | Generate C wrappers | LLVM IR with interface |
+| **Native Compilation** | LLVM IR | AOT compilation | Native DLL |
+| **EPContext Storage** | Native DLL | Embed in ONNX | ONNX + EPContext |
+| **Runtime Loading** | EPContext DLL | Memory load | Executable code |
 
 ---
 
