@@ -37,8 +37,8 @@ Licensed under the MIT License.
 ### Problem Statement
 
 [ONNX Runtime](https://onnxruntime.ai/) execution with JIT compilation incurs significant overhead:
-- First inference startup: 100-500ms compilation delay
-- Runtime dependencies: 50-200 MB LLVM/MLIR libraries
+- Compilation delay on first inference startup
+- Large runtime dependencies (LLVM/MLIR libraries)
 - Repeated compilation: Same model recompiled on every process start
 
 ### Solution Architecture
@@ -46,13 +46,13 @@ Licensed under the MIT License.
 Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html):
 - **Compile once** at model load/conversion time → native DLL
 - **Store in EPContext** embedded in ONNX model (industry standard: TensorRT EP, QNN EP, VitisAI EP)
-- **Load from memory** at runtime using [MemoryModule](https://github.com/fancycode/MemoryModule) (~50KB dependency)
+- **Load from memory** at runtime using [MemoryModule](https://github.com/fancycode/MemoryModule)
 
 ### Success Metrics
 
-- Load time: <10ms (vs 100-500ms JIT compilation)
-- Runtime size: ~5MB (vs 50-200MB with LLVM/MLIR)
-- Compilation elimination: Zero JIT overhead on inference startup
+- Eliminate JIT compilation overhead on inference startup
+- Reduce runtime dependencies (no LLVM/MLIR at runtime)
+- Fast DLL loading from memory
 
 ### Stakeholders
 
@@ -89,7 +89,7 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 ┌─────────────────────────────────────────────────────────────┐
 │                  RUNTIME (Custom Op)                         │
 ├─────────────────────────────────────────────────────────────┤
-│  Dependencies: MemoryModule (~50KB), HIP runtime, MIOpen    │
+│  Dependencies: MemoryModule, HIP runtime, MIOpen            │
 │  NO LLVM/MLIR at runtime                                    │
 │                                                              │
 │  Load EPContext → Extract DLL bytes → Load DLL from memory  │
@@ -97,8 +97,6 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 │  Resolve entry points (inference_init/compute/cleanup)      │
 │      ↓                                                       │
 │  Execute GPU inference → Return results                     │
-│                                                              │
-│  Performance: ~1-10ms load time, zero compilation overhead  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,18 +116,18 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 
 **Rationale:**
 - Zero JIT overhead: Compilation happens once, not on every inference startup
-- Lightweight runtime: No LLVM libraries (50-200 MB savings)
-- Fast loading: ~1-10ms to load DLL vs 100-500ms for JIT compilation
+- Lightweight runtime: No LLVM libraries at runtime
+- Fast loading: Direct memory mapping vs JIT compilation
 - EPContext philosophy: Purpose is to eliminate recompilation
 
 **Trade-offs:**
 
 | Aspect | Native DLL | LLVM IR |
 |--------|-----------|---------|
-| **Startup time** | ~1-10ms (load from memory) | ~100-500ms (JIT compilation) |
-| **Runtime deps** | [50KB MemoryModule](https://github.com/fancycode/MemoryModule) | 50-200MB LLVM/MLIR |
+| **Startup time** | Fast (load from memory) | Slow (requires JIT compilation) |
+| **Runtime deps** | [MemoryModule](https://github.com/fancycode/MemoryModule) only | Large LLVM/MLIR libraries |
 | **Portability** | GPU arch-specific (gfx1150, gfx1030) | Cross-architecture |
-| **EPContext size** | ~100MB (ResNet50 with weights) | ~10MB (IR only) |
+| **EPContext size** | Larger (includes code + weights) | Smaller (IR only) |
 | **Validation** | Requires arch detection at runtime | Compile-time flexible |
 
 ---
@@ -140,17 +138,17 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 
 **Rationale:**
 - Cleaner deployment: No temporary files, no disk permissions needed
-- Fast loading: ~1-10ms to parse PE and map to memory
+- Fast loading: Parse PE and map to memory
 - WebNN compatibility: Required for no-disk-access constraint
-- Simple integration: MemoryModule ~1000 lines, [MPL 2.0 license](https://github.com/fancycode/MemoryModule/blob/master/LICENSE.txt)
+- Simple integration: [MemoryModule](https://github.com/fancycode/MemoryModule) is lightweight, [MPL 2.0 license](https://github.com/fancycode/MemoryModule/blob/master/LICENSE.txt)
 
 **Trade-offs:**
 
 | Aspect | Memory Loading | Disk Files |
 |--------|---------------|-----------|
 | **Deployment** | Single ONNX file | ONNX + separate DLL |
-| **Startup** | ~1-10ms (memory map) | ~5-20ms (disk I/O + load) |
-| **Dependencies** | [MemoryModule](https://github.com/fancycode/MemoryModule) (~50KB) | OS loader (zero deps) |
+| **Startup** | No disk I/O | Requires disk access |
+| **Dependencies** | [MemoryModule](https://github.com/fancycode/MemoryModule) | OS loader (zero deps) |
 | **Security** | DLL in ONNX (user must trust) | Separate DLL (easier scanning) |
 
 ---
@@ -183,15 +181,14 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 
 **Rationale:**
 - GPU memory allocation is expensive: ~35ms per GB ([HIP Issue #3809](https://github.com/ROCm/hip/issues/3809))
-- Typical ResNet50 inference: ~5-10ms GPU compute
-- Allocating per inference would add **3-4x overhead**
+- Allocating per inference would dominate compute time
 - Industry best practice: "Allocate once, reuse" ([CUDA](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/)/[HIP optimization guides](https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/performance_guidelines.html))
 
 **Trade-offs:**
 
 | Aspect | Stateful (init/compute/cleanup) | Stateless (single function) |
 |--------|--------------------------------|----------------------------|
-| **Performance** | Allocate once (~35ms), reuse forever | Allocate per inference (~35ms each) |
+| **Performance** | Allocate once, reuse | Allocate per inference |
 | **Complexity** | 3 functions, state management | 1 function, simple |
 | **Multi-model** | Each model manages own state | Simple resource sharing |
 | **Error handling** | Separate init errors from compute errors | Single error path |
@@ -219,7 +216,7 @@ See [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete specification.
 
 | Aspect | Embedded Constants | External Files |
 |--------|-------------------|---------------|
-| **DLL size** | ~100MB (ResNet50) | ~5MB (code only) |
+| **DLL size** | Larger (includes weights) | Smaller (code only) |
 | **Deployment** | Single ONNX file | ONNX + weight files |
 | **Weight updates** | Requires recompilation | Can swap files |
 | **Loading** | Constants ready at init | Extra I/O on startup |
@@ -278,22 +275,17 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 - **Zero CustomOp dependencies:** CustomOp has no HIP headers, backend-agnostic interface
 - **Extensibility:** Adding libraries (rocFFT, rocRAND) doesn't change interface
 - **Portability:** Same CustomOp code works with different GPU backends
-- **Acceptable overhead:** 200MB extra memory on 64GB GPU (0.3%)
 - **Architectural cleanliness:** Clean separation between runtime and compiled code
 
 **Trade-offs:**
 
 | Aspect | Standalone (Chosen) | Shared Context |
 |--------|----------------------|----------------|
-| **Memory overhead** | 3x for 3 models (~300MB) | 1x (~100MB kernel cache) |
+| **Memory overhead** | Higher (multiple GPU contexts) | Lower (shared context) |
 | **CustomOp deps** | Zero GPU headers | Requires HIP headers |
 | **Portability** | Backend-agnostic | HIP-specific interface |
 | **Extensibility** | Interface stable (add libraries = no change) | Interface grows with libraries |
 | **GPU utilization** | More memory used | Better memory efficiency |
-
-**Memory Context:**
-- [MI250X](https://www.amd.com/en/products/accelerators/instinct/mi200/mi250x.html): 64GB memory → 200MB overhead = 0.3%
-- [MI300X](https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html): 192GB memory → 200MB overhead = 0.1%
 
 See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation strategy.
 
@@ -303,14 +295,12 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 
 ### Performance
 
-**Target:** <10ms DLL load time, zero JIT overhead
-
 **Approach:**
 - [MemoryModule](https://github.com/fancycode/MemoryModule) for fast in-memory DLL loading
 - [Stateful interface](#4-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
 - [Native compilation](#1-native-dll-vs-llvm-ir-storage): Eliminate JIT overhead entirely
 
-**Key Constraint:** GPU memory allocation is expensive (~35ms/GB), driving the [stateful interface decision](#4-stateful-interface-initcomputecleanup)
+**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#4-stateful-interface-initcomputecleanup)
 
 ### Scalability
 
@@ -338,7 +328,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design.
 
 **Realistic Assessment:**
 - Interface provides abstraction layer for future portability
-- Full backend portability would require new dialect + lowering passes (~1000+ lines)
+- Full backend portability would require new dialect + lowering passes
 
 ### Reliability
 
@@ -386,7 +376,7 @@ Related decision: [#8 Standalone Resources vs Shared Context](#8-standalone-reso
 
 **Principle:** Create GPU handles/memory at initialization, reuse across inferences.
 
-**Rationale:** GPU memory allocation is expensive (~35ms/GB), would dominate inference time
+**Rationale:** GPU memory allocation is expensive, would dominate inference time
 
 **Application:** Three-function lifecycle (init allocates, compute reuses, cleanup frees)
 
@@ -474,8 +464,6 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 - [AMD ROCm](https://rocm.docs.amd.com/) - AMD GPU computing platform
 - [HIP Programming Guide](https://rocm.docs.amd.com/projects/HIP/) - HIP API documentation
 - [HIP Performance Guidelines](https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/performance_guidelines.html) - Optimization best practices
-- [AMD Instinct MI250X](https://www.amd.com/en/products/accelerators/instinct/mi200/mi250x.html) - Data center GPU
-- [AMD Instinct MI300X](https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html) - Next-gen data center GPU
 
 ---
 
