@@ -14,7 +14,7 @@ Licensed under the MIT License.
 
 ## Table of Contents
 
-- [System Context](#system-context)
+- [Problem](#problem)
 - [System Architecture](#system-architecture)
 - [Key Design Decisions](#key-design-decisions)
   - [1. Native DLL vs LLVM IR Storage](#1-native-dll-vs-llvm-ir-storage)
@@ -32,32 +32,14 @@ Licensed under the MIT License.
 
 ---
 
-## System Context
-
-### Problem Statement
+## Problem
 
 [ONNX Runtime](https://onnxruntime.ai/) execution with JIT compilation incurs significant overhead:
 - Compilation delay on first inference startup
 - Large runtime dependencies (LLVM/MLIR libraries)
 - Repeated compilation: Same model recompiled on every process start
 
-### Solution Architecture
-
-Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html):
-- **Compile once** at model load/conversion time → native DLL
-- **Store in EPContext** embedded in ONNX model (industry standard: TensorRT EP, QNN EP, VitisAI EP)
-- **Load from memory** at runtime using [MemoryModule](https://github.com/fancycode/MemoryModule)
-
-### Success Metrics
-
-- Eliminate JIT compilation overhead on inference startup
-- Reduce runtime dependencies (no LLVM/MLIR at runtime)
-- Fast DLL loading from memory
-
-### Stakeholders
-
-- **Primary:** [ONNX Runtime](https://onnxruntime.ai/) users deploying AMD ROCm models
-- **Secondary:** ROCm ecosystem (demonstrates MLIR adoption for GPU inference)
+This architecture eliminates JIT overhead by compiling models ahead-of-time to native DLLs stored in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html).
 
 ---
 
