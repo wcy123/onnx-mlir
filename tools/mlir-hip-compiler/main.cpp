@@ -15,6 +15,7 @@
 // - LLVM Backend (MLIR→IR translation, optimization, object compilation)
 // - DLL Linker (Object→DLL linking)
 
+#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Parser/Parser.h"

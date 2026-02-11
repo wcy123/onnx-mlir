@@ -70,7 +70,8 @@ target_link_libraries(LLVMBackend
         LLVMX86Info
 
         # LLD linker libraries for DLL generation (optional - only for Native mode)
-        # Uncomment when LLD is built with LLVM
+        # NOTE: LLD must be built with LLVM (-DLLVM_ENABLE_PROJECTS="mlir;lld")
+        # Uncomment these lines if LLD libraries are available:
         # lldCOFF      # Windows PE/COFF linker
         # lldELF       # Linux ELF linker
         # lldCommon    # Common LLD utilities
@@ -82,6 +83,7 @@ target_compile_features(LLVMBackend PRIVATE cxx_std_17)
 # LLVM/MLIR require these definitions
 target_compile_definitions(LLVMBackend PRIVATE
     ${LLVM_DEFINITIONS}
+    # HAVE_LLD=1  # Uncomment if LLD libraries are linked above
 )
 
 if(MSVC)
@@ -101,10 +103,20 @@ target_include_directories(DLLLinker
 target_link_libraries(DLLLinker
     PUBLIC
         LLVMSupport
+
+        # LLD linker libraries for DLL generation (optional)
+        # NOTE: LLD must be built with LLVM (-DLLVM_ENABLE_PROJECTS="mlir;lld")
+        # Uncomment these lines if LLD libraries are available:
+        # lldCOFF      # Windows PE/COFF linker
+        # lldELF       # Linux ELF linker
+        # lldCommon    # Common LLD utilities
 )
 
 target_compile_features(DLLLinker PRIVATE cxx_std_17)
-target_compile_definitions(DLLLinker PRIVATE ${LLVM_DEFINITIONS})
+target_compile_definitions(DLLLinker PRIVATE
+    ${LLVM_DEFINITIONS}
+    # HAVE_LLD=1  # Uncomment if LLD libraries are linked above
+)
 
 if(MSVC)
     target_compile_options(DLLLinker PRIVATE /W4 /wd4141 /wd4146 /wd4244 /wd4267)
