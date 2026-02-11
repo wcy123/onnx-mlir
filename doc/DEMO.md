@@ -790,15 +790,22 @@ This document is designed for **tech meeting presentations**. It should enable:
 - Ensure "Try It Yourself" commands remain accurate and tested
 - Remember: attendees should be able to follow along and run commands themselves
 
+**DON'T make specific claims that require constant maintenance:**
+- ❌ Don't add line counts ("60 lines", "105 lines") - files change as code evolves
+- ❌ Don't add timing estimates ("~5 min", "20-30 minutes") - you can't predict discussion topics
+- ✅ Instead: describe what the output contains ("HIP dialect with constants")
+- ✅ Let the actual output files speak for themselves
+
 ### **CRITICAL: Real Output Only**
 
 **All code examples MUST come from actual compiler runs, not theoretical output.**
 
 - ❌ **NEVER** write placeholder or imagined MLIR/LLVM code
+- ❌ **NEVER** add specific line counts or timing estimates (they become stale)
 - ✅ **ALWAYS** run the actual commands and copy the real output
 - ✅ When updating examples, re-run the compiler and verify output matches
 - ✅ Keep output files in `../output/` directory as source of truth
-- ✅ Avoid specific line counts in descriptions (files change as implementation evolves)
+- ✅ Describe what output contains, not how many lines or how long it takes
 
 **How to verify**:
 ```bash
