@@ -59,6 +59,72 @@ Runtime:
 - **Deployment complexity** - Must detect GPU architecture and select correct DLL
 - **Update inflexibility** - Changing weights requires full recompilation
 
+### Sub-Decision: Memory DLL Loading vs Disk Files
+
+If Native DLL is chosen, there's a secondary decision about how to load the DLL:
+
+#### Option A: Memory Loading (via MemoryModule)
+
+**How it works:**
+- DLL stored as bytes in EPContext
+- Load directly from memory buffer using [MemoryModule](https://github.com/fancycode/MemoryModule)
+- No disk I/O required
+
+**Trade-offs:**
+
+| Aspect | Impact |
+|--------|--------|
+| **Deployment** | Single ONNX file (DLL embedded) |
+| **Startup** | No disk I/O overhead |
+| **Dependencies** | Requires MemoryModule library (~15KB) |
+| **Security** | DLL embedded in ONNX (user must trust model file) |
+| **WebNN compatibility** | Works with no-disk-access constraint |
+
+**Strengths:**
+- Cleaner deployment: No temporary files, no disk permissions needed
+- Fast loading: Parse PE and map to memory
+- WebNN compatibility: Required for no-disk-access constraint
+- Simple integration: MemoryModule is lightweight, [MPL 2.0 license](https://github.com/fancycode/MemoryModule/blob/master/LICENSE.txt)
+
+**Weaknesses:**
+- Additional dependency (though small)
+- DLL embedded in model file (harder for security scanning)
+
+#### Option B: Disk Files
+
+**How it works:**
+- DLL stored as separate file on disk
+- Load using standard OS loader
+- ONNX model references DLL path
+
+**Trade-offs:**
+
+| Aspect | Impact |
+|--------|--------|
+| **Deployment** | ONNX file + separate DLL file(s) |
+| **Startup** | Requires disk access |
+| **Dependencies** | OS loader (zero additional deps) |
+| **Security** | Separate DLL (easier to scan/verify) |
+| **WebNN compatibility** | Violates no-disk-access constraint |
+
+**Strengths:**
+- Zero additional dependencies (use OS loader)
+- Easier security scanning (separate DLL file)
+- Simpler implementation (standard LoadLibrary)
+
+**Weaknesses:**
+- More complex deployment (multiple files)
+- Requires disk permissions
+- Path management complexity
+- Incompatible with WebNN no-disk-access requirement
+
+#### Recommendation
+
+For Native DLL approach:
+- **Use Memory Loading** if WebNN compatibility or deployment simplicity is important
+- **Use Disk Files** if minimal dependencies or easier security scanning is prioritized
+- Most implementations would choose Memory Loading to match EPContext's single-artifact philosophy
+
 ---
 
 ## Approach 2: LLVM IR
@@ -232,4 +298,5 @@ Consider your primary goal:
 ---
 
 **Document History:**
+- v1.1 (2026-02-11): Added "Memory DLL Loading vs Disk Files" as Native DLL sub-decision
 - v1.0 (2026-02-11): Initial comparison document extracted from ARCHITECTURE.md

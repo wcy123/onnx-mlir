@@ -17,13 +17,12 @@ Licensed under the MIT License.
 - [Problem](#problem)
 - [System Architecture](#system-architecture)
 - [Key Design Decisions](#key-design-decisions)
-  - [1. Memory DLL Loading vs Disk Files](#1-memory-dll-loading-vs-disk-files)
-  - [2. Pattern-Based Lowering vs Manual Transformation](#2-pattern-based-lowering-vs-manual-transformation)
-  - [3. Stateful Interface (init/compute/cleanup)](#3-stateful-interface-initcomputecleanup)
-  - [4. Embedded Constants vs External Files](#4-embedded-constants-vs-external-files)
-  - [5. Synchronous Execution vs Async](#5-synchronous-execution-vs-async)
-  - [6. Full Model Fusion vs Per-Op Execution](#6-full-model-fusion-vs-per-op-execution)
-  - [7. Standalone Resources vs Shared Context](#7-standalone-resources-vs-shared-context)
+  - [1. Pattern-Based Lowering vs Manual Transformation](#1-pattern-based-lowering-vs-manual-transformation)
+  - [2. Stateful Interface (init/compute/cleanup)](#2-stateful-interface-initcomputecleanup)
+  - [3. Embedded Constants vs External Files](#3-embedded-constants-vs-external-files)
+  - [4. Synchronous Execution vs Async](#4-synchronous-execution-vs-async)
+  - [5. Full Model Fusion vs Per-Op Execution](#5-full-model-fusion-vs-per-op-execution)
+  - [6. Standalone Resources vs Shared Context](#6-standalone-resources-vs-shared-context)
 - [Quality Attributes](#quality-attributes)
 - [Design Principles](#design-principles)
 - [ONNX-MLIR Integration](#onnx-mlir-integration)
@@ -109,7 +108,7 @@ The compiled DLL exports exactly 3 C functions:
 - `int inference_compute(void* state, span_t* inputs, span_t* outputs)` - Execute inference
 - `int inference_cleanup(void* state)` - Free GPU resources
 
-See [Design Decision #3](#3-stateful-interface-initcomputecleanup) for rationale.
+See [Design Decision #2](#2-stateful-interface-initcomputecleanup) for rationale.
 
 ### Implementation Details
 
@@ -122,28 +121,7 @@ For compilation pipeline details:
 
 ## Key Design Decisions
 
-### 1. Memory DLL Loading vs Disk Files
-
-**Decision:** Load DLL directly from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html) memory buffer using [MemoryModule](https://github.com/fancycode/MemoryModule), no disk I/O.
-
-**Rationale:**
-- Cleaner deployment: No temporary files, no disk permissions needed
-- Fast loading: Parse PE and map to memory
-- WebNN compatibility: Required for no-disk-access constraint
-- Simple integration: [MemoryModule](https://github.com/fancycode/MemoryModule) is lightweight, [MPL 2.0 license](https://github.com/fancycode/MemoryModule/blob/master/LICENSE.txt)
-
-**Trade-offs:**
-
-| Aspect | Memory Loading | Disk Files |
-|--------|---------------|-----------|
-| **Deployment** | Single ONNX file | ONNX + separate DLL |
-| **Startup** | No disk I/O | Requires disk access |
-| **Dependencies** | [MemoryModule](https://github.com/fancycode/MemoryModule) | OS loader (zero deps) |
-| **Security** | DLL in ONNX (user must trust) | Separate DLL (easier scanning) |
-
----
-
-### 2. Pattern-Based Lowering vs Manual Transformation
+### 1. Pattern-Based Lowering vs Manual Transformation
 
 **Decision:** Use [MLIR's pattern rewriting framework](https://mlir.llvm.org/docs/DialectConversion/) with typed operations from [onnx-mlir](https://github.com/onnx/onnx-mlir).
 
@@ -165,7 +143,7 @@ For compilation pipeline details:
 
 ---
 
-### 3. Stateful Interface (init/compute/cleanup)
+### 2. Stateful Interface (init/compute/cleanup)
 
 **Decision:** Three-function lifecycle vs single stateless function.
 
@@ -192,7 +170,7 @@ See [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete specification.
 
 ---
 
-### 4. Embedded Constants vs External Files
+### 3. Embedded Constants vs External Files
 
 **Decision:** Embed weights/biases directly in DLL, not separate files.
 
@@ -215,7 +193,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 5. Synchronous Execution vs Async
+### 4. Synchronous Execution vs Async
 
 **Decision:** `inference_compute()` blocks until GPU work completes.
 
@@ -236,7 +214,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 6. Full Model Fusion vs Per-Op Execution
+### 5. Full Model Fusion vs Per-Op Execution
 
 **Decision:** Entire ONNX model graph fused into single [CustomOp](https://onnxruntime.ai/docs/reference/operators/add-custom-op.html) node.
 
@@ -257,7 +235,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 7. Standalone Resources vs Shared Context
+### 6. Standalone Resources vs Shared Context
 
 **Decision:** Each compiled model creates its own GPU handles (hipStream, miopenHandle, etc.).
 
@@ -286,11 +264,11 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 ### Performance
 
 **Approach:**
-- [MemoryModule](https://github.com/fancycode/MemoryModule) for fast in-memory DLL loading
-- [Stateful interface](#3-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
+- [Stateful interface](#2-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
 - Ahead-of-time compilation: Reduce or eliminate JIT overhead
+- Fast artifact loading: Details depend on chosen storage format (see [Open Questions](#open-architectural-questions))
 
-**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#3-stateful-interface-initcomputecleanup)
+**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#2-stateful-interface-initcomputecleanup)
 
 ### Scalability
 
@@ -312,7 +290,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design.
 - Implementation is HIP-specific (all passes target HIP/MIOpen)
 
 **Design Intention:**
-- CustomOp has zero GPU backend dependencies ([Decision #7](#7-standalone-resources-vs-shared-context))
+- CustomOp has zero GPU backend dependencies ([Decision #6](#6-standalone-resources-vs-shared-context))
 - Theoretically can swap backends via different compiled DLL
 - However: Current passes hardcode HIP operations throughout
 
@@ -360,7 +338,7 @@ These principles guided the architectural decisions:
 
 **Application:** All GPU operations abstracted behind `inference_*()` function pointers loaded from DLL
 
-Related decision: [#7 Standalone Resources vs Shared Context](#7-standalone-resources-vs-shared-context)
+Related decision: [#6 Standalone Resources vs Shared Context](#6-standalone-resources-vs-shared-context)
 
 ### 2. Allocate GPU Resources Once
 
@@ -370,7 +348,7 @@ Related decision: [#7 Standalone Resources vs Shared Context](#7-standalone-reso
 
 **Application:** Three-function lifecycle (init allocates, compute reuses, cleanup frees)
 
-Related decision: [#3 Stateful Interface](#3-stateful-interface-initcomputecleanup)
+Related decision: [#2 Stateful Interface](#2-stateful-interface-initcomputecleanup)
 
 ### 3. Type-Safe MLIR Patterns
 
@@ -396,7 +374,7 @@ Related decision: [#3 Stateful Interface](#3-stateful-interface-initcomputeclean
 
 **Application:** ONNX Constant nodes lowered to LLVM globals in compiled DLL
 
-Related decision: [#4 Embedded Constants vs External Files](#4-embedded-constants-vs-external-files)
+Related decision: [#3 Embedded Constants vs External Files](#3-embedded-constants-vs-external-files)
 
 ---
 
@@ -496,6 +474,7 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 ---
 
 **Document History:**
+- v2.2 (2026-02-11): Moved "Memory DLL Loading vs Disk Files" to NATIVE-VS-IR-COMPARISON.md as Native DLL sub-decision
 - v2.1 (2026-02-11): Moved Native DLL vs LLVM IR decision to "Open Questions", created separate comparison document
 - v2.0 (2026-02-11): Restructured to focus on architectural decisions, removed implementation details
 - v1.0 (2026-02-09): Initial architecture document
