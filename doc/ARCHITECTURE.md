@@ -232,16 +232,6 @@ onnx-hipdnn-ep/
     └── TESTING.md                    # Testing guide
 ```
 
-### Build Options
-
-The project uses CMake build options for modular compilation:
-
-```cmake
-option(BUILD_HIP_DIALECT "Build HIP MLIR dialect library" ON)
-option(BUILD_HIP_OPT_TOOL "Build hip-opt standalone tool" OFF)
-option(BUILD_MLIR_COMPILER "Build MLIR compiler (Level-1 Pass)" ON)
-```
-
 ### Build Dependencies
 
 **Compile-Time (Level-1 Pass):**
