@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.18)
 project(mlir-hip-compiler)
 
+# TODO: Fix zlib dependency issue
+# Currently mlir-hip-compiler.exe requires zlibd.dll at runtime because:
+# - We link against LLVMSupport.lib which depends on zlib
+# - zlib is dynamically linked
+# Solution options:
+# 1. Static link zlib (preferred - single executable, no runtime deps)
+# 2. Remove zlib dependency from LLVM build (rebuild LLVM with -DLLVM_ENABLE_ZLIB=OFF)
+# 3. Bundle zlibd.dll with the tool (workaround, not ideal)
+
 # Find LLVM and MLIR
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
