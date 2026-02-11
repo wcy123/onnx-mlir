@@ -1,10 +1,10 @@
 // Standalone MLIR to HIP DLL Compiler
 // Enables independent testing of the MLIR → LLVM IR → Object → DLL pipeline
 //
-// Usage: mlir-hip-compiler input.mlir -o output.dll [options]
+// Usage: mlir-hip-compiler input.mlir -o output.dll [--from-onnx-mlir] [options]
 //
 // This tool links together:
-// - HipDialect passes (OnnxToHip, HipToLLVM, GenerateInterface)
+// - HipDialect passes (OnnxToHip, HipToLLVM, GenerateInterface) - optional with --from-onnx-mlir
 // - LLVM Backend (MLIR→IR translation, optimization, object compilation)
 // - DLL Linker (Object→DLL linking)
 
@@ -22,9 +22,18 @@
 #include "../../lib/Backend/LLVMBackend.h"
 #include "../../lib/Backend/DLLLinker.h"
 
+// Include HIP dialect and passes
+#include "../../lib/HipDialect/HipDialect.h"
+#include "../../lib/HipDialect/HipPasses.h"
+
+// Include ONNX dialect from onnx-mlir
+#include "src/Dialect/ONNX/ONNXDialect.hpp"
+
 // Include MLIR pass headers
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
@@ -68,15 +77,10 @@ static cl::opt<bool> keepIntermediates("keep",
                                         cl::desc("Keep intermediate files (.ll, .obj)"),
                                         cl::init(false));
 
-// Forward declarations for our custom passes
-// These would be implemented in lib/HipDialect/
-namespace mlir {
-namespace hipdnn {
-std::unique_ptr<mlir::Pass> createOnnxToHipPass();
-std::unique_ptr<mlir::Pass> createHipToLLVMPass();
-std::unique_ptr<mlir::Pass> createGenerateInterfacePass();
-} // namespace hipdnn
-} // namespace mlir
+static cl::opt<bool> fromOnnxMlir("from-onnx-mlir",
+    cl::desc("Input is MLIR with ONNX dialect (run ONNX→HIP→LLVM→Interface passes)"),
+    cl::init(false));
+
 
 int main(int argc, char **argv) {
     InitLLVM X(argc, argv);
@@ -94,8 +98,20 @@ int main(int argc, char **argv) {
 
     // Initialize MLIR context and register dialects
     mlir::MLIRContext context;
-    context.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-    context.getOrLoadDialect<mlir::func::FuncDialect>();
+
+    // Register base dialects
+    context.loadDialect<mlir::BuiltinDialect>();
+    context.loadDialect<mlir::LLVM::LLVMDialect>();
+    context.loadDialect<mlir::func::FuncDialect>();
+
+    // If processing ONNX-MLIR, register additional dialects
+    if (fromOnnxMlir) {
+        context.loadDialect<mlir::arith::ArithDialect>();
+        context.loadDialect<mlir::memref::MemRefDialect>();
+        context.loadDialect<mlir::hip::HipDialect>();
+        context.loadDialect<mlir::ONNXDialect>();
+    }
+
     mlir::registerLLVMDialectTranslation(context);
 
     // Parse input MLIR file
@@ -124,17 +140,19 @@ int main(int argc, char **argv) {
 
     mlir::PassManager pm(&context);
 
-    // Add our custom passes
-    // Note: These passes are defined in lib/HipDialect/
-    // For now, we'll assume they're linked in
-    // pm.addPass(mlir::hipdnn::createOnnxToHipPass());
-    // pm.addPass(mlir::hipdnn::createHipToLLVMPass());
-    // pm.addPass(mlir::hipdnn::createGenerateInterfacePass());
+    // Add our custom passes if processing ONNX-MLIR
+    if (fromOnnxMlir) {
+        pm.addPass(mlir::hip::createConvertOnnxToHipPass());
+        pm.addPass(mlir::hip::createConvertHipToLLVMPass());
+        pm.addPass(mlir::hip::createGenerateInterfacePass());
 
-    // If the passes aren't available, we'll skip and assume input is already in LLVM dialect
-    if (verbose) {
-        std::cout << "Note: Custom passes (OnnxToHip, HipToLLVM, GenerateInterface) should be run separately\n";
-        std::cout << "This tool assumes input MLIR is already in LLVM dialect with interface functions\n\n";
+        if (verbose) {
+            std::cout << "Running ONNX→HIP→LLVM→Interface passes\n";
+        }
+    } else {
+        if (verbose) {
+            std::cout << "Skipping passes - assuming input is already in LLVM dialect\n";
+        }
     }
 
     if (mlir::failed(pm.run(*module))) {

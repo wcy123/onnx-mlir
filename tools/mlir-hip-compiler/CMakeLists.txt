@@ -40,6 +40,7 @@ set(MLIR_LIBS
 set(BACKEND_LIBS
     LLVMBackend
     DLLLinker
+    HipDialect
 )
 
 # Create executable

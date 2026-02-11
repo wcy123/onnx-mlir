@@ -33,8 +33,8 @@ using namespace morphizen;
 using namespace morphizen_cxx;
 
 DEF_ENV_PARAM(MLIR_PRINT_WITH_VERBOSE, "0")
-DEF_ENV_PARAM(COMPILATION_MODE, "native")  // "ir" or "native"
-DEF_ENV_PARAM(OUTPUT_PATH, "inference")     // Output file base name
+DEF_ENV_PARAM_2(COMPILATION_MODE, "native", std::string)  // "ir" or "native"
+DEF_ENV_PARAM_2(OUTPUT_PATH, "inference", std::string)     // Output file base name
 
 namespace {
 

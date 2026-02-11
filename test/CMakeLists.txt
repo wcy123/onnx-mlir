@@ -3,61 +3,127 @@
 # ** Licensed under the MIT License.
 ##
 
-message(STATUS "Building MLIR tests")
+message(STATUS "Building tests")
 
-# GTest is provided by MorphiZen's FetchContent with OVERRIDE_FIND_PACKAGE
-find_package(GTest REQUIRED)
+enable_testing()
 
-# ORT Integration test (for MorphiZen EP testing with MLIR pass)
-# This test links against ONNX Runtime and can trigger the MLIR pass
+#=============================================================================
+# DLL Tester Tool
+#=============================================================================
+# Minimal tool to load and test generated inference DLLs
 
-# Try to find ONNX Runtime using find_package
+add_executable(dll_tester
+    dll_tester.cpp
+)
+
+target_compile_features(dll_tester PRIVATE cxx_std_17)
+
+if(WIN32)
+    # Windows: No extra libs needed (uses LoadLibrary)
+else()
+    # Linux: Link dl for dlopen
+    target_link_libraries(dll_tester PRIVATE dl)
+endif()
+
+if(MSVC)
+    target_compile_options(dll_tester PRIVATE /W4)
+else()
+    target_compile_options(dll_tester PRIVATE -Wall -Wextra)
+endif()
+
+#=============================================================================
+# MLIR → DLL Pipeline Tests
+#=============================================================================
+# These tests compile MLIR files to DLLs and verify they work correctly.
+# All outputs go to CMAKE_CURRENT_BINARY_DIR (build directory).
+
+# Test: Compile identity_llvm.mlir → identity.dll
+add_test(NAME CompileIdentity
+    COMMAND mlir-hip-compiler
+        "${CMAKE_CURRENT_SOURCE_DIR}/mlir/identity_llvm.mlir"
+        -o "${CMAKE_CURRENT_BINARY_DIR}/identity.dll"
+        --mode dll
+        --keep
+        -v
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
+# Test: Load identity.dll and run interface tests
+add_test(NAME TestIdentity
+    COMMAND dll_tester "${CMAKE_CURRENT_BINARY_DIR}/identity.dll"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
+# TestIdentity depends on CompileIdentity
+set_tests_properties(TestIdentity PROPERTIES
+    DEPENDS CompileIdentity
+)
+
+#=============================================================================
+# Runtime Unit Tests (if enabled)
+#=============================================================================
+
+if(BUILD_MOCK_RUNTIME)
+    message(STATUS "Building Mock Runtime Tests (BUILD_MOCK_RUNTIME=1)")
+
+    # GTest is provided by MorphiZen's FetchContent with OVERRIDE_FIND_PACKAGE
+    find_package(GTest QUIET)
+
+    if(TARGET GTest::gtest)
+        add_executable(test_mock_runtime
+            runtime/test_mock_runtime.cpp
+        )
+
+        target_link_libraries(test_mock_runtime PRIVATE
+            HipDnnRuntime
+            GTest::gtest
+            GTest::gtest_main
+        )
+
+        target_compile_definitions(test_mock_runtime PRIVATE
+            BUILD_MOCK_RUNTIME=1
+        )
+
+        target_compile_features(test_mock_runtime PRIVATE cxx_std_17)
+
+        add_test(NAME MockRuntime COMMAND test_mock_runtime)
+
+        set_target_properties(test_mock_runtime PROPERTIES FOLDER "tests")
+    else()
+        message(STATUS "GTest not found, skipping test_mock_runtime")
+    endif()
+else()
+    message(STATUS "Mock Runtime Tests disabled (set BUILD_MOCK_RUNTIME=1 to enable)")
+endif()
+
+#=============================================================================
+# ORT Integration Test (optional)
+#=============================================================================
+
 find_package(onnxruntime QUIET)
 
 if(TARGET onnxruntime::onnxruntime)
-  message(STATUS "Building ORT integration test (using onnxruntime::onnxruntime target)")
+    find_package(GTest QUIET)
 
-  add_executable(ort_integration_test test_ort_integration.cpp)
-  target_link_libraries(ort_integration_test PRIVATE
-    onnxruntime::onnxruntime
-    GTest::gtest
-    GTest::gtest_main
-  )
-  target_compile_features(ort_integration_test PRIVATE cxx_std_17)
-  if(WIN32)
-    target_compile_definitions(ort_integration_test PRIVATE "_CRT_SECURE_NO_WARNINGS")
-  endif()
-  set_target_properties(ort_integration_test PROPERTIES FOLDER "mlir-tests")
+    if(TARGET GTest::gtest)
+        message(STATUS "Building ORT integration test")
+
+        add_executable(ort_integration_test test_ort_integration.cpp)
+        target_link_libraries(ort_integration_test PRIVATE
+            onnxruntime::onnxruntime
+            GTest::gtest
+            GTest::gtest_main
+        )
+        target_compile_features(ort_integration_test PRIVATE cxx_std_17)
+
+        if(WIN32)
+            target_compile_definitions(ort_integration_test PRIVATE "_CRT_SECURE_NO_WARNINGS")
+        endif()
+
+        add_test(NAME OrtIntegration COMMAND ort_integration_test)
+
+        set_target_properties(ort_integration_test PROPERTIES FOLDER "tests")
+    endif()
 else()
-  message(STATUS "ONNX Runtime not found, skipping ORT integration test")
-  message(STATUS "  Hint: Ensure onnxruntime is installed and CMAKE_PREFIX_PATH includes the installation directory")
+    message(STATUS "ONNX Runtime not found, skipping ORT integration test")
 endif()
-
-# Mock Runtime Test - Tests runtime library without ROCm dependencies
-# Only built when BUILD_MOCK_RUNTIME=1 is set
-if(BUILD_MOCK_RUNTIME)
-    message(STATUS "Building Mock Runtime Test (BUILD_MOCK_RUNTIME=1)")
-
-    add_executable(test_mock_runtime
-        runtime/test_mock_runtime.cpp
-    )
-
-    target_link_libraries(test_mock_runtime PRIVATE
-        HipDnnRuntime
-    )
-
-    target_compile_definitions(test_mock_runtime PRIVATE
-        BUILD_MOCK_RUNTIME=1
-    )
-
-    # Enable testing
-    enable_testing()
-    add_test(NAME MockRuntime COMMAND test_mock_runtime)
-
-    set_target_properties(test_mock_runtime PROPERTIES FOLDER "mlir-tests")
-else()
-    message(STATUS "Mock Runtime Test disabled (set BUILD_MOCK_RUNTIME=1 to enable)")
-endif()
-
-# Integration tests for MLIR to DLL pipeline
-add_subdirectory(integration)
