@@ -754,11 +754,11 @@ class InferenceSession:
         # the original model name from --model can be used as the
         # default model name. It's my preference.
         # No impact if "--cache-model" and "--model" are used together
-        """ 
+        """
         if args.default_model_name == "":
             if args.model:
                 # Use the model name without the suffix .onnx or .mlir
-                self.default_model_name = os.path.basename(os.path.abspath(args.model)[:-5]) 
+                self.default_model_name = os.path.basename(os.path.abspath(args.model)[:-5])
             else:
                 self.default_model_name = "model"
         else:
@@ -1194,11 +1194,11 @@ class InferenceSession:
     RETURNS:
     list of results, every result is either a numpy array, a sparse tensor, or
     a list or a dictionary.
-    
+
     For onnxmlir, the run_options is ignored. If 'input_feed' is None, the
     input could be randomly generated or read from file, as args specified.
     In future, add '--shape-info' here. Better than in InferenceSession to
-    allow different shape from run to run. 
+    allow different shape from run to run.
     """
 
     def run_performance_test(self, output_name=None, input_feed=None, **kwargs):

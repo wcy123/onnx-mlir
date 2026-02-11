@@ -33,4 +33,3 @@ func.func private @test_size_unknown(%arg0 : tensor<?x2x?xf32>) -> tensor<i64> {
   %1 = "onnx.Size"(%arg0)  : (tensor<?x2x?xf32>) -> tensor<i64>
   "func.return"(%1) : (tensor<i64>) -> ()
 }
-

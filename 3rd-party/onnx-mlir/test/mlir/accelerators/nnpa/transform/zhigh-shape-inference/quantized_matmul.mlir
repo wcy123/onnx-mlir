@@ -5,7 +5,7 @@ func.func @test_zhigh_quantized_matmul(%arg0: tensor<1x3x5xf32>, %arg1: tensor<5
   %x:3 = "zhigh.QuantizedStick"(%arg0, %none, %none) {layout = "3DS", quantized_type = "dlfloat16"} : (tensor<1x3x5xf32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>)
   %y:3 = "zhigh.QuantizedStick"(%arg1, %none, %none) {layout = "2D", quantized_type = "weights"} : (tensor<5x7xf32>, none, none) -> (tensor<*xi8>, tensor<f32>, tensor<f32>)
   %b:3 = "zhigh.QuantizedStick"(%arg2, %none, %none) {layout = "1D", quantized_type = "int8"} : (tensor<7xf32>, none, none) -> (tensor<*xi8>, tensor<f32>, tensor<f32>)
-  %m:3 = "zhigh.QuantizedMatMul"(%x#0, %x#1, %x#2, %y#0, %y#1, %y#2, %b#0, %b#1, %b#2, %none, %none) {DequantizeOutput = 0 : si64} : (tensor<*xf16>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>) 
+  %m:3 = "zhigh.QuantizedMatMul"(%x#0, %x#1, %x#2, %y#0, %y#1, %y#2, %b#0, %b#1, %b#2, %none, %none) {DequantizeOutput = 0 : si64} : (tensor<*xf16>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>)
   onnx.Return %m#0: tensor<*xf16>
 
 // CHECK-LABEL:  func.func @test_zhigh_quantized_matmul
@@ -26,7 +26,7 @@ func.func @test_zhigh_quantized_matmul_dequantized(%arg0: tensor<1x3x5xf32>, %ar
   %x:3 = "zhigh.QuantizedStick"(%arg0, %none, %none) {layout = "3DS", quantized_type = "dlfloat16"} : (tensor<1x3x5xf32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>)
   %y:3 = "zhigh.QuantizedStick"(%arg1, %none, %none) {layout = "2D", quantized_type = "weights"} : (tensor<5x7xf32>, none, none) -> (tensor<*xi8>, tensor<f32>, tensor<f32>)
   %b:3 = "zhigh.QuantizedStick"(%arg2, %none, %none) {layout = "1D", quantized_type = "int8"} : (tensor<7xf32>, none, none) -> (tensor<*xi8>, tensor<f32>, tensor<f32>)
-  %m:3 = "zhigh.QuantizedMatMul"(%x#0, %x#1, %x#2, %y#0, %y#1, %y#2, %b#0, %b#1, %b#2, %none, %none) {DequantizeOutput = -1 : si64} : (tensor<*xf16>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>) 
+  %m:3 = "zhigh.QuantizedMatMul"(%x#0, %x#1, %x#2, %y#0, %y#1, %y#2, %b#0, %b#1, %b#2, %none, %none) {DequantizeOutput = -1 : si64} : (tensor<*xf16>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, tensor<*xi8>, tensor<f32>, tensor<f32>, none, none) -> (tensor<*xf16>, tensor<f32>, tensor<f32>)
   onnx.Return %m#0: tensor<*xf16>
 
 // CHECK-LABEL:  func.func @test_zhigh_quantized_matmul_dequantized

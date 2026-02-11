@@ -1,3 +1,8 @@
+##
+# ** Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+# ** Licensed under the MIT License.
+##
+
 # Standalone CMakeLists.txt for testing mock runtime in isolation
 # This allows testing without building the entire LLVM/MLIR stack
 

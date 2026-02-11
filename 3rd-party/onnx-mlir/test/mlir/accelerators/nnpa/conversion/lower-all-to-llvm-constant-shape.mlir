@@ -32,7 +32,7 @@ func.func @test_zlow_softmax_constant_shape() -> () {
 
 // ...
 
-// CHECK:           %[[SHAPE:.*]] = llvm.extractvalue [[SHAPE_MEMREF_10]][1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+// CHECK:           %[[SHAPE:.*]] = llvm.extractvalue [[SHAPE_MEMREF_10]][1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
 // CHECK-NEXT:      %[[DIM0_0:.*]] = llvm.getelementptr %[[SHAPE]][0] : (!llvm.ptr) -> !llvm.ptr, i64
 // CHECK-NEXT:      %[[DIM0_1:.*]] = llvm.load %[[DIM0_0]] : !llvm.ptr -> i64
 // CHECK-NEXT:      %[[DIM1_0:.*]] = llvm.getelementptr %[[SHAPE]][1] : (!llvm.ptr) -> !llvm.ptr, i64

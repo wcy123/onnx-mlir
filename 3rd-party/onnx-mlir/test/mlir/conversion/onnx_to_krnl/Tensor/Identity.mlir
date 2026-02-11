@@ -7,4 +7,3 @@ func.func private @test_identity(%arg0 : tensor<10x20x30x40xf32>) -> tensor<*xf3
   // CHECK-LABEL: test_identity
   // CHECK: return %arg0 : memref<10x20x30x40xf32>
 }
-

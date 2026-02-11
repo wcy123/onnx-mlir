@@ -87,7 +87,7 @@ Full options are listed under the `--help` flag.
 
 ## Debugging the Code Generated for an Operator.
 
-If you know, or suspect, that a particular ONNX MLIR operator produces an incorrect result, and want to narrow down the problem, we provide a couple of useful Krnl operators that allow printing (at runtime) the value of a tensor, or a value that has a primitive data type. 
+If you know, or suspect, that a particular ONNX MLIR operator produces an incorrect result, and want to narrow down the problem, we provide a couple of useful Krnl operators that allow printing (at runtime) the value of a tensor, or a value that has a primitive data type.
 
 To print out the value of a tensor at a particular program point, inject the following code (where `X` is the tensor to be printed):
 
@@ -112,7 +112,7 @@ suffers from memory allocation related issues, the
 These tools trace memory
 allocation/free-related APIs, and can detect memory issues, such as memory leaks.
 
-However if the problems relating to memory access, especially buffer overrun problems, are notoriously difficult to debug because run-time errors occur outside of the point containing the problem. 
+However if the problems relating to memory access, especially buffer overrun problems, are notoriously difficult to debug because run-time errors occur outside of the point containing the problem.
 The ["Electric Fence library"](https://github.com/CheggEng/electric-fence) can be
 used for debugging these problems. It helps you detect two common programming problems: software that overruns the boundaries of a malloc() memory allocation, and
 software that touches a memory allocation

@@ -29,7 +29,7 @@ For NNPA, additional stages for `ZHigh` and `ZLow` are provided. You can get pro
       --InstrumentReportMemory                      - instrument runtime reports memory usage.
 ```
 
-Currently, the call of initialization, OMInstrumentInit, need to be added before you load the dynamic library. It is being considered to add it to the beginning of main_graph by compiler. 
+Currently, the call of initialization, OMInstrumentInit, need to be added before you load the dynamic library. It is being considered to add it to the beginning of main_graph by compiler.
 
 ## Run with instrumentation
 Run the model in the same way as usual.

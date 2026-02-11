@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef UNSTICK_TD 
-#define UNSTICK_TD 
+#ifndef UNSTICK_TD
+#define UNSTICK_TD
 
 #ifndef OP_BASE
 include "src/Accelerators/NNPA/Dialect/ZHigh/ZHigh.td"
@@ -31,7 +31,7 @@ include "src/Accelerators/NNPA/Dialect/ZHigh/ZHighOps/OpHelper.td"
 /// >;
 
 //===----------------------------------------------------------------------===//
-// DRR patterns 
+// DRR patterns
 //===----------------------------------------------------------------------===//
 
 // zhigh.Unstick (zhigh.Stick (%X)) = %X

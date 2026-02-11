@@ -254,8 +254,8 @@ public:
           genSimdMatMat(createAffine, matmulOp, TmpSimdC, elementType, aStart, bStart,
              cStart, iComputeTileSize, jComputeTileSize, kComputeTileSize,
             vectorLen, fullUnrollAndJam);
-          }, 
-          /* Else has some partial tiles */ 
+          },
+          /* Else has some partial tiles */
           [&](const AffineBuilderKrnlMem &createAffine) {
           // Trip regardless of full/partial for N & K
           // Test if SIMD dim (M) is full.

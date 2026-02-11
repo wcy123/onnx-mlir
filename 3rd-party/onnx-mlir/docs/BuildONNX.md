@@ -24,7 +24,7 @@ Here are the steps taken to upgrade the ONNX version:
 
 6.	Build onnx in the `build/` directory using: set CMAKE_ARGS=-DONNX_USE_LITE_PROTO=ON
 
-7.	Run in the `build/` directory : "make OMONNXOpsIncTranslation" 
+7.	Run in the `build/` directory : "make OMONNXOpsIncTranslation"
 
 8.	Run in `build/` directory : "make onnx-mlir-docs"
 
@@ -39,7 +39,7 @@ Here are the steps taken to upgrade the ONNX version:
 13.	Ensure the lit tests and backend tests pass successfully and then you are done!
 
 
-**Note: Please use `git add <filename>` for files that might have been changed before doing a PR.** 
+**Note: Please use `git add <filename>` for files that might have been changed before doing a PR.**
 
 ## Known issues
 
@@ -62,4 +62,3 @@ Current thread 0x0000000107919e00 (most recent call first):
  ```shell
  % export no_proxy="*"
  ```
- 

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef DECOMPOSE_STICK_UNSTICK_TD 
-#define DECOMPOSE_STICK_UNSTICK_TD 
+#ifndef DECOMPOSE_STICK_UNSTICK_TD
+#define DECOMPOSE_STICK_UNSTICK_TD
 
 #ifndef OP_BASE
 include "src/Accelerators/NNPA/Dialect/ZHigh/ZHigh.td"
@@ -31,7 +31,7 @@ include "src/Accelerators/NNPA/Dialect/ZHigh/ZHighOps/OpHelper.td"
 /// >;
 
 //===----------------------------------------------------------------------===//
-// DRR patterns 
+// DRR patterns
 //===----------------------------------------------------------------------===//
 
 def NoneLayoutAttr: NativeCodeCall<"StringAttr()">;
@@ -39,12 +39,12 @@ def NoneLayoutAttr: NativeCodeCall<"StringAttr()">;
 def FromDLF16ToF32Op:
   Constraint<CPred<"$_self.getDefiningOp<onnx_mlir::zhigh::ZHighDLF16ToF32Op>()">,
   "The value is produced by ZHighDLF16ToF32Op"
->; 
+>;
 
 def CanDecomposeUnstick:
   Constraint<CPred<"onnx_mlir::zhigh::canDecomposeUnstick($_self)">,
   "The unstick op that produces this can be decomposed for optimizations"
->; 
+>;
 
 // zhigh.Stick $input, $layout = onnx.LayoutTransform (zhigh.F32ToDLF16 $input), $layout
 // Not support NHWC layout since the stick does transpose internally. We can

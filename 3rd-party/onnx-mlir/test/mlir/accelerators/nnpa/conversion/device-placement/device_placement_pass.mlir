@@ -48,4 +48,3 @@ module attributes {llvm.data_layout = "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128
 // CHECK:         }
 // CHECK:         "onnx.EntryPoint"() <{func = @mnist}> : () -> ()
 }
-

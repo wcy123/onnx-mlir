@@ -1308,4 +1308,3 @@ func.func private @bertsquad10_const_pattern(%arg0 : tensor<1x256x768xf32>) -> t
 // CHECK:           return [[RES_]] : memref<1x256x1xf32>
 // CHECK:         }
 }
-

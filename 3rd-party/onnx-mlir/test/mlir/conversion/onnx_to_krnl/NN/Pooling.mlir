@@ -211,4 +211,3 @@ func.func private @test_maxpool_pooling_operation(%arg0 : tensor<1x3x32x32xf32>)
 // CHECK:           return [[RES_]] : memref<1x3x31x31xf32>
 // CHECK:         }
 }
-

@@ -9,7 +9,7 @@ import torch.nn as nn
 class AddModel(nn.Module):
     def __init__(self):
         super(AddModel, self).__init__()
-    
+
     def forward(self, x, y):
         return x + y  # Element-wise addition
 
@@ -33,7 +33,7 @@ import onnxmlirtorch
 class AddModel(nn.Module):
     def __init__(self):
         super(AddModel, self).__init__()
-    
+
     def forward(self, x, y):
         return x + y  # Element-wise addition
 
@@ -65,4 +65,3 @@ At top of onnx-mlir: `pip3 install -e src/Runtime/python/onnxmlirtorch`
 
 ### Install from repo
 After the package is uploaded to pip server, you can install with 'pip3 install onnxmlirtorch`
-

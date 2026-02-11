@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # Constant Management Design
 
 **Note:** This document has been consolidated into [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md). Please refer to that document for the complete and authoritative constant handling design and implementation details.

@@ -49,7 +49,7 @@ def ShapeHelperOpInterface : OpInterface<"ShapeHelperOpInterface"> {
                          "onnx_mlir::IndexExprBuilder *":$ieBuilder,
                          "onnx_mlir::IndexExprScope *":$scope)>
   ];
-  
+
   let cppNamespace = "::mlir";
 }
 

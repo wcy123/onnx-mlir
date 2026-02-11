@@ -14,13 +14,13 @@ def Hip_CreateHandleOp : Hip_Op<"create_handle", []> {
   let summary = "Create a HIP runtime handle";
   let description = [{
     Creates and returns a new HIP runtime handle.
-    
+
     Example:
     ```mlir
     %handle = hip.create_handle() : !hip.handle
     ```
   }];
-  
+
   let results = (outs Hip_ContextType:$handle);
   let assemblyFormat = "`(` `)` attr-dict `:` type($handle)";
 }
@@ -29,13 +29,13 @@ def Hip_DestroyHandleOp : Hip_Op<"destroy_handle", []> {
   let summary = "Destroy a HIP runtime handle";
   let description = [{
     Destroys a HIP runtime handle.
-    
+
     Example:
     ```mlir
     hip.destroy_handle(%handle) : !hip.handle
     ```
   }];
-  
+
   let arguments = (ins Hip_ContextType:$handle);
   let assemblyFormat = "`(` $handle `)` attr-dict `:` type($handle)";
 }
@@ -44,19 +44,19 @@ def Hip_AllocOp : Hip_Op<"alloc", []> {
   let summary = "Allocate device memory";
   let description = [{
     Allocates device memory using HIP and returns a memref.
-    
+
     Example:
     ```mlir
     %x = hip.alloc(%handle, %N) : memref<?x128xf32, 1>
     ```
   }];
-  
-  let arguments = (ins 
+
+  let arguments = (ins
     Hip_ContextType:$handle,
     Variadic<Index>:$dynamicSizes
   );
   let results = (outs AnyMemRef:$memref);
-  
+
   let assemblyFormat = [{
     `(` $handle (`,` $dynamicSizes^ )? `)` attr-dict `:` type($memref)
   }];

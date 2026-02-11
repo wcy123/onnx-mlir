@@ -9,7 +9,7 @@ Files in this directory enables a user to generate a performance model of most N
 * File with execute a list of `driver1-*.sh` scripts that gather data for each op. They can also be individually called if only interested in a subset.
 * Results are in the `res` subdir where all the `*.csv` file are located, with one per "experiment". Detail logs are found in `log` subdir.
 * Move the `res` subdir to a machine with a working browser, where you fire the jupyter lab notebook .
-* Open the `scanOpvUnitNewMeas.ipynb` jupyter lab notebook, and edit in the top box the `dir` variable with an absolute path to your local `res` subdirectory. 
+* Open the `scanOpvUnitNewMeas.ipynb` jupyter lab notebook, and edit in the top box the `dir` variable with an absolute path to your local `res` subdirectory.
 * In the same file, also update the `zarch` variable with the correct flag (`z16`, `z17`...).
 * Run all the cells... or a subset if you only ran some specific operations.
 

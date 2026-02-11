@@ -26,4 +26,3 @@ func.func @test_parallel_slice(%arg0 : tensor<1x32x?x64xf32>) -> tensor<1x32x?x3
 // CHECK:           return [[RES_]] : memref<1x32x?x32xf32>
 // CHECK:         }
 }
-

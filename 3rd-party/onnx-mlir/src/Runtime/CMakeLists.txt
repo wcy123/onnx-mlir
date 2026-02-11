@@ -59,7 +59,7 @@ add_onnx_mlir_library(OMTensorUtils
   OnnxDataType.cpp
   ${ONNX_MLIR_SRC_ROOT}/src/Support/SmallFPConversion.c
 
-  DEPENDS 
+  DEPENDS
   AcceleratorsInc
 
   EXCLUDE_FROM_OM_LIBS
@@ -87,9 +87,9 @@ set_target_properties(OMExecutionSession
   )
 
 # For linux, the dynamic library (dl) is used directly, while for Windows,
-# LLVMSupport is used for locks when dynamic library is loaded. 
+# LLVMSupport is used for locks when dynamic library is loaded.
 if(WIN32)
-  target_link_libraries(OMExecutionSession PRIVATE 
+  target_link_libraries(OMExecutionSession PRIVATE
     LLVMSupport
   )
 else()

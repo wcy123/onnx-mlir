@@ -527,4 +527,3 @@ func.func @krnl_matmul_seq_partial_blocks(%arg0: memref<127x255xf32> {onnx.name 
 // CHECK:           return [[RES_]] : memref<127x63xf32>
 // CHECK:         }
 }
-

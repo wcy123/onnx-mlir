@@ -83,4 +83,3 @@ func.func private @test_batchnorm_testmode_2d(%arg0: tensor<10x3xf32>, %arg1: te
   // CHECK: }
   // CHECK: return [[RES]] : memref<10x3xf32>
 }
-

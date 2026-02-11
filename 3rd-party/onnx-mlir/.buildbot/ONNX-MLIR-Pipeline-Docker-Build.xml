@@ -190,7 +190,7 @@ node {
                 ws(&quot;${JENKINS_SCRIPTSPACE}&quot;) {
                     /* We may get one with @2, @3, etc. appended */
                     env.JENKINS_SCRIPTSPACE_AT = &quot;${WORKSPACE}&quot;
-        
+
                     /* Checkout the PR source */
                     checkout_pr_source(&quot;${GITHUB_PR_REPO_URL}&quot;,
                                        &quot;${GITHUB_PR_REMOTE}&quot;,
@@ -211,7 +211,7 @@ node {
                      * definitions.
                      */
                     jenkinsfile = load &quot;.buildbot/Jenkinsfile&quot;
-        
+
                     /* We no longer need the script directory once the Jenkinsfile
                      * is loaded so cleanup
                      */
@@ -236,7 +236,7 @@ else
 	error(errmsg)
 
 /* Set various environment variables related to the pull request.
- * These are derived from the GitHub webhook payload without 
+ * These are derived from the GitHub webhook payload without
  * the need for the PR source code.
  */
 def set_environ_vars(event) {
@@ -245,7 +245,7 @@ def set_environ_vars(event) {
     env.GITHUB_REPO_NAME = &apos;onnx-mlir&apos;
     env.GITHUB_CONTEXT = &quot;Jenkins Linux ${CPU_ARCH}&quot;
     env.GITHUB_EVENT = event
-    
+
     switch(event) {
         case &apos;pull_request&apos;:
             env.GITHUB_PR_SENDER         = &quot;${github_webhook_payload_sender_login}&quot;

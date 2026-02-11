@@ -1,7 +1,7 @@
-/**
- ** Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
- ** Licensed under the MIT License.
- **/
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
 
 //===----------------------------------------------------------------------===//
 // Generate Interface Pass - Create C-compatible interface functions
@@ -32,7 +32,8 @@ public:
 
   StringRef getArgument() const final { return "generate-interface"; }
   StringRef getDescription() const final {
-    return "Generate C interface wrapper functions (inference_init, inference_compute, inference_cleanup)";
+    return "Generate C interface wrapper functions (inference_init, "
+           "inference_compute, inference_cleanup)";
   }
 
   void runOnOperation() override {
@@ -46,9 +47,12 @@ public:
 
     // Read metadata
     auto inputCount = module->getAttrOfType<IntegerAttr>("hipdnn.input_count");
-    auto inputRanks = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.input_ranks");
-    auto outputCount = module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
-    auto outputRanks = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.output_ranks");
+    auto inputRanks =
+        module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.input_ranks");
+    auto outputCount =
+        module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
+    auto outputRanks =
+        module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.output_ranks");
 
     // Declare malloc and free at module level (before generating functions)
     declareMallocFree(module);
@@ -58,7 +62,8 @@ public:
 
     // Generate interface functions
     generateInferenceInit(module);
-    generateInferenceCompute(module, inputCount, inputRanks, outputCount, outputRanks);
+    generateInferenceCompute(module, inputCount, inputRanks, outputCount,
+                             outputRanks);
     generateInferenceCleanup(module);
 
     llvm::errs() << "[GenerateInterface] Generated 3 interface functions\n";
@@ -77,8 +82,10 @@ private:
 
     // Declare malloc if not already present
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("malloc")) {
-      auto mallocFuncType = LLVM::LLVMFunctionType::get(ptrType, {builder.getI64Type()});
-      auto mallocFunc = builder.create<LLVM::LLVMFuncOp>(loc, "malloc", mallocFuncType);
+      auto mallocFuncType =
+          LLVM::LLVMFunctionType::get(ptrType, {builder.getI64Type()});
+      auto mallocFunc =
+          builder.create<LLVM::LLVMFuncOp>(loc, "malloc", mallocFuncType);
       mallocFunc.setLinkage(LLVM::Linkage::External);
     }
 
@@ -86,7 +93,8 @@ private:
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("free")) {
       auto freeFuncType = LLVM::LLVMFunctionType::get(
           LLVM::LLVMVoidType::get(builder.getContext()), {ptrType});
-      auto freeFunc = builder.create<LLVM::LLVMFuncOp>(loc, "free", freeFuncType);
+      auto freeFunc =
+          builder.create<LLVM::LLVMFuncOp>(loc, "free", freeFuncType);
       freeFunc.setLinkage(LLVM::Linkage::External);
     }
   }
@@ -107,110 +115,134 @@ private:
     // Declare HIP functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipStreamCreate")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamCreate", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamCreate", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipStreamDestroy")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamDestroy", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamDestroy", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipStreamSynchronize")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamSynchronize", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipStreamSynchronize",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare MIOpen functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("miopenCreate")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "miopenCreate", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "miopenCreate", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("miopenSetStream")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "miopenSetStream", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "miopenSetStream", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("miopenDestroy")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "miopenDestroy", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "miopenDestroy", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare hipBLASLt functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipblasLtCreate")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipblasLtCreate", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipblasLtCreate", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipblasLtDestroy")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipblasLtDestroy", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipblasLtDestroy", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare high-level runtime state management functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_init")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_init", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_init", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_cleanup")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_cleanup", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_cleanup",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare runtime wrapper functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_malloc_wrapper")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, i64Type});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_malloc_wrapper", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hip_malloc_wrapper", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_free_wrapper")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_free_wrapper", funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hip_free_wrapper", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_h2d_async")) {
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_h2d_async", funcType);
+      auto funcType = LLVM::LLVMFunctionType::get(
+          i32Type, {ptrType, ptrType, i64Type, ptrType});
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_h2d_async",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_d2h_async")) {
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_d2h_async", funcType);
+      auto funcType = LLVM::LLVMFunctionType::get(
+          i32Type, {ptrType, ptrType, i64Type, ptrType});
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_d2h_async",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_stream_synchronize_wrapper")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
+            "hip_stream_synchronize_wrapper")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_stream_synchronize_wrapper", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "hip_stream_synchronize_wrapper", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare runtime inference helper functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_prepare_inference")) {
-      // int runtime_prepare_inference(RuntimeState* state, span_t* inputs, span_t* outputs, InferenceData** out_data)
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType, ptrType, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_prepare_inference", funcType);
+      // int runtime_prepare_inference(RuntimeState* state, span_t* inputs,
+      // span_t* outputs, InferenceData** out_data)
+      auto funcType = LLVM::LLVMFunctionType::get(
+          i32Type, {ptrType, ptrType, ptrType, ptrType});
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "runtime_prepare_inference", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_cleanup_inference")) {
-      // int runtime_cleanup_inference(RuntimeState* state, InferenceData* data, span_t* outputs)
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_cleanup_inference", funcType);
+      // int runtime_cleanup_inference(RuntimeState* state, InferenceData* data,
+      // span_t* outputs)
+      auto funcType =
+          LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType, ptrType});
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "runtime_cleanup_inference", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
   }
@@ -227,33 +259,40 @@ private:
 
     // Check metadata exists
     if (!module->getAttr("hipdnn.input_count")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_count attribute missing\n";
+      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_count attribute "
+                      "missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.input_ranks")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_ranks attribute missing\n";
+      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_ranks attribute "
+                      "missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_count")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_count attribute missing\n";
+      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_count "
+                      "attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_ranks")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_ranks attribute missing\n";
+      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_ranks "
+                      "attribute missing\n";
       return failure();
     }
 
     // Check constant helpers exist
     if (!module.lookupSymbol("get_constant_count")) {
-      llvm::errs() << "[GenerateInterface] Error: get_constant_count function not found\n";
+      llvm::errs() << "[GenerateInterface] Error: get_constant_count function "
+                      "not found\n";
       return failure();
     }
     if (!module.lookupSymbol("initialize_constants")) {
-      llvm::errs() << "[GenerateInterface] Error: initialize_constants function not found\n";
+      llvm::errs() << "[GenerateInterface] Error: initialize_constants "
+                      "function not found\n";
       return failure();
     }
     if (!module.lookupSymbol("release_constants")) {
-      llvm::errs() << "[GenerateInterface] Error: release_constants function not found\n";
+      llvm::errs() << "[GenerateInterface] Error: release_constants function "
+                      "not found\n";
       return failure();
     }
 
@@ -263,9 +302,10 @@ private:
   /// Generate inference_init function - simplified to call runtime_state_init()
   /// Signature: int inference_init(void** out_state);
   ///
-  /// This function is now a simple wrapper that delegates to runtime_state_init()
-  /// in the runtime library. All the complex initialization logic (creating handles,
-  /// error handling, LIFO cleanup) is in C++ code instead of LLVM IR generation.
+  /// This function is now a simple wrapper that delegates to
+  /// runtime_state_init() in the runtime library. All the complex
+  /// initialization logic (creating handles, error handling, LIFO cleanup) is
+  /// in C++ code instead of LLVM IR generation.
   void generateInferenceInit(ModuleOp module) {
     OpBuilder builder(module.getContext());
     Location loc = module.getLoc();
@@ -280,7 +320,8 @@ private:
     auto funcType = LLVM::LLVMFunctionType::get(i32Type, paramTypes);
 
     // Create function with C ABI attributes
-    auto funcOp = builder.create<LLVM::LLVMFuncOp>(loc, "inference_init", funcType);
+    auto funcOp =
+        builder.create<LLVM::LLVMFuncOp>(loc, "inference_init", funcType);
     funcOp->setAttr("llvm.emit_c_interface", builder.getUnitAttr());
     funcOp->setAttr("sym_visibility", builder.getStringAttr("public"));
 
@@ -291,15 +332,18 @@ private:
     Value outStatePtr = entryBlock->getArgument(0);
 
     // Call runtime_state_init(out_state)
-    auto runtimeInitFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_init");
-    auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc, ValueRange{outStatePtr});
+    auto runtimeInitFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_init");
+    auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc,
+                                             ValueRange{outStatePtr});
 
     // Return the result from runtime_state_init
     builder.create<LLVM::ReturnOp>(loc, call.getResult());
   }
 
   /// Generate inference_compute function - simplified to use runtime helpers
-  /// Signature: int inference_compute(void* state, span_t* inputs, span_t* outputs);
+  /// Signature: int inference_compute(void* state, span_t* inputs, span_t*
+  /// outputs);
   ///
   /// This function now delegates most work to runtime_prepare_inference() and
   /// runtime_cleanup_inference(), keeping only the model-specific logic here:
@@ -308,11 +352,10 @@ private:
   /// - Build memref descriptors for @main
   /// - Call @main with memref arguments
   /// - Call runtime_cleanup_inference() to handle D2H transfers and GPU cleanup
-  void generateInferenceCompute(ModuleOp module,
-                                  IntegerAttr inputCount,
-                                  DenseI64ArrayAttr inputRanks,
-                                  IntegerAttr outputCount,
-                                  DenseI64ArrayAttr outputRanks) {
+  void generateInferenceCompute(ModuleOp module, IntegerAttr inputCount,
+                                DenseI64ArrayAttr inputRanks,
+                                IntegerAttr outputCount,
+                                DenseI64ArrayAttr outputRanks) {
     OpBuilder builder(module.getContext());
     Location loc = module.getLoc();
 
@@ -326,7 +369,8 @@ private:
     auto funcType = LLVM::LLVMFunctionType::get(i32Type, paramTypes);
 
     // Create function with C ABI attributes
-    auto funcOp = builder.create<LLVM::LLVMFuncOp>(loc, "inference_compute", funcType);
+    auto funcOp =
+        builder.create<LLVM::LLVMFuncOp>(loc, "inference_compute", funcType);
     funcOp->setAttr("llvm.emit_c_interface", builder.getUnitAttr());
     funcOp->setAttr("sym_visibility", builder.getStringAttr("public"));
 
@@ -339,12 +383,16 @@ private:
     Value outputsSpanPtr = entryBlock->getArgument(2);
 
     // Get function references
-    auto prepareFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_prepare_inference");
-    auto cleanupFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_cleanup_inference");
+    auto prepareFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_prepare_inference");
+    auto cleanupFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_cleanup_inference");
 
     // Constants
-    Value c0_i32 = builder.create<LLVM::ConstantOp>(loc, i32Type, builder.getI32IntegerAttr(0));
-    Value c1_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(1));
+    Value c0_i32 = builder.create<LLVM::ConstantOp>(
+        loc, i32Type, builder.getI32IntegerAttr(0));
+    Value c1_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(1));
 
     // Allocate storage for InferenceData pointer
     Value infDataPtrStorage = builder.create<LLVM::AllocaOp>(
@@ -362,20 +410,27 @@ private:
     Block *mainCallBlock = builder.createBlock(entryBlock->getParent());
     Block *errorPrepareBlock = builder.createBlock(entryBlock->getParent());
 
-    builder.create<LLVM::CondBrOp>(loc, prepareSuccess, mainCallBlock, errorPrepareBlock);
+    builder.create<LLVM::CondBrOp>(loc, prepareSuccess, mainCallBlock,
+                                   errorPrepareBlock);
 
     // Main call block: Extract GPU buffers and call @main
     builder.setInsertionPointToStart(mainCallBlock);
 
     // Load InferenceData*
-    Value infDataPtr = builder.create<LLVM::LoadOp>(loc, ptrType, infDataPtrStorage);
+    Value infDataPtr =
+        builder.create<LLVM::LoadOp>(loc, ptrType, infDataPtrStorage);
 
     // Constants we'll need
-    Value c0_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(0));
-    Value c2_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(2));
-    Value c3_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(3));
-    Value c4_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(4));
-    Value c5_i64 = builder.create<LLVM::ConstantOp>(loc, i64Type, builder.getI64IntegerAttr(5));
+    Value c0_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(0));
+    Value c2_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(2));
+    Value c3_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(3));
+    Value c4_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(4));
+    Value c5_i64 = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(5));
 
     // Extract GPU buffers from InferenceData structure
     // InferenceData layout (64-bit pointers):
@@ -389,23 +444,27 @@ private:
     // Load input_gpu_buffers (void**)
     Value inputGpuBuffersFieldPtr = builder.create<LLVM::GEPOp>(
         loc, ptrType, i64Type, infDataPtr, ValueRange{c0_i64});
-    Value inputGpuBuffersArray = builder.create<LLVM::LoadOp>(loc, ptrType, inputGpuBuffersFieldPtr);
+    Value inputGpuBuffersArray =
+        builder.create<LLVM::LoadOp>(loc, ptrType, inputGpuBuffersFieldPtr);
 
     // Load output_gpu_buffers (void**)
     Value outputGpuBuffersFieldPtr = builder.create<LLVM::GEPOp>(
         loc, ptrType, i64Type, infDataPtr, ValueRange{c1_i64});
-    Value outputGpuBuffersArray = builder.create<LLVM::LoadOp>(loc, ptrType, outputGpuBuffersFieldPtr);
+    Value outputGpuBuffersArray =
+        builder.create<LLVM::LoadOp>(loc, ptrType, outputGpuBuffersFieldPtr);
 
     // Load inputs span to get dimension information
     // span_t structure: { tensor_t* data; size_t count; }
     Value inputDataFieldPtr = builder.create<LLVM::GEPOp>(
         loc, ptrType, i64Type, inputsSpanPtr, ValueRange{c0_i64});
-    Value inputTensorArray = builder.create<LLVM::LoadOp>(loc, ptrType, inputDataFieldPtr);
+    Value inputTensorArray =
+        builder.create<LLVM::LoadOp>(loc, ptrType, inputDataFieldPtr);
 
     // Load outputs span to get dimension information
     Value outputDataFieldPtr = builder.create<LLVM::GEPOp>(
         loc, ptrType, i64Type, outputsSpanPtr, ValueRange{c0_i64});
-    Value outputTensorArray = builder.create<LLVM::LoadOp>(loc, ptrType, outputDataFieldPtr);
+    Value outputTensorArray =
+        builder.create<LLVM::LoadOp>(loc, ptrType, outputDataFieldPtr);
 
     // Build memref descriptors for @main call
     // Simplified approach: For now, we'll pass GPU buffer pointers directly
@@ -414,7 +473,8 @@ private:
     // Note: This is a simplified implementation that assumes @main accepts
     // raw pointers rather than full memref descriptors. For a production
     // implementation, we would need to:
-    // 1. Build proper memref structs with allocated/aligned/offset/sizes/strides
+    // 1. Build proper memref structs with
+    // allocated/aligned/offset/sizes/strides
     // 2. Handle variable-rank memrefs
     // 3. Calculate strides from dimensions
     //
@@ -428,15 +488,19 @@ private:
       if (!mainFuncOp) {
         // No @main function - this is not an error, just skip the call
         // The DLL will still be created with inference_init/compute/cleanup
-        llvm::errs() << "[GenerateInterface] Warning: @main function not found, skipping model execution\n";
+        llvm::errs() << "[GenerateInterface] Warning: @main function not "
+                        "found, skipping model execution\n";
       } else {
-        // func.func exists but we need LLVM func - should have been lowered already
-        llvm::errs() << "[GenerateInterface] Error: @main exists as func.func but should be lowered to LLVM\n";
+        // func.func exists but we need LLVM func - should have been lowered
+        // already
+        llvm::errs() << "[GenerateInterface] Error: @main exists as func.func "
+                        "but should be lowered to LLVM\n";
       }
     } else {
       // @main exists as LLVM function - call it
       // For now, create a simplified call without full memref descriptors
-      // This will work for simple test cases but needs enhancement for production
+      // This will work for simple test cases but needs enhancement for
+      // production
 
       // Get the function type to understand what arguments it expects
       auto mainFuncType = mainFunc.getFunctionType();
@@ -450,13 +514,15 @@ private:
         // Load first input GPU buffer
         Value inputGpuBuffer0Ptr = builder.create<LLVM::GEPOp>(
             loc, ptrType, ptrType, inputGpuBuffersArray, ValueRange{c0_i64});
-        Value inputGpuBuffer0 = builder.create<LLVM::LoadOp>(loc, ptrType, inputGpuBuffer0Ptr);
+        Value inputGpuBuffer0 =
+            builder.create<LLVM::LoadOp>(loc, ptrType, inputGpuBuffer0Ptr);
         mainArgs.push_back(inputGpuBuffer0);
 
         // Load first output GPU buffer
         Value outputGpuBuffer0Ptr = builder.create<LLVM::GEPOp>(
             loc, ptrType, ptrType, outputGpuBuffersArray, ValueRange{c0_i64});
-        Value outputGpuBuffer0 = builder.create<LLVM::LoadOp>(loc, ptrType, outputGpuBuffer0Ptr);
+        Value outputGpuBuffer0 =
+            builder.create<LLVM::LoadOp>(loc, ptrType, outputGpuBuffer0Ptr);
         mainArgs.push_back(outputGpuBuffer0);
 
         // Call @main with GPU buffers
@@ -468,8 +534,7 @@ private:
 
     // Call runtime_cleanup_inference(state, inf_data, outputs)
     auto cleanupResult = builder.create<LLVM::CallOp>(
-        loc, cleanupFunc,
-        ValueRange{state, infDataPtr, outputsSpanPtr});
+        loc, cleanupFunc, ValueRange{state, infDataPtr, outputsSpanPtr});
 
     // Return success (or cleanup result)
     builder.create<LLVM::ReturnOp>(loc, cleanupResult.getResult());
@@ -483,12 +548,13 @@ private:
   /// Signature: int inference_cleanup(void* state);
   /// Destroys GPU resources in reverse order of creation (LIFO)
   /// Uses best-effort cleanup: continues even if some operations fail
-  /// Generate inference_cleanup function - simplified to call runtime_state_cleanup()
-  /// Signature: int inference_cleanup(void* state);
+  /// Generate inference_cleanup function - simplified to call
+  /// runtime_state_cleanup() Signature: int inference_cleanup(void* state);
   ///
-  /// This function is now a simple wrapper that delegates to runtime_state_cleanup()
-  /// in the runtime library. All the cleanup logic (synchronization, handle destruction,
-  /// LIFO order) is in C++ code instead of LLVM IR generation.
+  /// This function is now a simple wrapper that delegates to
+  /// runtime_state_cleanup() in the runtime library. All the cleanup logic
+  /// (synchronization, handle destruction, LIFO order) is in C++ code instead
+  /// of LLVM IR generation.
   void generateInferenceCleanup(ModuleOp module) {
     OpBuilder builder(module.getContext());
     Location loc = module.getLoc();
@@ -502,7 +568,8 @@ private:
     auto funcType = LLVM::LLVMFunctionType::get(i32Type, paramTypes);
 
     // Create function with C ABI attributes
-    auto funcOp = builder.create<LLVM::LLVMFuncOp>(loc, "inference_cleanup", funcType);
+    auto funcOp =
+        builder.create<LLVM::LLVMFuncOp>(loc, "inference_cleanup", funcType);
     funcOp->setAttr("llvm.emit_c_interface", builder.getUnitAttr());
     funcOp->setAttr("sym_visibility", builder.getStringAttr("public"));
 
@@ -513,8 +580,10 @@ private:
     Value state = entryBlock->getArgument(0);
 
     // Call runtime_state_cleanup(state)
-    auto runtimeCleanupFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_cleanup");
-    auto call = builder.create<LLVM::CallOp>(loc, runtimeCleanupFunc, ValueRange{state});
+    auto runtimeCleanupFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_cleanup");
+    auto call = builder.create<LLVM::CallOp>(loc, runtimeCleanupFunc,
+                                             ValueRange{state});
 
     // Return the result from runtime_state_cleanup (always 0)
     builder.create<LLVM::ReturnOp>(loc, call.getResult());

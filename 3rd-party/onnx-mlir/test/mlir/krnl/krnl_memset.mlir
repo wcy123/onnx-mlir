@@ -49,4 +49,3 @@ func.func @lowering_krnl_memset(%arg0: memref<1xi64>, %arg1: memref<1xi64>) -> (
 // CHECK:           return [[VAR_6_]] : memref<?x?x1x1x32x?xf16>
 // CHECK:         }
 }
-

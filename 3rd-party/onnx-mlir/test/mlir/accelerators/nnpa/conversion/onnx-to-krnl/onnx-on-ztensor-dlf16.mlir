@@ -1753,4 +1753,3 @@ func.func @test_add_with_scalar(%arg0: tensor<256x32x1xf32>, %arg1: tensor<f32>)
 // CHECK:           return [[RES_6_]] : memref<256x32x1xf32>
 // CHECK:         }
 }
-

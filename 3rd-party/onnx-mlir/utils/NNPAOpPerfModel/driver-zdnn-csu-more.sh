@@ -8,7 +8,7 @@
 #   param2: op_name to be grepped (can be a regexp, e.g. "(cpuOp|nnpaOp)")
 #   param3: architecture (xxx in --march=xxx)
 #
-# env var: 
+# env var:
 #  e4:       add dim to the shape; e.g. e4="1", e4="1x1" (default none).
 
 # name of file (name) and operation (op_name).

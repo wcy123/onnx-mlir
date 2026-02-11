@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # C Interface Design
 
 **Note:** This document describes the **WHAT** and **WHY** of the C interface. For **HOW** to implement it (GenerateInterfacePass details), see [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md).

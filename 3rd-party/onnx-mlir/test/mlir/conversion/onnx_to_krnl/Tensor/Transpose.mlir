@@ -82,4 +82,3 @@ func.func private @test_transpose_dynamic_dims(%arg0 : tensor<10x?x30x40xf32>) -
 // CHECK:           return [[RES_]] : memref<10x40x?x30xf32>
 // CHECK:         }
 }
-

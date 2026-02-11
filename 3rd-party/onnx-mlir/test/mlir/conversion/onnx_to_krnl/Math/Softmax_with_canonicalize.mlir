@@ -96,4 +96,3 @@ func.func private @test_softmax_v13(%arg0 : tensor<10x20x30xf32>) -> tensor<*xf3
 // CHECK:           return [[RES_]] : memref<10x20x30xf32>
 // CHECK:         }
 }
-

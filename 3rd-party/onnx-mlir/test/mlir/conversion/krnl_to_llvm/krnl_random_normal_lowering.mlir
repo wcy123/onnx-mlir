@@ -68,7 +68,7 @@ func.func @test_random_normal_dynamic_lowering(%arg0: memref<3x4x?x?xf32>) -> me
 
   /// Populate tensor:
   // CHECK: [[OUTPUT_TENSOR:%.+]] = llvm.insertvalue {{.*}}, {{.*}}[4, 3] : !llvm.struct<(ptr, ptr, i64, array<4 x i64>, array<4 x i64>)>
-  
+
   // CHECK: [[ALL_VALUES2:%.+]] = llvm.mul %arg5, [[ALL_VALUES1]]  : i64
   // CHECK: [[ALL_VALUES3:%.+]] = llvm.mul [[ALL_VALUES2]], %arg6  : i64
   // CHECK: llvm.call @get_random_normal_value_f32([[ALIGNED_TENSOR_MEMORY]], [[ALL_VALUES3]], [[MEAN]], [[SCALE]], [[SEED]]) : (!llvm.ptr, i64, f32, f32, f32) -> ()

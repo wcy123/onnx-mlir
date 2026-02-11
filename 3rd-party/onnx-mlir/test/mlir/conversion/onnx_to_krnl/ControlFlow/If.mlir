@@ -24,4 +24,3 @@ func.func @test_if_simple(%arg0: tensor<i1>, %arg1: tensor<i64>, %arg2: tensor<i
 // CHECK:           return [[VAR_3_]] : memref<i64>
 // CHECK:         }
 }
-

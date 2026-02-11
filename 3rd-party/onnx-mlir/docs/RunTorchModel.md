@@ -1,12 +1,12 @@
 <!--- SPDX-License-Identifier: Apache-2.0 -->
 
 # Outlines
-This document describes how to use onnx-mlir compiler to compile and run a torch model. 
+This document describes how to use onnx-mlir compiler to compile and run a torch model.
 
 1. [Installation](#installation)
 2. [Used with torch.compile](#backend)
 3. [Used as a model wrapper](#wrapper)
-4. [Used for debugging](#debug) 
+4. [Used for debugging](#debug)
 5. [How to use onnx-mlir container inside another container](#containers)
 
 # Installation <a name="installation"></a>
@@ -30,7 +30,7 @@ Not supported yet.
 
 # Used with torch.compile <a name="backend"></a>
 In this approach, a backend based on onnxmlir compiler is provided to torch.compile(). This backend will first export the torch model to onnx model, then compile the model with onnxmlir compiler to a shared library (.so), and finally run inference with the shared library.
-An example of code piece: 
+An example of code piece:
 ```
 my_option = {
     "compile_options": "-O3",
@@ -84,7 +84,7 @@ Again the input parameters will be printed out after the forward() function is c
 # Use compiler container inside another container <a name="containers"></a>
 You may run your torch env with a container. When you want to use onnx-mlir to compile the model, you need run the compiler container inside your torch container. The way to do this is to mount your directories correctly.
 1. No matter whether you execute "docker run" inside a container or not, the source directory has to be the path on the host. To keep code simpile, I always keep the source and destination directory in the mount parameter the same. Otherwise, a mapping has to be passed into a docker run to convert the path when a docker run command is executed inside a container.
-2. Mount all the necessary directories: the docker configuration path, and the system temporary directory, as well as your working directory. 
+2. Mount all the necessary directories: the docker configuration path, and the system temporary directory, as well as your working directory.
 
 Here is my script to start my torch container:
 ```bash
@@ -100,7 +100,3 @@ docker run -it --rm\
 Inside the iteractive docker run, the previous script can be used to build and install the onnxmlirtorch package.
 
 Then a test case, e.g. mytest.py,  can be run with command `python mytest.py`
-
-
-
-

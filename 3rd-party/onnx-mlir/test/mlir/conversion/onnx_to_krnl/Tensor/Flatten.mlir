@@ -60,4 +60,3 @@ func.func private @test_flatten1(%arg0 : tensor<2x?x4xf32>) -> tensor<*xf32> {
 // CHECK:           return [[RES_]] : memref<?x4xf32>
 // CHECK:         }
 }
-

@@ -1,3 +1,8 @@
+##
+# ** Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+# ** Licensed under the MIT License.
+##
+
 # Backend library for MLIR → LLVM IR → Object File compilation
 # Supports dual modes: IR mode (text .ll) and Native mode (object file)
 

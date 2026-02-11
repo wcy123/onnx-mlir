@@ -209,16 +209,16 @@ func.func @onnx_concat_layout_propagation_4d(%arg0: tensor<?x4x4x192xf16, #zhigh
 // COM:   %1 = "onnx.Sqrt"(%0) : (tensor<?x3x5x7xf32>) -> tensor<?x3x5x7xf32>
 // COM:   %2 = "zhigh.Stick"(%1) <{layout = "4D"}> : (tensor<?x3x5x7xf32>) -> tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>
 // COM:   return %2 : tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>
-// COM: 
+// COM:
 // COM: // CHECK-LABEL:  func.func @test_onnx_sqrt_ztensor
 // COM: // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>) -> tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>> {
 // COM: // CHECK:           [[VAR_0_:%.+]] = "onnx.Sqrt"([[PARAM_0_]]) : (tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>) -> tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>
 // COM: // CHECK:           return [[VAR_0_]] : tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>
 // COM: // CHECK:         }
 // COM: }
-// COM: 
+// COM:
 // COM: // -----
-// COM: 
+// COM:
 // COM: // Data layout propagation for ONNX operations.
 // COM: // Take ONNXAddOp as the representative of binary element-wise ops.
 // COM: func.func @test_onnx_add_ztensor(%arg0: tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>>, %arg1: tensor<?x3x5x1xf16, #zhigh.layout<{dataLayout = "4D"}>>) -> tensor<?x3x5x7xf16, #zhigh.layout<{dataLayout = "4D"}>> {

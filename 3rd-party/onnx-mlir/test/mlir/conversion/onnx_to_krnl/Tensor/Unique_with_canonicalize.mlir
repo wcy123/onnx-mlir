@@ -219,4 +219,3 @@ func.func @unique_with_dynamic_inputs(%arg0: tensor<?xi64>) -> (tensor<?xi64>, t
 // CHECK:           "krnl.call"([[RES_]], [[RES_1_]], [[RES_1_]]_0, [[RES_1_]]_1, [[RES_1_]]_2, [[PARAM_0_]], [[CST_0_]], [[CST_1_]]) <{funcName = "omTensorUnique", numOfOutput = 5 : si64}> : (memref<index>, memref<?xi64>, memref<0xi64>, memref<?xi64>, memref<?xi64>, memref<?xi64>, i64, i64) -> ()
 // CHECK:           return [[RES_1_]], [[RES_1_]]_1, [[RES_1_]]_2 : memref<?xi64>, memref<?xi64>, memref<?xi64>
 }
-

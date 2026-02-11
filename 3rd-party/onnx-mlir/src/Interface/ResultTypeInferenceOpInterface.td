@@ -22,7 +22,7 @@ include "mlir/IR/OpBase.td"
 
 def ResultTypeInferenceOpInterface : OpInterface<"ResultTypeInferenceOpInterface"> {
   let description = [{
-    Interface to access a registered method to infer the data types for 
+    Interface to access a registered method to infer the data types for
     the result of an operation
   }];
 

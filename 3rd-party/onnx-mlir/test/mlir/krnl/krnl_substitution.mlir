@@ -55,4 +55,3 @@ func.func @test_kernel_substitution() {
 // CHECK:           return
 // CHECK:         }
 }
-

@@ -39,4 +39,3 @@ func.func @test_leakyrelu_default(%arg0 : tensor<10x10xf32>) -> tensor<*xf32> {
 // CHECK:           return [[VAR_2_]] : tensor<10x10xf32>
 // CHECK:         }
 }
-

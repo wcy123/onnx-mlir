@@ -83,4 +83,3 @@ func.func @transpose_on_ztensor_unknown_dims(%arg0: tensor<?x?xf32>) -> tensor<?
 // CHECK:           return [[RES_10_]] : memref<?x?xf32>
 // CHECK:         }
 }
-

@@ -107,7 +107,7 @@ def TanhLayoutPropagatePattern : Pat<
 //   Unstick (NHWC) -> Stick (4D) -> zhigh.Add
 //                                       ^
 //   Unstick (NHWC) -> Stick (4D) -------|
-//              
+//
 // will become:
 //   Unstick -> zhigh.Add -> Unstick (NHWC) -> Stick (4D)
 //                ^
@@ -250,5 +250,3 @@ def DivLayoutPropagatePattern2 : Pat<
 >;
 
 #endif // ZHIGH_LAYOUT_PROPAGATION
-
-

@@ -6,7 +6,7 @@ if (ONNX_MLIR_ENABLE_PYRUNTIME_LIGHT)
   # Accelerators introduces a target AcceleratorsInc. Define a dummy one here
   add_custom_target(AcceleratorsInc
       COMMAND echo "This is the dummy definition for AcceleratorsInc"
-  ) 
+  )
   return()
 endif()
 
@@ -46,4 +46,3 @@ add_onnx_mlir_executable(onnx-mlir
   OMCompilerUtils
   OMOptionUtils
   )
-  

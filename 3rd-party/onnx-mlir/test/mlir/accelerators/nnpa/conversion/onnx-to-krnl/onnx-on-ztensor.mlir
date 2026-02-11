@@ -189,4 +189,3 @@ func.func @test_onnx_layout_transform_on_ztensor(%arg0: tensor<3x5x7xf32, #zhigh
 // CHECK:           return [[RES_1_]] : memref<?x?x?xf16>
 // CHECK:         }
 }
-

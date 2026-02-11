@@ -20,4 +20,3 @@ func.func private @test_squeezev11(%arg0 : tensor<16x1x32x1x64xf32>) -> tensor<*
   // CHECK: [[RES:%.+]] = memref.reinterpret_cast %arg0 to offset: [0], sizes: [16, 32, 64], strides: [2048, 64, 1] : memref<16x1x32x1x64xf32> to memref<16x32x64xf32>
   // CHECK: return [[RES]] : memref<16x32x64xf32>
 }
-

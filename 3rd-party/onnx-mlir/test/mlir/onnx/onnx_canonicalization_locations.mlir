@@ -27,7 +27,7 @@ func.func @test_recompose_concat(%arg0: tensor<1x3x4xf32>, %arg1: tensor<1x3x4xf
   // CHECK-DAG:       [[LOC_C1:#.+]] = loc("Concat1")
   // CHECK-DAG:       [[LOC_C2:#.+]] = loc("Concat2")
   // CHECK-DAG:       [[LOC_C3:#.+]] = loc("Concat3")
-  // CHECK:           [[LOC_FUSED]] = loc(fused[[[LOC_C3]], [[LOC_C2]], [[LOC_C1]]]) 
+  // CHECK:           [[LOC_FUSED]] = loc(fused[[[LOC_C3]], [[LOC_C2]], [[LOC_C1]]])
 }
 
 // -----
@@ -42,7 +42,7 @@ func.func @consecutive_clips(%arg0: tensor<3x1024x1024xf32>) -> (tensor<3x1024x1
   onnx.Return %5 : tensor<3x1024x1024xf32>
 
   // CHECK-LABEL: func.func @consecutive_clips
-  // CHECK: onnx.Max  
+  // CHECK: onnx.Max
   // CHECK-SAME: loc([[FUSED_LOC:#.+]])
   // CHECK: onnx.Min
   // CHECK-SAME: loc([[FUSED_LOC]])

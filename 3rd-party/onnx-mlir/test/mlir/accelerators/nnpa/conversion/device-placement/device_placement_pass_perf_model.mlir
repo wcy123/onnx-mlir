@@ -29,4 +29,3 @@ func.func @matmul_nnpa(%arg0: tensor<1024x1024x1024xf32>) -> tensor<1024x1024x10
 // CHECK:           return [[VAR_0_]] : tensor<1024x1024x1024xf32>
 // CHECK:         }
 }
-

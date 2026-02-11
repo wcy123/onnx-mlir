@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # hip-opt - MLIR Pass Testing and Debugging Tool
 
 ## Purpose

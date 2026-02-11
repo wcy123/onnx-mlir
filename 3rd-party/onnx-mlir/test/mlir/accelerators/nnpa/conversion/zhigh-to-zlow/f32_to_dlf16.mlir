@@ -106,4 +106,3 @@ func.func @test_f32_to_dlf16(%arg0: tensor<1x3x5x?xf32>) -> tensor<1x3x5x?xf16> 
 // CHECK:           return [[VAR_view_]] : memref<1x3x5x?xf16>
 // CHECK:         }
 }
-

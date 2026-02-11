@@ -25,4 +25,3 @@ add_onnx_mlir_library(OMONNXToLinalg
   OMShapeInferenceOpInterface
   OMOptionUtils
   )
-

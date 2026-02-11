@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # MLIR AOT Compilation Demo
 ## From ONNX Model → Native AMD GPU Code
 

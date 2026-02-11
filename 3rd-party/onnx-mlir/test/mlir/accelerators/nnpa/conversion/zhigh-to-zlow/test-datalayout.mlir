@@ -172,4 +172,3 @@ func.func @should_lower_to_zlow_zrh(%arg0: tensor<2x5x7xf32>, %arg1: tensor<2x5x
 // CHECK:           return [[RES_]] : memref<2x5x21xf16, [[MAP_0_]]>
 // CHECK:         }
 }
-

@@ -21,7 +21,7 @@ Not, C style casting:
 * Perform bitwise operations on unsigned types and not signed.
 * Check the result of malloc() invocations.
 * Check the result of input/output operations, such as fopen() and fprintf().
-* Use parentheses around parameter names in macro definitions. 
+* Use parentheses around parameter names in macro definitions.
 
 ## Contributing
 

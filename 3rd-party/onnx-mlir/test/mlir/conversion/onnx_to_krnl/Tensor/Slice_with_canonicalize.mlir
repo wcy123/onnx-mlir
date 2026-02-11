@@ -327,4 +327,3 @@ func.func @compute_slice_all_dyn(%arg0 : tensor<2xi64>, %arg1 : tensor<2xi64>, %
 // CHECK:           return
 // CHECK:         }
 }
-

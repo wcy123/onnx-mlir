@@ -41,4 +41,3 @@ func.func @test_gemm_c_dyn(%arg0 : tensor<5x10xf32>, %arg1 : tensor<5x10xf32>, %
 
 // CHECK-LABEL:  func @test_gemm_c_dyn
 }
-

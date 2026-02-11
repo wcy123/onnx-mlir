@@ -21,7 +21,7 @@ include "mlir/IR/OpBase.td"
 def ZLow_Dialect : Dialect {
   let name = "zlow";
   let summary = "A low-level dialect for the ONNX NNPA accelerator ISA.";
-  let cppNamespace = "::onnx_mlir::zlow";  
+  let cppNamespace = "::onnx_mlir::zlow";
 }
 
 // Base class for ZLow dialect operations. This operation inherits from the
@@ -347,7 +347,7 @@ def ZLowQuantizedMatMulOp:ZLow_Op<"quantizedMatmul", [MemRefsNormalizable]> {
                        Arg<ODMemRefF32, "", [MemRead]>:$bias_offset,
                        Arg<AnyTypeOf<[ZQMemRef, NoneType]>, "", [MemRead, MemWrite]>:$work_area,
                        Arg<MemRefOf<[I64]>, "", [MemRead]>:$shape,
-                       Arg<ZQMemRef, "", [MemWrite]>:$Out, 
+                       Arg<ZQMemRef, "", [MemWrite]>:$Out,
                        Arg<ODMemRefF32, "", [MemWrite]>:$out_rec_scale,
                        Arg<ODMemRefF32, "", [MemWrite]>:$out_offset,
                        StrAttr:$x_q_type,
@@ -454,7 +454,7 @@ def ZLowStickForLSTMOp:ZLow_Op<"stickForLSTM", [MemRefsNormalizable,
   let summary = "ZLow stick operation for LSTM";
   let description = [{
   ZLow operation to perform a stick for LSTM.
-  Variadic: list of pointers for input data to be transformed: 
+  Variadic: list of pointers for input data to be transformed:
     - LSTM concatenated: 4 data pointers, one for each input gate in Forget, Input, Cell, Output (FICO) order.
   }];
   let arguments = (ins MemRefOf<[F16, F32]>:$f_gate,
@@ -470,7 +470,7 @@ def ZLowStickForGRUOp:ZLow_Op<"stickForGRU", [MemRefsNormalizable,
   let summary = "ZLow stick operation for GRU";
   let description = [{
   ZLow operation to perform a stick for GRU.
-  Variadic: list of pointers for input data to be transformed: 
+  Variadic: list of pointers for input data to be transformed:
     - GRU concatenated: 3 data pointers, one for each input gate in (Z)update, Reset, Hidden, (ZRH) gate order.
   }];
   let arguments = (ins MemRefOf<[F16, F32]>:$z_gate,
@@ -644,7 +644,7 @@ def ZLowDummyOp:ZLow_Op<"dummy", [MemRefsNormalizable]> {
 def ZLowConvertDLF16ToF32Op:ZLow_Op<"dlf16_to_f32", [Pure]> {
   let summary = "Convert a dlfloat16 value to a float32 value";
   let description = [{
-  This operation converts a dlfloat16 value to a float32 value. 
+  This operation converts a dlfloat16 value to a float32 value.
   }];
   let arguments = (ins DLF16:$input);
   let results = (outs F32:$output);
@@ -658,7 +658,7 @@ def ZLowConvertDLF16ToF32Op:ZLow_Op<"dlf16_to_f32", [Pure]> {
 def ZLowConvertF32ToDLF16Op:ZLow_Op<"f32_to_dlf16", [Pure]> {
   let summary = "Convert a float32 value to a dlfloat16 value";
   let description = [{
-  This operation converts a float32 value to a dlfloat16 value. 
+  This operation converts a float32 value to a dlfloat16 value.
   }];
   let arguments = (ins F32:$input);
   let results = (outs DLF16:$output);
@@ -674,7 +674,7 @@ def ZLowConvertF32ToDLF16Op:ZLow_Op<"f32_to_dlf16", [Pure]> {
 def ZLowConvertDLF16ToF32VectorOp:ZLow_Op<"vec_dlf16_to_f32", [Pure]> {
   let summary = "Convert dlfloat16 values to float32 values";
   let description = [{
-  This operation converts dlfloat16 values to float32 values. 
+  This operation converts dlfloat16 values to float32 values.
   }];
   let arguments = (ins AnyTypeOf<[VectorOfLengthAndType<[8], [F16]>]>:$input);
   let results = (outs AnyTypeOf<[VectorOfLengthAndType<[4], [F32]>]>:$output1,
@@ -690,7 +690,7 @@ def ZLowConvertDLF16ToF32VectorOp:ZLow_Op<"vec_dlf16_to_f32", [Pure]> {
 def ZLowConvertF32ToDLF16VectorOp:ZLow_Op<"vec_f32_to_dlf16", [Pure]> {
   let summary = "Convert float32 values to dlfloat16 values";
   let description = [{
-  This operation converts float32 values to dlfloat16 values. 
+  This operation converts float32 values to dlfloat16 values.
   }];
   let arguments = (ins AnyTypeOf<[VectorOfLengthAndType<[4], [F32]>]>:$input1,
                        AnyTypeOf<[VectorOfLengthAndType<[4], [F32]>]>:$input2);

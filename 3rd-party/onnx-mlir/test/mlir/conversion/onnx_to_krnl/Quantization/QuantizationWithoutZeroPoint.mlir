@@ -176,4 +176,3 @@ func.func @test_quantize_linear_ui8(%arg0: tensor<6xf32>, %arg1: tensor<f32>, %a
 // CHECK:           return [[RES_]] : memref<6xui8>
 // CHECK:         }
 }
-

@@ -74,7 +74,7 @@ function(setup_jsoniter version)
     # having to download the file multiple times while also creating the byproduct.
     set(JSONITER_JAR ${JSONITER_DIR}/${JSONITER_FILE} CACHE STRING "" FORCE)
     add_custom_target(jsoniter
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
               ${JSONITER_PATH}/${JSONITER_FILE} ${JSONITER_JAR}
       DEPENDS jsoniter_external
       BYPRODUCTS ${JSONITER_JAR}

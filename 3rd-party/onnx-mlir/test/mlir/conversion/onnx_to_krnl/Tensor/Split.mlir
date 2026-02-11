@@ -109,4 +109,3 @@ func.func private @test_splitv11_variable(%arg0 : tensor<16x32x64xf32>) -> (tens
   // CHECK: }
   // CHECK: return [[RES_0]], [[RES_1]] : memref<16x2x64xf32>, memref<16x30x64xf32>
 }
-

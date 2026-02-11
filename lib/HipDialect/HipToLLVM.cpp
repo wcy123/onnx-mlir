@@ -1,10 +1,7 @@
-//===- HipToLLVM.cpp - HIP to LLVM dialect conversion ---------------------===//
-//
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
 
 #include "HipDialect.h"
 #include "HipPasses.h"
@@ -37,7 +34,8 @@ static constexpr const char *kHipCreateHandle = "hipCreateHandle";
 static constexpr const char *kHipDestroyHandle = "hipDestroyHandle";
 static constexpr const char *kHipMalloc = "hipMalloc";
 static constexpr const char *kHipFree = "hipFree";
-static constexpr const char *kMiopenConvolutionForward = "miopenConvolutionForward";
+static constexpr const char *kMiopenConvolutionForward =
+    "miopenConvolutionForward";
 static constexpr const char *kHipUploadConstant = "hip_upload_constant";
 static constexpr const char *kHipReleaseConstant = "hip_release_constant";
 static constexpr const char *kHipGetConstant = "hip_get_constant";
@@ -64,7 +62,8 @@ struct CreateHandleOpLowering : public ConvertOpToLLVMPattern<CreateHandleOp> {
   }
 };
 
-// --- DestroyHandleOp: hip.destroy_handle(%h) -> llvm.call @hipDestroyHandle(%h)
+// --- DestroyHandleOp: hip.destroy_handle(%h) -> llvm.call
+// @hipDestroyHandle(%h)
 struct DestroyHandleOpLowering
     : public ConvertOpToLLVMPattern<DestroyHandleOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
@@ -88,7 +87,8 @@ struct DestroyHandleOpLowering
   }
 };
 
-// --- AllocOp: hip.alloc(%handle, %dyn...) -> hipMalloc(bytes) + memref descriptor
+// --- AllocOp: hip.alloc(%handle, %dyn...) -> hipMalloc(bytes) + memref
+// descriptor
 struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
 
@@ -123,11 +123,14 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     // Cast to memref address space if needed
     Type elementPtrType = getElementPtrType(memRefType);
     if (!elementPtrType)
-      return rewriter.notifyMatchFailure(op, "could not compute element ptr type");
-    FailureOr<unsigned> addrSpace = getTypeConverter()->getMemRefAddressSpace(memRefType);
+      return rewriter.notifyMatchFailure(op,
+                                         "could not compute element ptr type");
+    FailureOr<unsigned> addrSpace =
+        getTypeConverter()->getMemRefAddressSpace(memRefType);
     if (failed(addrSpace))
       return failure();
-    if (cast<LLVM::LLVMPointerType>(allocatedPtr.getType()).getAddressSpace() != *addrSpace)
+    if (cast<LLVM::LLVMPointerType>(allocatedPtr.getType()).getAddressSpace() !=
+        *addrSpace)
       allocatedPtr = rewriter.create<LLVM::AddrSpaceCastOp>(
           loc, LLVM::LLVMPointerType::get(rewriter.getContext(), *addrSpace),
           allocatedPtr);
@@ -151,8 +154,8 @@ struct FreeOpLowering : public ConvertOpToLLVMPattern<FreeOp> {
     Type voidType = getVoidType();
     Type ptrType = getPtrType();
 
-    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
-        rewriter, module, kHipFree, ptrType, voidType);
+    FailureOr<LLVM::LLVMFuncOp> funcOp =
+        LLVM::lookupOrCreateFn(rewriter, module, kHipFree, ptrType, voidType);
     if (failed(funcOp))
       return failure();
 
@@ -162,7 +165,8 @@ struct FreeOpLowering : public ConvertOpToLLVMPattern<FreeOp> {
     // hipFree expects void*; if memref is in non-default address space, cast
     auto ptrTy = allocatedPtr.getType();
     if (cast<LLVM::LLVMPointerType>(ptrTy).getAddressSpace() != 0)
-      allocatedPtr = rewriter.create<LLVM::AddrSpaceCastOp>(loc, ptrType, allocatedPtr);
+      allocatedPtr =
+          rewriter.create<LLVM::AddrSpaceCastOp>(loc, ptrType, allocatedPtr);
 
     LLVM::CallOp::create(rewriter, loc, *funcOp, allocatedPtr);
     rewriter.eraseOp(op);
@@ -268,22 +272,22 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
 
     // Build function signature
     SmallVector<Type, 16> paramTypes = {
-        ptrType,  // handle
-        ptrType,  // input
-        ptrType,  // weights
-        ptrType,  // bias
-        ptrType,  // output
-        i64Type,  // kernel_h
-        i64Type,  // kernel_w
-        i64Type,  // stride_h
-        i64Type,  // stride_w
-        i64Type,  // pad_top
-        i64Type,  // pad_left
-        i64Type,  // pad_bottom
-        i64Type,  // pad_right
-        i64Type,  // dilation_h
-        i64Type,  // dilation_w
-        i64Type   // group
+        ptrType, // handle
+        ptrType, // input
+        ptrType, // weights
+        ptrType, // bias
+        ptrType, // output
+        i64Type, // kernel_h
+        i64Type, // kernel_w
+        i64Type, // stride_h
+        i64Type, // stride_w
+        i64Type, // pad_top
+        i64Type, // pad_left
+        i64Type, // pad_bottom
+        i64Type, // pad_right
+        i64Type, // dilation_h
+        i64Type, // dilation_w
+        i64Type  // group
     };
 
     // Lookup or create the runtime function
@@ -293,11 +297,10 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
       return failure();
 
     // Build argument list
-    SmallVector<Value, 16> args = {
-        handlePtr, inputPtr, weightsPtr, biasPtr, outputPtr,
-        kernelH, kernelW, strideH, strideW,
-        padTop, padLeft, padBottom, padRight,
-        dilationH, dilationW, groupVal};
+    SmallVector<Value, 16> args = {handlePtr, inputPtr,  weightsPtr, biasPtr,
+                                   outputPtr, kernelH,   kernelW,    strideH,
+                                   strideW,   padTop,    padLeft,    padBottom,
+                                   padRight,  dilationH, dilationW,  groupVal};
 
     // Call the runtime function
     // Note: We're ignoring the return value for now (Phase 1 simplification)
@@ -316,7 +319,8 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
 
 // --- UploadConstantOp: hip.upload_constant(%ctx, %index, %data, %size)
 //     -> hip_upload_constant(%ctx, %index, %data, %size)
-struct UploadConstantOpLowering : public ConvertOpToLLVMPattern<UploadConstantOp> {
+struct UploadConstantOpLowering
+    : public ConvertOpToLLVMPattern<UploadConstantOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
 
   LogicalResult
@@ -328,7 +332,8 @@ struct UploadConstantOpLowering : public ConvertOpToLLVMPattern<UploadConstantOp
     Type ptrType = getPtrType();
     Type i64Type = IntegerType::get(rewriter.getContext(), 64);
 
-    // Function signature: void hip_upload_constant(void* state, i64 index, void* data, i64 size)
+    // Function signature: void hip_upload_constant(void* state, i64 index,
+    // void* data, i64 size)
     SmallVector<Type, 4> paramTypes = {ptrType, i64Type, ptrType, i64Type};
 
     FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
@@ -352,7 +357,8 @@ struct UploadConstantOpLowering : public ConvertOpToLLVMPattern<UploadConstantOp
 
 // --- ReleaseConstantOp: hip.release_constant(%ctx, %index)
 //     -> hip_release_constant(%ctx, %index)
-struct ReleaseConstantOpLowering : public ConvertOpToLLVMPattern<ReleaseConstantOp> {
+struct ReleaseConstantOpLowering
+    : public ConvertOpToLLVMPattern<ReleaseConstantOp> {
   using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
 
   LogicalResult
@@ -374,8 +380,8 @@ struct ReleaseConstantOpLowering : public ConvertOpToLLVMPattern<ReleaseConstant
 
     // Call runtime function
     SmallVector<Value, 2> args = {
-        adaptor.getCtx(),   // state pointer
-        adaptor.getIndex()  // constant index
+        adaptor.getCtx(),  // state pointer
+        adaptor.getIndex() // constant index
     };
 
     LLVM::CallOp::create(rewriter, loc, *funcOp, args);
@@ -408,8 +414,8 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
 
     // Call runtime function to get GPU pointer
     SmallVector<Value, 2> args = {
-        adaptor.getCtx(),   // state pointer
-        adaptor.getIndex()  // constant index
+        adaptor.getCtx(),  // state pointer
+        adaptor.getIndex() // constant index
     };
 
     auto callOp = LLVM::CallOp::create(rewriter, loc, *funcOp, args);
@@ -442,9 +448,9 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
     }
 
     // Create memref descriptor from GPU pointer (with address space)
-    MemRefDescriptor desc = createMemRefDescriptor(
-        loc, memRefType, gpuPtrWithAddrSpace, gpuPtrWithAddrSpace, sizes,
-        strides, rewriter);
+    MemRefDescriptor desc =
+        createMemRefDescriptor(loc, memRefType, gpuPtrWithAddrSpace,
+                               gpuPtrWithAddrSpace, sizes, strides, rewriter);
 
     // Replace with the constructed memref descriptor
     rewriter.replaceOp(op, {desc});
@@ -452,7 +458,8 @@ struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
   }
 };
 
-// NOTE: Main function transformation is handled post-conversion in runOnOperation
+// NOTE: Main function transformation is handled post-conversion in
+// runOnOperation
 
 // --- Pass
 struct ConvertHipToLLVMPass
@@ -479,18 +486,17 @@ struct ConvertHipToLLVMPass
     LLVMTypeConverter typeConverter(ctx, options);
 
     // Convert !hip.context to !llvm.ptr
-    typeConverter.addConversion(
-        [ctx](ContextType type) -> Type {
-          return LLVM::LLVMPointerType::get(ctx, 0);
-        });
+    typeConverter.addConversion([ctx](ContextType type) -> Type {
+      return LLVM::LLVMPointerType::get(ctx, 0);
+    });
 
     RewritePatternSet patterns(ctx);
 
     // Add HIP-specific conversion patterns
-    patterns.add<CreateHandleOpLowering, DestroyHandleOpLowering,
-                 AllocOpLowering, FreeOpLowering, ConvOpLowering,
-                 UploadConstantOpLowering, ReleaseConstantOpLowering,
-                 GetConstantOpLowering>(typeConverter);
+    patterns
+        .add<CreateHandleOpLowering, DestroyHandleOpLowering, AllocOpLowering,
+             FreeOpLowering, ConvOpLowering, UploadConstantOpLowering,
+             ReleaseConstantOpLowering, GetConstantOpLowering>(typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);
@@ -513,16 +519,20 @@ struct ConvertHipToLLVMPass
       signalPassFailure();
 
     // Post-processing: Transform @main function signature
-    // After standard conversion (populateFinalizeMemRefToLLVMConversionPatterns),
-    // @main has memrefs unpacked to scalar parameters (23 params for 1 input + 1 output rank-4)
-    // We wrap it: @main (3 params, struct arrays) → @main_internal (23 params, scalars)
+    // After standard conversion
+    // (populateFinalizeMemRefToLLVMConversionPatterns),
+    // @main has memrefs unpacked to scalar parameters (23 params for 1 input +
+    // 1 output rank-4) We wrap it: @main (3 params, struct arrays) →
+    // @main_internal (23 params, scalars)
     if (failed(transformMainFunction(module)))
       signalPassFailure();
   }
 
 private:
-  /// Returns LLVM struct type for memref: (ptr, ptr, i64, array<rank x i64>, array<rank x i64>)
-  Type getMemRefStructType(OpBuilder &builder, int64_t rank, unsigned addrSpace) {
+  /// Returns LLVM struct type for memref: (ptr, ptr, i64, array<rank x i64>,
+  /// array<rank x i64>)
+  Type getMemRefStructType(OpBuilder &builder, int64_t rank,
+                           unsigned addrSpace) {
     MLIRContext *ctx = builder.getContext();
     Type ptrType = LLVM::LLVMPointerType::get(ctx, addrSpace);
     Type i64Type = builder.getI64Type();
@@ -537,16 +547,16 @@ private:
   void unpackMemRefStruct(OpBuilder &builder, Location loc, Value memrefStruct,
                           int64_t rank, SmallVectorImpl<Value> &args) {
     // Extract allocated pointer (field 0)
-    args.push_back(builder.create<LLVM::ExtractValueOp>(
-        loc, memrefStruct, ArrayRef<int64_t>{0}));
+    args.push_back(builder.create<LLVM::ExtractValueOp>(loc, memrefStruct,
+                                                        ArrayRef<int64_t>{0}));
 
     // Extract aligned pointer (field 1)
-    args.push_back(builder.create<LLVM::ExtractValueOp>(
-        loc, memrefStruct, ArrayRef<int64_t>{1}));
+    args.push_back(builder.create<LLVM::ExtractValueOp>(loc, memrefStruct,
+                                                        ArrayRef<int64_t>{1}));
 
     // Extract offset (field 2)
-    args.push_back(builder.create<LLVM::ExtractValueOp>(
-        loc, memrefStruct, ArrayRef<int64_t>{2}));
+    args.push_back(builder.create<LLVM::ExtractValueOp>(loc, memrefStruct,
+                                                        ArrayRef<int64_t>{2}));
 
     // Extract sizes (field 3, array elements 0..rank-1)
     for (int64_t dim = 0; dim < rank; dim++) {
@@ -570,13 +580,19 @@ private:
     }
 
     // Read metadata
-    auto inputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.input_count");
-    auto outputCountAttr = module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
-    auto inputRanksAttr = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.input_ranks");
-    auto outputRanksAttr = module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.output_ranks");
+    auto inputCountAttr =
+        module->getAttrOfType<IntegerAttr>("hipdnn.input_count");
+    auto outputCountAttr =
+        module->getAttrOfType<IntegerAttr>("hipdnn.output_count");
+    auto inputRanksAttr =
+        module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.input_ranks");
+    auto outputRanksAttr =
+        module->getAttrOfType<DenseI64ArrayAttr>("hipdnn.output_ranks");
 
-    if (!inputCountAttr || !outputCountAttr || !inputRanksAttr || !outputRanksAttr) {
-      llvm::errs() << "[HipToLLVM] Warning: No metadata found, skipping @main transformation\n";
+    if (!inputCountAttr || !outputCountAttr || !inputRanksAttr ||
+        !outputRanksAttr) {
+      llvm::errs() << "[HipToLLVM] Warning: No metadata found, skipping @main "
+                      "transformation\n";
       return success(); // Graceful degradation
     }
 
@@ -593,7 +609,8 @@ private:
     // Calculate expected parameter count (1 context + unpacked memrefs)
     unsigned expectedParams = 1; // context
     for (int64_t rank : inputRanks) {
-      expectedParams += 2 + 1 + rank + rank; // 2 ptrs + offset + sizes + strides
+      expectedParams +=
+          2 + 1 + rank + rank; // 2 ptrs + offset + sizes + strides
     }
     for (int64_t rank : outputRanks) {
       expectedParams += 2 + 1 + rank + rank;
@@ -602,8 +619,8 @@ private:
     unsigned actualParams = mainFunc.getFunctionType().getNumParams();
     if (actualParams != expectedParams) {
       return module.emitError()
-          << "[HipToLLVM] Parameter count mismatch: expected " << expectedParams
-          << ", got " << actualParams;
+             << "[HipToLLVM] Parameter count mismatch: expected "
+             << expectedParams << ", got " << actualParams;
     }
 
     OpBuilder builder(module.getContext());
@@ -620,15 +637,16 @@ private:
     auto newFuncType = LLVM::LLVMFunctionType::get(i32Type, newParamTypes);
 
     builder.setInsertionPoint(mainFunc);
-    auto newMainFunc = builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
+    auto newMainFunc =
+        builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
     newMainFunc.setLinkage(LLVM::Linkage::Private);
 
     Block *entryBlock = newMainFunc.addEntryBlock(builder);
     builder.setInsertionPointToStart(entryBlock);
 
-    Value ctxArg = entryBlock->getArgument(0);      // %context
-    Value inputsArg = entryBlock->getArgument(1);   // %inputs
-    Value outputsArg = entryBlock->getArgument(2);  // %outputs
+    Value ctxArg = entryBlock->getArgument(0);     // %context
+    Value inputsArg = entryBlock->getArgument(1);  // %inputs
+    Value outputsArg = entryBlock->getArgument(2); // %outputs
 
     // Build arguments for @main_internal
     SmallVector<Value> mainInternalArgs;
@@ -645,9 +663,10 @@ private:
           loc, ptrType, ptrType, inputsArg, ValueRange{inputIdxVal});
 
       // Load memref struct from array
-      Type memrefStructType = getMemRefStructType(builder, rank, 1); // addr space 1 (GPU)
-      Value inputMemref = builder.create<LLVM::LoadOp>(
-          loc, memrefStructType, inputStructPtr);
+      Type memrefStructType =
+          getMemRefStructType(builder, rank, 1); // addr space 1 (GPU)
+      Value inputMemref =
+          builder.create<LLVM::LoadOp>(loc, memrefStructType, inputStructPtr);
 
       // Extract fields (for rank-4: 2 ptrs + offset + 4 sizes + 4 strides = 11)
       unpackMemRefStruct(builder, loc, inputMemref, rank, mainInternalArgs);
@@ -663,8 +682,8 @@ private:
           loc, ptrType, ptrType, outputsArg, ValueRange{outputIdxVal});
 
       Type memrefStructType = getMemRefStructType(builder, rank, 1);
-      Value outputMemref = builder.create<LLVM::LoadOp>(
-          loc, memrefStructType, outputStructPtr);
+      Value outputMemref =
+          builder.create<LLVM::LoadOp>(loc, memrefStructType, outputStructPtr);
 
       unpackMemRefStruct(builder, loc, outputMemref, rank, mainInternalArgs);
     }
@@ -676,8 +695,8 @@ private:
     // Return the result
     builder.create<LLVM::ReturnOp>(loc, result);
 
-    llvm::errs() << "[HipToLLVM] Transformed @main signature: "
-                 << actualParams << " params → 3 params\n";
+    llvm::errs() << "[HipToLLVM] Transformed @main signature: " << actualParams
+                 << " params → 3 params\n";
     return success();
   }
 };
@@ -694,9 +713,8 @@ void registerHipPasses() {
 
   // ConvertOnnxToHipPass (defined in OnnxToHip.cpp)
   // Registered via: --convert-onnx-to-hip
-  registerPass([]() -> std::unique_ptr<Pass> {
-    return createConvertOnnxToHipPass();
-  });
+  registerPass(
+      []() -> std::unique_ptr<Pass> { return createConvertOnnxToHipPass(); });
 
   // ConvertHipToLLVMPass (defined in this file)
   // Registered via: --convert-hip-to-llvm
@@ -704,9 +722,8 @@ void registerHipPasses() {
 
   // GenerateInterfacePass (defined in GenerateInterfacePass.cpp)
   // Registered via: --generate-interface
-  registerPass([]() -> std::unique_ptr<Pass> {
-    return createGenerateInterfacePass();
-  });
+  registerPass(
+      []() -> std::unique_ptr<Pass> { return createGenerateInterfacePass(); });
 }
 
 } // namespace hip

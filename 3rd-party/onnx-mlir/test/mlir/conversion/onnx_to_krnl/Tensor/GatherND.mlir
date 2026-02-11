@@ -167,4 +167,3 @@ func.func @test_gather_nd_with_dynamic_shape_int(%arg0 : tensor<2x2xi32>, %arg1 
 // CHECK:           return [[VAR_reinterpret_cast_15_]] : memref<?xi32>
 // CHECK:         }
 }
-

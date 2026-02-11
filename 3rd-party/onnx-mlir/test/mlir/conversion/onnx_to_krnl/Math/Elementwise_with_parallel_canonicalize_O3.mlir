@@ -57,4 +57,3 @@ func.func @test_relu_parallel(%arg0 : tensor<?x10xf32>) -> tensor<*xf32> {
 // CHECK:           return [[VAR_view_]] : memref<?x10xf32>
 // CHECK:         }
 }
-

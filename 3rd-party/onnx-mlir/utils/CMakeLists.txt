@@ -36,4 +36,3 @@ add_onnx_mlir_supported_ops(${ONNX_MLIR_SRC_ROOT}/test/accelerators/NNPA/backend
 add_custom_target(OMCreateONNXMLIRSource
         COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/onnxmlir ${CMAKE_CURRENT_BINARY_DIR}
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/RunONNXModel.py ${CMAKE_CURRENT_BINARY_DIR}/onnxmlir/src/onnxmlir)
-

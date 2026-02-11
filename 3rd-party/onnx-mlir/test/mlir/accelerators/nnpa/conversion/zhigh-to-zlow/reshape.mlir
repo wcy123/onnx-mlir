@@ -17,4 +17,3 @@ func.func @should_lower_to_zlow(%arg0: tensor<3x4x50xf16, #zhigh.layout<{dataLay
 // CHECK:           return [[RES_]] : memref<30x4x5xf16, #map>
 // CHECK:         }
 }
-

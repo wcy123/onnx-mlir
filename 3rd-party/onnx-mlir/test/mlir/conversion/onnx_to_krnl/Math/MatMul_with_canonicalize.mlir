@@ -217,4 +217,3 @@ func.func private @test_matmul7(%arg0 : tensor<5xf32>, %arg1 : tensor<5xf32>) ->
 // CHECK:           return [[RES_]] : memref<f32>
 // CHECK:         }
 }
-

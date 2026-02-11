@@ -138,7 +138,7 @@ Interfaces: `MemoryEffectOpInterface`
 
 _Convert a dlfloat16 value to a float32 value_
 
-This operation converts a dlfloat16 value to a float32 value. 
+This operation converts a dlfloat16 value to a float32 value.
 
 Traits: `AlwaysSpeculatableImplTrait`
 
@@ -163,7 +163,7 @@ Effects: `MemoryEffects::Effect{}`
 
 _Convert dlfloat16 values to float32 values_
 
-This operation converts dlfloat16 values to float32 values. 
+This operation converts dlfloat16 values to float32 values.
 
 Traits: `AlwaysSpeculatableImplTrait`
 
@@ -189,7 +189,7 @@ Effects: `MemoryEffects::Effect{}`
 
 _Convert a float32 value to a dlfloat16 value_
 
-This operation converts a float32 value to a dlfloat16 value. 
+This operation converts a float32 value to a dlfloat16 value.
 
 Traits: `AlwaysSpeculatableImplTrait`
 
@@ -214,7 +214,7 @@ Effects: `MemoryEffects::Effect{}`
 
 _Convert float32 values to dlfloat16 values_
 
-This operation converts float32 values to dlfloat16 values. 
+This operation converts float32 values to dlfloat16 values.
 
 Traits: `AlwaysSpeculatableImplTrait`
 
@@ -967,7 +967,7 @@ Traits: `MemRefsNormalizable`
 _ZLow stick operation for GRU_
 
 ZLow operation to perform a stick for GRU.
-Variadic: list of pointers for input data to be transformed: 
+Variadic: list of pointers for input data to be transformed:
   - GRU concatenated: 3 data pointers, one for each input gate in (Z)update, Reset, Hidden, (ZRH) gate order.
 
 Traits: `MemRefsNormalizable`
@@ -996,7 +996,7 @@ Interfaces: `MemoryEffectOpInterface`
 _ZLow stick operation for LSTM_
 
 ZLow operation to perform a stick for LSTM.
-Variadic: list of pointers for input data to be transformed: 
+Variadic: list of pointers for input data to be transformed:
   - LSTM concatenated: 4 data pointers, one for each input gate in Forget, Input, Cell, Output (FICO) order.
 
 Traits: `MemRefsNormalizable`
@@ -1128,4 +1128,3 @@ Interfaces: `MemoryEffectOpInterface`
 | :-----: | ----------- |
 | `X` | memref of dlfloat16 type values |
 | `Out` | memref of 16-bit float or 32-bit float values |
-

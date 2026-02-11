@@ -26,15 +26,15 @@
 #include "../../lib/HipDialect/HipPasses.h"
 
 // Backend infrastructure
-#include "../../lib/Backend/LLVMBackend.h"
 #include "../../lib/Backend/DLLLinker.h"
+#include "../../lib/Backend/LLVMBackend.h"
 
 using namespace morphizen;
 using namespace morphizen_cxx;
 
 DEF_ENV_PARAM(MLIR_PRINT_WITH_VERBOSE, "0")
-DEF_ENV_PARAM_2(COMPILATION_MODE, "native", std::string)  // "ir" or "native"
-DEF_ENV_PARAM_2(OUTPUT_PATH, "inference", std::string)     // Output file base name
+DEF_ENV_PARAM_2(COMPILATION_MODE, "native", std::string) // "ir" or "native"
+DEF_ENV_PARAM_2(OUTPUT_PATH, "inference", std::string) // Output file base name
 
 namespace {
 
@@ -171,25 +171,23 @@ struct Level1MlirPass {
 
         // Configure libraries and paths for ROCm
         std::vector<std::string> libraries = {
-            "HipDnnRuntime",  // Our runtime library
-            "amdhip64",       // HIP runtime
-            "MIOpen",         // MIOpen
-            "hipblaslt"       // hipBLASLt
+            "HipDnnRuntime", // Our runtime library
+            "amdhip64",      // HIP runtime
+            "MIOpen",        // MIOpen
+            "hipblaslt"      // hipBLASLt
         };
 
         std::vector<std::string> libraryPaths = {
-            "C:/Develop/m/source/onnx-hipdnn-ep/build/lib/Runtime",  // Our runtime
-            "C:/Program Files/AMD/ROCm/5.7/bin",                      // ROCm libraries
-            "C:/Program Files/AMD/ROCm/5.7/lib"
-        };
+            "C:/Develop/m/source/onnx-hipdnn-ep/build/lib/Runtime", // Our
+                                                                    // runtime
+            "C:/Program Files/AMD/ROCm/5.7/bin", // ROCm libraries
+            "C:/Program Files/AMD/ROCm/5.7/lib"};
 
         std::vector<std::string> exportSymbols = {
-            "inference_init",
-            "inference_compute",
-            "inference_cleanup"
-        };
+            "inference_init", "inference_compute", "inference_cleanup"};
 
-        if (!linker.linkDLL(objPath, dllPath, libraries, libraryPaths, exportSymbols)) {
+        if (!linker.linkDLL(objPath, dllPath, libraries, libraryPaths,
+                            exportSymbols)) {
           LOG(ERROR) << "Failed to link DLL";
           return;
         }
@@ -202,7 +200,8 @@ struct Level1MlirPass {
         }
 
       } else {
-        LOG(ERROR) << "Unknown compilation mode: " << mode << " (use 'ir' or 'native')";
+        LOG(ERROR) << "Unknown compilation mode: " << mode
+                   << " (use 'ir' or 'native')";
         return;
       }
 

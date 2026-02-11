@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 // COM: User output shape is better, do not change the output shape.
-func.func @test_default_unary_elementwise_user_shape_1(%arg0: tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>> { 
+func.func @test_default_unary_elementwise_user_shape_1(%arg0: tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>> {
   %0 = "zhigh.Sigmoid"(%arg0) : (tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>
   return %0 : tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>
 
@@ -21,7 +21,7 @@ func.func @test_default_unary_elementwise_user_shape_1(%arg0: tensor<3x4x?xf16, 
 // -----
 
 // COM: Infered output shape is better, update the output shape.
-func.func @test_default_unary_elementwise_user_shape_2(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>> { 
+func.func @test_default_unary_elementwise_user_shape_2(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>> {
   %0 = "zhigh.Sigmoid"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>>
   return %0 : tensor<3x4x?xf16, #zhigh.layout<{dataLayout = "3D"}>>
 
@@ -34,7 +34,7 @@ func.func @test_default_unary_elementwise_user_shape_2(%arg0: tensor<3x4x5xf16, 
 
 // -----
 
-func.func @add(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @add(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Add"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -47,7 +47,7 @@ func.func @add(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @add_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @add_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Add"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -60,7 +60,7 @@ func.func @add_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @sub(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @sub(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Sub"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -73,7 +73,7 @@ func.func @sub(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @sub_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @sub_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Sub"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -86,7 +86,7 @@ func.func @sub_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @mul(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @mul(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Mul"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -99,7 +99,7 @@ func.func @mul(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @mul_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @mul_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Mul"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -112,7 +112,7 @@ func.func @mul_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @div(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @div(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Div"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -125,7 +125,7 @@ func.func @div(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @div_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @div_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Div"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -138,7 +138,7 @@ func.func @div_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @max(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @max(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Max"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
 
 // CHECK-LABEL:  func @max
@@ -151,7 +151,7 @@ func.func @max(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @max_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @max_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Max"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -164,7 +164,7 @@ func.func @max_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @min(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @min(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Min"(%arg0, %arg1) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -177,7 +177,7 @@ func.func @min(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>, %ar
 
 // -----
 
-func.func @min_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @min_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, %arg1: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Min"(%arg0, %arg1) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>, tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -190,7 +190,7 @@ func.func @min_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @relu(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @relu(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Relu"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -203,7 +203,7 @@ func.func @relu(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) ->
 
 // -----
 
-func.func @relu_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @relu_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Relu"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -216,7 +216,7 @@ func.func @relu_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout 
 
 // -----
 
-func.func @tanh(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @tanh(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Tanh"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -229,7 +229,7 @@ func.func @tanh(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) ->
 
 // -----
 
-func.func @tanh_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @tanh_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Tanh"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -242,7 +242,7 @@ func.func @tanh_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout 
 
 // -----
 
-func.func @sigmoid(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @sigmoid(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Sigmoid"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -255,7 +255,7 @@ func.func @sigmoid(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>)
 
 // -----
 
-func.func @sigmoid_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @sigmoid_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Sigmoid"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -268,7 +268,7 @@ func.func @sigmoid_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayo
 
 // -----
 
-func.func @log(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @log(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Log"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -281,7 +281,7 @@ func.func @log(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> 
 
 // -----
 
-func.func @log_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @log_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Log"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -294,7 +294,7 @@ func.func @log_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @exp(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @exp(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Exp"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -307,7 +307,7 @@ func.func @exp(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> 
 
 // -----
 
-func.func @exp_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @exp_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Exp"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -320,7 +320,7 @@ func.func @exp_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout =
 
 // -----
 
-func.func @softmax(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16> { 
+func.func @softmax(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Softmax"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -333,7 +333,7 @@ func.func @softmax(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3DS"}>>
 
 // -----
 
-func.func @softmax_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16> { 
+func.func @softmax_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Softmax"(%arg0) : (tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -343,4 +343,3 @@ func.func @softmax_unknown_dims(%arg0: tensor<?x?x?xf16, #zhigh.layout<{dataLayo
 // CHECK:           return [[VAR_0_]] : tensor<?x?x?xf16, #zhigh.layout<{dataLayout = "3DS"}>>
 // CHECK:         }
 }
-

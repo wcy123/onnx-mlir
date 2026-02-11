@@ -50,4 +50,3 @@ func.func @test_if_sign(%arg0: tensor<f32>) -> tensor<i32> {
 // CHECK:           return [[VAR_5_]] : memref<i32>
 // CHECK:         }
 }
-

@@ -41,16 +41,16 @@ Usage: Report statistics on compiler and runtime characteristics of ONNX ops.
 make-report.py -[vh] [-c <compile_log>] [-r <run_log>] [-l <num>]
       [-p <plot_file_name][-s <stats>] [--sort <val>] [--supported] [-u <val>]
       [-f <op regexp>] [-w <num>]
-          
+
 Compile-time statistics are collected from a `onnx-mlir` compiler output
 with the `--opt-report` option equal to `Simd` or other supported sub-options.
 
 Runtime statistics are collected from the runtime output of a model compiled.
 with the `--profile-ir` option equal to `Onnx` or other supported sub-options.
-  
+
 When both compile time and runtime statistics are provided at the same time,
 it will correlate the performance metrics with data gathered at compile time.
- 
+
 Additional help.
   If you need more specific info on individual success/failure, run
   `onnx-mlir --debug-only=lowering-to-krnl` and look at the compiler output.

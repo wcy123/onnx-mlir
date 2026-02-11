@@ -103,7 +103,7 @@ func.func @test_lstm_wrong_direction(%arg0: tensor<4x3x2xf32>, %arg1: tensor<1x1
 //===----------------------------------------------------------------------===//
 
 func.func @test_category_mapper_diff_size_attrs (%arg0: tensor<20x1xi64>) -> tensor<*x!onnx.String> {
-  // expected-error @+1 {{cats_int64 and cats_strings should have the same size}}      
+  // expected-error @+1 {{cats_int64 and cats_strings should have the same size}}
   %0 = "onnx.CategoryMapper"(%arg0) {cats_int64s = [1, 2], cats_strings = ["dog"]} : (tensor<20x1xi64>) -> tensor<*x!onnx.String>
   "onnx.Return"(%0) : (tensor<*x!onnx.String>) -> ()
 }
@@ -111,7 +111,7 @@ func.func @test_category_mapper_diff_size_attrs (%arg0: tensor<20x1xi64>) -> ten
 // -----
 
 func.func @test_category_mapper_diff_size_attrs (%arg0: tensor<20x1xi32>) -> tensor<*x!onnx.String> {
-  // expected-error @+1 {{'onnx.CategoryMapper' op operand #0 must be tensor of string type values or tensor of 64-bit signless integer values, but got 'tensor<20x1xi32>'}}      
+  // expected-error @+1 {{'onnx.CategoryMapper' op operand #0 must be tensor of string type values or tensor of 64-bit signless integer values, but got 'tensor<20x1xi32>'}}
   %0 = "onnx.CategoryMapper"(%arg0) {cats_int64s = [1], cats_strings = ["cat"]} : (tensor<20x1xi32>) -> tensor<*x!onnx.String>
   "onnx.Return"(%0) : (tensor<*x!onnx.String>) -> ()
 }

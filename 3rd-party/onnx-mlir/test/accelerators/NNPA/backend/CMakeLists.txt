@@ -140,7 +140,7 @@ set(NNPA_TEST_LIST_z16
     # ==LIM== Input and output tensor must be 4D(N x C x H x W).
     test_batchnorm_epsilon_cpu,zdnnx_mul,"0:0=a,1=b,2=c,3=d|1:0=b|2:0=b|3:0=b|4:0=b"
     test_batchnorm_example_cpu,zdnnx_mul,"0:0=a,1=b,2=c,3=d|1:0=b|2:0=b|3:0=b|4:0=b"
-    
+
     # ==OP== Conv
     # ==LEVEL== z16,z17
     # ==MIN== 1
@@ -431,7 +431,7 @@ set(NNPA_TEST_LIST_ARCH_15
 
     # ==OP== QLinearMatMul
     # ==LEVEL== z17
-    # ==MIN== 10 
+    # ==MIN== 10
     # ==LIM== Only support i8 and ui8 for zeropoint, and f32 for scale.
     test_qlinearmatmul_2D_uint8_float32_cpu,zdnnx_quantized_matmul_op
     test_qlinearmatmul_3D_uint8_float32_cpu,zdnnx_quantized_matmul_op
@@ -446,7 +446,7 @@ set(NNPA_TEST_LIST_ARCH_15
     # Currrently, there is no backend test in ONNX that does reduction on the innermost dimension.
 
     # ==OP== ReduceMin
-    # ==LEVEL== z17 
+    # ==LEVEL== z17
     # ==MIN== 1
     # ==LIM== - `keepdims` must be 1.<br>- `noop_with_empty_axes` must be 0.<br>- Does not support reduction over multiple axes.<br>- We do not support `do_not_keepdims` backend tests.<br>- Only support reduction over the innermost dimension.
     # Currrently, there is no backend test in ONNX that does reduction on the innermost dimension.
@@ -643,4 +643,3 @@ if (ONNX_MLIR_ENABLE_JNI)
 else()
   message(STATUS "  JNI backend-nnpa tests         : OFF")
 endif()
-

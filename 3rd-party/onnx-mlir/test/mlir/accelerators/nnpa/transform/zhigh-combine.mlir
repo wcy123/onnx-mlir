@@ -564,4 +564,3 @@ func.func @replace_unstick_squeeze_stick_dynamic(%arg0: tensor<?x1x?x200xf16, #z
 // CHECK:           return [[VAR_4_]] : tensor<?x?x200xf16, #zhigh.layout<{dataLayout = "3DS"}>>
 // CHECK:         }
 }
-

@@ -4,7 +4,7 @@
 func.func @simple_block(%arg0 : memref<?xf32>) {
   // CHECK-LABEL: simple_block
   // CHECK-NEXT:  arith.constant
-  // CHECK-NEXT:  memref.dim 
+  // CHECK-NEXT:  memref.dim
   // CHECK-NEXT:  affine.for
   // CHECK-NEXT:    affine.for
   // CHECK-NEXT:      affine.for
@@ -24,4 +24,3 @@ func.func @simple_block(%arg0 : memref<?xf32>) {
   }
   return
 }
-

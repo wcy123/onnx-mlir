@@ -104,7 +104,7 @@ add_onnx_mlir_library(OMONNXOps
   ONNXOps/Tensor/Unique.cpp
   ONNXOps/Tensor/Unsqueeze.cpp
   ONNXOps/Tensor/Upsample.cpp
-  
+
   DEPENDS
   OMHasOnnxSubgraphOpInterfaceIncGen
   OMONNXIncGen

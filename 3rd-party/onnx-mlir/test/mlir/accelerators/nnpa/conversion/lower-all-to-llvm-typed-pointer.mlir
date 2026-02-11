@@ -242,7 +242,7 @@ func.func @test_call_zdnn_softmax() -> () {
 // -----
 
 // COM: Check whether the lowering of zlow.stickForLSTM calls the correct zDNN API or not.
-// COM: We should call zdnn_transform_ztensor with zTensor and four pointers to the buffers fori F, I, C, and O gates. 
+// COM: We should call zdnn_transform_ztensor with zTensor and four pointers to the buffers fori F, I, C, and O gates.
 func.func @test_stick_for_lstm() -> () {
   %f = memref.alloc() : memref<1x10x10xf32>
   %i = memref.alloc() : memref<1x10x10xf32>
@@ -259,7 +259,7 @@ func.func @test_stick_for_lstm() -> () {
 // -----
 
 // COM: Check whether the lowering of zlow.stickForGRU calls the correct zDNN API or not.
-// COM: We should call zdnn_transform_ztensor with zTensor and three pointers to the buffers for Z, R, and H gates. 
+// COM: We should call zdnn_transform_ztensor with zTensor and three pointers to the buffers for Z, R, and H gates.
 func.func @test_stick_for_gru() -> () {
   %g = memref.alloc() : memref<1x10x10xf32>
   %r = memref.alloc() : memref<1x10x10xf32>
@@ -334,7 +334,7 @@ func.func @test_call_zdnn_log() -> () {
 
 // Check whether the lowering of zlow.matmul calls the correct zDNN API or not.
 func.func @test_matmul_no_bcast_unstacked(%x: memref<2048xf16>,%y: memref<2048xf16>,%bias: memref<2048xf16>, %shape: memref<3xi64>) -> memref<2048xf16> {
-  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   "zlow.matmul"(%x, %y, %bias, %shape, %res) {is_bcast1 = 0 : si64, is_bcast23 = 0 : si64, is_stacked = 0 : si64} : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<3xi64>, memref<2048xf16>) -> ()
   return %res : memref<2048xf16>
   // CHECK-LABEL: test_matmul_no_bcast_unstacked
@@ -345,7 +345,7 @@ func.func @test_matmul_no_bcast_unstacked(%x: memref<2048xf16>,%y: memref<2048xf
 
 // Check whether the lowering of zlow.matmul calls the correct zDNN API or not.
 func.func @test_matmul_no_bcast_stacked(%x: memref<2048xf16>,%y: memref<2048xf16>,%bias: memref<2048xf16>, %shape: memref<3xi64>) -> memref<2048xf16> {
-  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   "zlow.matmul"(%x, %y, %bias, %shape, %res) {is_bcast1 = 0 : si64, is_bcast23 = 0 : si64, is_stacked = -1 : si64} : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<3xi64>, memref<2048xf16>) -> ()
   return %res : memref<2048xf16>
   // CHECK-LABEL: test_matmul_no_bcast_stacked
@@ -356,7 +356,7 @@ func.func @test_matmul_no_bcast_stacked(%x: memref<2048xf16>,%y: memref<2048xf16
 
 // Check whether the lowering of zlow.matmul calls the correct zDNN API or not.
 func.func @test_matmul_bcast_stacked(%x: memref<2048xf16>,%y: memref<2048xf16>,%bias: memref<2048xf16>, %shape: memref<3xi64>) -> memref<2048xf16> {
-  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   "zlow.matmul"(%x, %y, %bias, %shape, %res) {is_bcast1 = 0 : si64, is_bcast23 = -1 : si64, is_stacked = -1 : si64} : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<3xi64>, memref<2048xf16>) -> ()
   return %res : memref<2048xf16>
   // CHECK-LABEL: test_matmul_bcast_stacked
@@ -367,7 +367,7 @@ func.func @test_matmul_bcast_stacked(%x: memref<2048xf16>,%y: memref<2048xf16>,%
 
 // Check whether the lowering of zlow.matmul calls the correct zDNN API or not.
 func.func @test_matmul_bcast_unstacked(%x: memref<2048xf16>,%y: memref<2048xf16>,%bias: memref<2048xf16>, %shape: memref<3xi64>) -> memref<2048xf16> {
-  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %res = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   "zlow.matmul"(%x, %y, %bias, %shape, %res) {is_bcast1 = 0 : si64, is_bcast23 = -1 : si64, is_stacked = 0 : si64} : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<3xi64>, memref<2048xf16>) -> ()
   return %res : memref<2048xf16>
   // CHECK-LABEL: test_matmul_bcast_unstacked
@@ -378,56 +378,56 @@ func.func @test_matmul_bcast_unstacked(%x: memref<2048xf16>,%y: memref<2048xf16>
 
 // Check whether conv2d calls the correct zDNN API or not.
 func.func @test_call_zdnn_cond2d() -> () {
-  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   %shape = memref.alloc() : memref<7xi64>
   "zlow.conv2d"(%input, %kernel, %bias, %shape, %output) {kernel_shape = [5, 5], strides = [2, 2], padding_type = "SAME_PADDING", act_func = "ACT_NONE" } : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<7xi64>, memref<2048xf16>)-> ()
   return
 
   // CHECK-LABEL: test_call_zdnn_cond2d
-  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32 
+  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32
 }
 
 // -----
 
 // Check whether conv2d calls the correct zDNN API or not.
 func.func @test_call_zdnn_cond2d_valid_padding() -> () {
-  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   %shape = memref.alloc() : memref<7xi64>
   "zlow.conv2d"(%input, %kernel, %bias, %shape, %output) {kernel_shape = [5, 5], strides = [2, 2], padding_type = "VALID_PADDING", act_func = "ACT_NONE" } : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<7xi64>, memref<2048xf16>)-> ()
   return
 
   // CHECK-LABEL: test_call_zdnn_cond2d_valid_padding
-  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32 
+  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32
 }
 
 // -----
 
 // Check whether conv2d calls the correct zDNN API or not.
 func.func @test_call_zdnn_cond2d_relu_act() -> () {
-  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %kernel = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %bias = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   %shape = memref.alloc() : memref<7xi64>
   "zlow.conv2d"(%input, %kernel, %bias, %shape, %output) {kernel_shape = [5, 5], strides = [2, 2], padding_type = "SAME_PADDING", act_func = "ACT_RELU" } : (memref<2048xf16>, memref<2048xf16>, memref<2048xf16>, memref<7xi64>, memref<2048xf16>)-> ()
   return
 
   // CHECK-LABEL: test_call_zdnn_cond2d_relu_act
-  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32 
+  // CHECK: {{.*}} = llvm.call @zdnn_conv2d(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, !llvm.ptr, !llvm.ptr) -> i32
 }
 
 // -----
 
 // Check whether avgpool2d calls the correct zDNN API or not.
 func.func @test_call_zdnn_avgpool2d() -> () {
-  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   %shape = memref.alloc() : memref<6xi64>
   "zlow.avgpool2d"(%input, %shape, %output) {kernel_shape = [5, 5], strides = [2, 2], padding_type = "SAME_PADDING" } : (memref<2048xf16>, memref<6xi64>, memref<2048xf16>)-> ()
   return
@@ -440,8 +440,8 @@ func.func @test_call_zdnn_avgpool2d() -> () {
 
 // Check whether maxpool2d calls the correct zDNN API or not.
 func.func @test_call_zdnn_maxpool2d() -> () {
-  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
-  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16> 
+  %input = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
+  %output = memref.alloc() {alignment = 4096 : i64} : memref<2048xf16>
   %shape = memref.alloc() : memref<6xi64>
   "zlow.maxpool2d"(%input, %shape, %output) {kernel_shape = [5, 5], strides = [2, 2], padding_type = "SAME_PADDING" } : (memref<2048xf16>, memref<6xi64>, memref<2048xf16>)-> ()
   return

@@ -383,4 +383,3 @@ func.func private @test_reduceprod_v13(%arg0 : tensor<3x2x2xf32>) -> tensor<*xf3
 // CHECK:           return [[RES_]] : memref<3x2xf32>
 // CHECK:         }
 }
-

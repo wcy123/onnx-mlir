@@ -20,7 +20,7 @@ func.func @test_onnx_conv2d(%arg0: tensor<5x3x32x32xf32>, %arg1 : tensor<2x3x2x2
 // -----
 
 func.func @test_onnx_conv2d_nobias(%arg0: tensor<5x3x32x32xf32>, %arg1 : tensor<2x3x2x2xf32>) -> tensor<*xf32> {
-  %bias = "onnx.NoValue"() {value} : () -> none  
+  %bias = "onnx.NoValue"() {value} : () -> none
   %0 = "onnx.Conv"(%arg0, %arg1, %bias) {kernel_shape = [2, 2]} : (tensor<5x3x32x32xf32>, tensor<2x3x2x2xf32>, none) -> tensor<*xf32>
   return %0 : tensor<*xf32>
 
@@ -42,7 +42,7 @@ func.func @test_onnx_conv2d_nobias(%arg0: tensor<5x3x32x32xf32>, %arg1 : tensor<
 // -----
 
 func.func @test_onnx_conv2d_no_bias_unknown_bias_dims(%arg0: tensor<5x3x32x32xf32>, %arg1 : tensor<?x3x2x2xf32>) -> tensor<*xf32> {
-  %bias = "onnx.NoValue"() {value} : () -> none  
+  %bias = "onnx.NoValue"() {value} : () -> none
   %0 = "onnx.Conv"(%arg0, %arg1, %bias) {kernel_shape = [2, 2]} : (tensor<5x3x32x32xf32>, tensor<?x3x2x2xf32>, none) -> tensor<*xf32>
   return %0 : tensor<*xf32>
 
@@ -188,7 +188,7 @@ func.func @test_onnx_conv2d_not_lower_group(%arg0: tensor<5x3x1024x1024xf32>, %a
 // -----
 
 func.func @test_onnx_conv2d_not_lowered_not_same_padding(%arg0: tensor<5x3x32x32xf32>, %arg1 : tensor<?x3x2x2xf32>) -> tensor<*xf32> {
-  %bias = "onnx.NoValue"() {value} : () -> none  
+  %bias = "onnx.NoValue"() {value} : () -> none
   %0 = "onnx.Conv"(%arg0, %arg1, %bias) {auto_pad = "NOTSET", pads = [0, 0, 2, 2], kernel_shape = [2, 2]} : (tensor<5x3x32x32xf32>, tensor<?x3x2x2xf32>, none) -> tensor<*xf32>
   return %0 : tensor<*xf32>
   // CHECK-LABEL: test_onnx_conv2d_not_lowered_not_same_padding

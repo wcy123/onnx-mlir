@@ -7,7 +7,7 @@
 
 func.func private @test_conv_unknown_dimensions(%arg0 : tensor<?x?x?x?xf32>, %arg1 : tensor<5x2x6x7xf32>, %arg2 : tensor<5xf32>) -> tensor<*xf32> {
   %0 = "onnx.Conv"(%arg0, %arg1, %arg2) {auto_pad = "NOTSET", group = 1 : si64} : (tensor<?x?x?x?xf32>, tensor<5x2x6x7xf32>, tensor<5xf32>) -> tensor<*xf32>
-  "func.return"(%0) : (tensor<*xf32>) -> () 
+  "func.return"(%0) : (tensor<*xf32>) -> ()
 // CHECK-DAG:   [[MAP_0_:#.+]] = affine_map<()[s0] -> (s0 - 5)>
 // CHECK-DAG:   [[MAP_1_:#.+]] = affine_map<()[s0] -> (s0 - 6)>
 // CHECK-LABEL:  func.func private @test_conv_unknown_dimensions

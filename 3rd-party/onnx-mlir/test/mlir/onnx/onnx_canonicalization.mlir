@@ -2177,8 +2177,8 @@ return %2 : tensor<1x12x4xf32>
 
   // CHECK-LABEL: func @test_recompose_concat
   // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x3x4xf32>, [[PARAM_1_:%.+]]: tensor<1x3x4xf32>) -> tensor<1x12x4xf32> {
-  // CHECK: [[FINAL_OUT:%.+]] = "onnx.Concat"([[PARAM_0_]], [[PARAM_1_]], [[PARAM_0_]], [[PARAM_1_]]) 
-  // CHECK-SAME: {axis = 1 : si64} 
+  // CHECK: [[FINAL_OUT:%.+]] = "onnx.Concat"([[PARAM_0_]], [[PARAM_1_]], [[PARAM_0_]], [[PARAM_1_]])
+  // CHECK-SAME: {axis = 1 : si64}
   // CHECK-NEXT: return [[FINAL_OUT]] : tensor<1x12x4xf32>
 
 }
@@ -2453,4 +2453,3 @@ func.func @group_norm5d_v21(%arg0: tensor<3x4x6x8x16xf32>, %arg1: tensor<4xf32>,
 // CHECK:           onnx.Return [[VAR_11_]] : tensor<3x4x6x8x16xf32>
 // CHECK:         }
 }
-

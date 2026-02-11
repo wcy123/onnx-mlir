@@ -64,7 +64,7 @@ func.func @test_default_averagepool_strides(%arg0 : tensor<5x5x32x32xf32>) -> te
 
 // -----
 
-/// Test the behavior of AveragePool with strides and non uniform padding 
+/// Test the behavior of AveragePool with strides and non uniform padding
 func.func @test_default_averagepool_strides_nonunifpad(%arg0 : tensor<5x5x30x32xf32>) -> tensor<5x5x15x16xf32> {
   %0 = "onnx.AveragePool"(%arg0) {auto_pad = "NOTSET", kernel_shape = [3,3], pads = [1, 1, 0, 0], strides = [2, 2] } : (tensor<5x5x30x32xf32>) -> tensor<5x5x15x16xf32>
   "func.return"(%0) : (tensor<5x5x15x16xf32>) -> ()

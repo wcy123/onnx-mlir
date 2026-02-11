@@ -734,8 +734,8 @@ def ReorderReluMaxPoolPattern : Pattern<
     $auto_pad, $ceil_mode, $dilations, $kernel_shape,
     $pads, $storage_order, $strides),
   // Replace with: relu(maxpool(x))
-  [(ONNXReluOp 
-    (ONNXMaxPoolSingleOutOp 
+  [(ONNXReluOp
+    (ONNXMaxPoolSingleOutOp
       $X,
       $auto_pad, $ceil_mode, $dilations, $kernel_shape,
       $pads, $storage_order, $strides,
@@ -1059,9 +1059,9 @@ def FuseConsecutiveClipsPattern : Pat<
   // Match a Clip operation followed by another Clip operation.
   (ONNXClipOp:$res (ONNXClipOp $input, $min1, $max1), $min2, $max2),
   // This pattern will be handled by the rewrite rule (in C++).
-  (ONNXClipOp $input, 
+  (ONNXClipOp $input,
    // Call maxOrDefault and minOrDefault in the rewrite
-   (maxOrDefault $min1, $min2), 
+   (maxOrDefault $min1, $min2),
    (minOrDefault $max1, $max2))
 >;
 

@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
 #ifndef HIP_EP_RUNTIME_MOCK_H
 #define HIP_EP_RUNTIME_MOCK_H
 
@@ -11,16 +15,16 @@ extern "C" {
 #endif
 
 // Mock handle creation functions
-int hipStreamCreate(void** stream);
-int hipStreamDestroy(void* stream);
-int hipStreamSynchronize(void* stream);
+int hipStreamCreate(void **stream);
+int hipStreamDestroy(void *stream);
+int hipStreamSynchronize(void *stream);
 
-int miopenCreate(void** handle);
-int miopenDestroy(void* handle);
-int miopenSetStream(void* handle, void* stream);
+int miopenCreate(void **handle);
+int miopenDestroy(void *handle);
+int miopenSetStream(void *handle, void *stream);
 
-int hipblasLtCreate(void** handle);
-int hipblasLtDestroy(void* handle);
+int hipblasLtCreate(void **handle);
+int hipblasLtDestroy(void *handle);
 
 #ifdef __cplusplus
 }

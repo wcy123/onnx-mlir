@@ -42,7 +42,7 @@ func.func @test_call_zdnn_gelu() -> () {
 
 // -----
 
-// Check whether the lowering of zlow.leakyrelu calls the correct zDNN API or not. 
+// Check whether the lowering of zlow.leakyrelu calls the correct zDNN API or not.
 func.func @test_call_zdnn_leaky_relu() -> () {
   %0 = memref.alloc() : memref<1x1x32x64xf16>
   %1 = memref.alloc() : memref<1x1x32x64xf16>

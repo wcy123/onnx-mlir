@@ -52,4 +52,3 @@ func.func @test_tile2(%arg0 : tensor<8xf32>, %arg1 : tensor<1xi64>) -> tensor<*x
 // CHECK:           return [[RES]] : memref<?xf32>
 // CHECK:         }
 }
-

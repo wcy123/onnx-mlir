@@ -226,4 +226,3 @@ func.func @test_resize2(%arg0 : tensor<3x4xf32>) -> tensor<*xf32> {
 // CHECK:           return [[RES_]] : memref<3x12xf32>
 // CHECK:         }
 }
-

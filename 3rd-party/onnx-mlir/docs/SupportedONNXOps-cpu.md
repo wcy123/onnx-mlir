@@ -32,10 +32,10 @@ Onnx-mlir currently supports ONNX operations targeting up to opset 22. Limitatio
 | **Binarizer** |1 - * | | | |
 | **BitShift** |11 - * | | | |
 | **BitwiseAnd** |18 - * | | |
-| **BitwiseNot** |18 - * | Only supports signed integers | | 
+| **BitwiseNot** |18 - * | Only supports signed integers | |
 | **BitwiseOr** |18 - * | | |
 | **BitwiseXor** |18 - * | | |
-| **BlackmanWindow** |17 - * | | | 
+| **BlackmanWindow** |17 - * | | |
 | **Cast** |6 - * |Cast only between float and double types. Only ppc64le and MacOS platforms support float16. Does not support int4 and uint4. | |
 | **CastLike** |19 - * |CastLike only between float and double types. Only ppc64le and MacOS platforms support float16. Does not support int4 and uint4. | |
 | **CastMap** |none | | | |
@@ -89,7 +89,7 @@ Onnx-mlir currently supports ONNX operations targeting up to opset 22. Limitatio
 | **GreaterOrEqual** |12 - * | | |
 | **GridSample** |none | | | |
 | **GroupNormalization** |18 - * | | |
-| **HammingWindow** |17 - * | | | 
+| **HammingWindow** |17 - * | | |
 | **HannWindow** |17 - * | | | |
 | **HardSigmoid** |6 - * | | |
 | **HardSwish** |14 - * | | | |

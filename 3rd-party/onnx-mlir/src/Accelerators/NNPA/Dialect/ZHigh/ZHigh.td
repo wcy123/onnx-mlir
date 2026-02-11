@@ -1265,7 +1265,7 @@ def ZHighExtendedLayoutTransformOp:ZHigh_Op<"ExtendedLayoutTransform", [Pure,
               "int64_t":$reshapeMergeAxis,
               "bool":$dlf16ToF32, "std::optional<::mlir::StringAttr>":$layout)>
   ];
-  
+
 
   let extraClassDefinition = [{
     onnx_mlir::ONNXOpShapeHelper * ZHighExtendedLayoutTransformOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,

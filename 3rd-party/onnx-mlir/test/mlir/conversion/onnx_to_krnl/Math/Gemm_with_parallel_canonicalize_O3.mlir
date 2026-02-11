@@ -107,4 +107,3 @@ func.func @test_gemm_parallel_success(%arg0 : tensor<1024x1024xf32>, %arg1 : ten
 // CHECK:           return [[RES_]] : memref<1024x1024xf32>
 // CHECK:         }
 }
-

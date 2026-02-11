@@ -1,5 +1,5 @@
 The Python package, onnxmlir, provides an installable package to use onnx-mlir
-compiler in a similar way to onnxruntime. Also the package supports the way to 
+compiler in a similar way to onnxruntime. Also the package supports the way to
 run model by `utils/RunONNXModel.py`.
 
 The source of the package is located at `onnx-mlir/utils/onnxmlir`. The main python code, `onnxmlir/src/onnxmlir/RunONNXModel.py` should be the same as `onnx-mlir/utils/RunONNXModel.py`. You can use target `OMCreateONNXMLIRSource` to create the installable directory in your build directory.

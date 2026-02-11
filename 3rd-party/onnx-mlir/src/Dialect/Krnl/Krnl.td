@@ -92,7 +92,7 @@ def KrnlCallOp : Op<Krnl_Dialect, "call",
   // No return if the type is NoneType (void in llvm)
   // Only scalar type is supported now.
   // In future, return of memref can be supported with pointer of OMTensor.
-  // The returned memref will be created inside the call. 
+  // The returned memref will be created inside the call.
   let results = (outs Variadic<AnyTypeOf<[AnyFloat, AnyInteger]>>:$returnValue);
 
   // builders to build KrnlCallOp from op and operands, helping conversion from
@@ -544,7 +544,7 @@ def KrnlParallelOp : Op<Krnl_Dialect, "parallel", [AttrSizedOperandSegments]> {
     OptionalAttr<StrAttr>:$proc_bind);
 
   let assemblyFormat = [{
-      `(` $loops `)` (`,` `num_threads` `(` $num_threads^ `)`)? attr-dict `:` type($loops) 
+      `(` $loops `)` (`,` `num_threads` `(` $num_threads^ `)`)? attr-dict `:` type($loops)
   }];
 }
 
@@ -555,13 +555,13 @@ def KrnlParallelClauseOp : Op<Krnl_Dialect, "parallel_clause"> {
     is used to uniquely associate a parallel loop with its clauses.
   }];
 
-  let arguments = (ins Index: $parallel_loop_index, 
+  let arguments = (ins Index: $parallel_loop_index,
     Optional<I32>:$num_threads,
     OptionalAttr<StrAttr>:$proc_bind);
 
   let assemblyFormat = [{
-      `(` $parallel_loop_index `)` (`,` `num_threads` `(` $num_threads^ `)`)? 
-      attr-dict `:` type($parallel_loop_index) 
+      `(` $parallel_loop_index `)` (`,` `num_threads` `(` $num_threads^ `)`)?
+      attr-dict `:` type($parallel_loop_index)
   }];
 }
 

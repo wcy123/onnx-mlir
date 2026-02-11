@@ -2,9 +2,9 @@
 
 // RUN: onnx-mlir-opt --convert-krnl-to-llvm="store-constants-to-file constants-to-file-single-threshold=0.03 constants-to-file-total-threshold=0.00000006" --canonicalize %s -split-input-file && binary-decoder model.constants.bin -s 4096 -n 80 --onnx::TensorProto::INT64 -rm | FileCheck %s -check-prefix=BINARY_DECODER_1
 
-// Thresholds for this files: 
-//  -constants-to-file-single-threshold=0.03: 30 bytes for a single constants 
-//  -constants-to-file-total-threshold=0.00000006: 60 bytes for all constants 
+// Thresholds for this files:
+//  -constants-to-file-single-threshold=0.03: 30 bytes for a single constants
+//  -constants-to-file-total-threshold=0.00000006: 60 bytes for all constants
 
 // BINARY_DECODER_0: 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.1
 // BINARY_DECODER_1: 1 2 3 4 5 6 7 8 9 10

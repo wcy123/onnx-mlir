@@ -45,8 +45,8 @@ add_onnx_mlir_library(OMInitAccelerators
 
   EXCLUDE_FROM_OM_LIBS
 
-  DEPENDS 
-    AcceleratorsInc    
+  DEPENDS
+    AcceleratorsInc
 
   LINK_LIBS PUBLIC
     ${ACCEL_LINK_LIST}
@@ -60,7 +60,7 @@ add_onnx_mlir_library(OMAccelerator
   EXCLUDE_FROM_OM_LIBS
 
   DEPENDS
-    AcceleratorsInc    
+    AcceleratorsInc
 
   INCLUDE_DIRS PUBLIC
     ${ONNX_MLIR_SRC_ROOT}/include

@@ -114,4 +114,3 @@ func.func @test_default_maxpoolsingleout_lower(%arg0 : tensor<5x5x16x13xf32>) ->
 // CHECK-LABEL: test_default_maxpoolsingleout_lower
 // CHECK: [[RES:%.+]] = "onnx.MaxPoolSingleOut"(%arg0) <{auto_pad = "SAME_LOWER", ceil_mode = 0 : si64, kernel_shape = [4, 4], storage_order = 0 : si64, strides = [4, 4]}> : (tensor<5x5x16x13xf32>) -> tensor<5x5x4x4xf32>
 // CHECK: onnx.Return [[RES]] : tensor<5x5x4x4xf32>
-

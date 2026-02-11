@@ -176,4 +176,3 @@ func.func @test_gemm_not_quantized(%arg0: tensor<200x?xf32>) -> tensor<?x10xf32>
 // CHECK:        "zhigh.MatMul"
 // CHECK-NOT:    "zhigh.QuantizedMatMul"
 }
-

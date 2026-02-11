@@ -287,7 +287,7 @@ By default, the log will include the messages of every `commit` performed during
 Using the GitHub interface:
  1. In the web page associated with the PR, click the `Squash and Merge` button;
  2. In the text box above the green `Confirm squash and merge` button, edit the log.
- 3. Ideally, it should have only one short paragraph describing the work, plus the relevant `Sign-off-by` and `Co-authored-by` information. If the user has provided this already do step 4. If not, clear the intermediate commit messages and use the patch title as the description, add sign-off and co-author information. 
+ 3. Ideally, it should have only one short paragraph describing the work, plus the relevant `Sign-off-by` and `Co-authored-by` information. If the user has provided this already do step 4. If not, clear the intermediate commit messages and use the patch title as the description, add sign-off and co-author information.
  4. Only once the log is properly edited, click on the `Confirm squash and merge` button.
 
 ## Code style

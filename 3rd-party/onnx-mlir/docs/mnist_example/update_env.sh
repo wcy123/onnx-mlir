@@ -1,4 +1,4 @@
-# ONNX_MLIR_ROOT points to the root of the onnx-mlir, 
+# ONNX_MLIR_ROOT points to the root of the onnx-mlir,
 # under which the include and the build directory lies.
 export ONNX_MLIR_ROOT=$(pwd)/../..
 # Define the bin directory where onnx-mlir binary resides. Change only if you

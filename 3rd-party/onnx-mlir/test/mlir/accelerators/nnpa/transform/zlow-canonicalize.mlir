@@ -9,8 +9,8 @@ func.func @remove_unused_stick_op(%arg0: memref<5x10xf32>) -> memref<10xf32> {
 
 // CHECK-LABEL:  func.func @remove_unused_stick_op
 // CHECK-NEXT:   memref.alloc
-// CHECK-NEXT:   return 
-// CHECK-NOT:    zlow.stick 
+// CHECK-NEXT:   return
+// CHECK-NOT:    zlow.stick
 }
 
 // -----
@@ -23,8 +23,8 @@ func.func @donot_remove_stick_op(%arg0: memref<5x10xf32>) -> memref<5x10xf16, #m
 
 // CHECK-LABEL:  func.func @donot_remove_stick_op
 // CHECK-NEXT:   memref.alloc
-// CHECK-NEXT:   zlow.stick 
-// CHECK-NEXT:   return 
+// CHECK-NEXT:   zlow.stick
+// CHECK-NEXT:   return
 }
 // -----
 
@@ -37,8 +37,8 @@ func.func @remove_unused_unstick_op(%arg0: memref<5x10xf16, #map>) -> memref<10x
 
 // CHECK-LABEL:  func.func @remove_unused_unstick_op
 // CHECK-NEXT:   memref.alloc
-// CHECK-NEXT:   return 
-// CHECK-NOT:    zlow.unstick 
+// CHECK-NEXT:   return
+// CHECK-NOT:    zlow.unstick
 }
 
 // -----
@@ -51,7 +51,6 @@ func.func @donot_remove_unstick_op(%arg0: memref<5x10xf16, #map>) -> memref<5x10
 
 // CHECK-LABEL:  func.func @donot_remove_unstick_op
 // CHECK-NEXT:   memref.alloc
-// CHECK-NEXT:   zlow.unstick 
-// CHECK-NEXT:   return 
+// CHECK-NEXT:   zlow.unstick
+// CHECK-NEXT:   return
 }
-

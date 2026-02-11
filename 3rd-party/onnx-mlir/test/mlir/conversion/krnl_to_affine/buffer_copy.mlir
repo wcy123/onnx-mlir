@@ -76,7 +76,7 @@ func.func private @copy_to_larger_transposed_source(%p0 : index, %p1 : index) ->
   %i3 = arith.constant 3 : index
   %i10 = arith.constant 10 : index
   %i12 = arith.constant 12 : index
-  krnl.copy_to_tile_buffer %B, %A [%i2, %i3, %i12, %i10], %f0 {transpose=true}: 
+  krnl.copy_to_tile_buffer %B, %A [%i2, %i3, %i12, %i10], %f0 {transpose=true}:
     memref<4x6xf32>, memref<5x10x60x40xf32>
   return
 
@@ -248,7 +248,7 @@ func.func private @copy_to_pad_partial_transposed(%p0 : index, %p1 : index) -> (
   %i54 = arith.constant 54 : index
 
   // same, padding to full
-  krnl.copy_to_tile_buffer %B, %AA [%i54, %i36], %f0 {padToNext=[4,6], transpose=true}: 
+  krnl.copy_to_tile_buffer %B, %AA [%i54, %i36], %f0 {padToNext=[4,6], transpose=true}:
     memref<4x6xf32>, memref<56x39xf32>
   return
 
@@ -440,7 +440,7 @@ func.func @copy_to_nested(%p0 : index, %p1 : index) -> () {
   affine.for %i = 0 to 40 step 10 {
       krnl.copy_to_tile_buffer %B, %A [%i, %c0], %f0 : memref<10x60xf32>, memref<40x60xf32>
   }
-  return 
+  return
 
 // mlir2FileCheck.py -n'{"0": "ORGINAL", "1": "BUFFER", "cst": "ZERO"}' -a'["start0", "start1"]'
 // CHECK-LABEL:  func @copy_to_nested

@@ -1,7 +1,7 @@
-/**
- ** Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
- ** Licensed under the MIT License.
- **/
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
 
 //===----------------------------------------------------------------------===//
 // ONNX to HIP Dialect Conversion
@@ -30,12 +30,12 @@ using namespace mlir;
 //===----------------------------------------------------------------------===//
 
 struct ConstantInfo {
-  int64_t globalIndex;        // Sequential index (0, 1, 2, ...)
-  ElementsAttr value;         // Constant data (from onnx.Constant)
-  Type elementType;           // Element type (f32, i64, etc.)
-  SmallVector<int64_t, 4> shape;  // Tensor shape (owned storage)
-  size_t sizeInBytes;         // Total size in bytes
-  std::string name;           // Debug name (from operation location)
+  int64_t globalIndex;           // Sequential index (0, 1, 2, ...)
+  ElementsAttr value;            // Constant data (from onnx.Constant)
+  Type elementType;              // Element type (f32, i64, etc.)
+  SmallVector<int64_t, 4> shape; // Tensor shape (owned storage)
+  size_t sizeInBytes;            // Total size in bytes
+  std::string name;              // Debug name (from operation location)
 
   // Default constructor (required by DenseMap)
   ConstantInfo() : globalIndex(-1), sizeInBytes(0) {}
@@ -53,18 +53,19 @@ namespace {
 // ONNX Constant → HIP Get Constant Conversion Pattern
 //===----------------------------------------------------------------------===//
 
-/// Convert onnx.Constant to hip.get_constant that retrieves pre-uploaded constant from state
+/// Convert onnx.Constant to hip.get_constant that retrieves pre-uploaded
+/// constant from state
 struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
   const DenseMap<Value, ConstantInfo> &constantRegistry;
 
   ConstantToHipPattern(TypeConverter &typeConverter, MLIRContext *context,
                        const DenseMap<Value, ConstantInfo> &registry)
-      : OpConversionPattern(typeConverter, context), constantRegistry(registry) {}
+      : OpConversionPattern(typeConverter, context),
+        constantRegistry(registry) {}
 
-  LogicalResult matchAndRewrite(
-      ONNXConstantOp constantOp,
-      OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(ONNXConstantOp constantOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
     auto loc = constantOp.getLoc();
 
@@ -72,7 +73,8 @@ struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
     auto it = constantRegistry.find(constantOp.getResult());
     if (it == constantRegistry.end()) {
       return rewriter.notifyMatchFailure(
-          constantOp, "Constant not found in registry (not discovered during Phase 2)");
+          constantOp,
+          "Constant not found in registry (not discovered during Phase 2)");
     }
 
     const auto &info = it->second;
@@ -86,7 +88,8 @@ struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
     auto &entryBlock = funcOp.getBody().front();
     if (entryBlock.getNumArguments() == 0) {
       return rewriter.notifyMatchFailure(
-          constantOp, "Function has no arguments (expected context as first arg)");
+          constantOp,
+          "Function has no arguments (expected context as first arg)");
     }
 
     Value context = entryBlock.getArgument(0);
@@ -109,8 +112,8 @@ struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
     }
 
     // Create hip.get_constant operation to retrieve pre-uploaded constant
-    auto getConstOp = rewriter.create<hip::GetConstantOp>(
-        loc, memrefType, context, index);
+    auto getConstOp =
+        rewriter.create<hip::GetConstantOp>(loc, memrefType, context, index);
 
     // Replace the onnx.Constant with the retrieved constant
     rewriter.replaceOp(constantOp, getConstOp.getResult());
@@ -126,10 +129,9 @@ struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
 struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(
-      ONNXConvOp convOp,
-      OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(ONNXConvOp convOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
     // Get location for error reporting
     auto loc = convOp.getLoc();
@@ -178,22 +180,28 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 
     // Get state from function argument
     // The compiled function signature is:
-    //   func @inference_compute(%state: !hip.context, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32
+    //   func @inference_compute(%state: !hip.context, %inputs: !llvm.ptr,
+    //   %outputs: !llvm.ptr) -> i32
     //
     // Phase 1 Design:
-    // - We use !hip.context type for state parameter (simple, type-safe at HIP dialect level)
-    // - The !hip.context actually points to the State struct (documented semantic)
-    // - Handle extraction (to get miopenHandle/hipblasHandle) happens in HIP→LLVM lowering
+    // - We use !hip.context type for state parameter (simple, type-safe at HIP
+    // dialect level)
+    // - The !hip.context actually points to the State struct (documented
+    // semantic)
+    // - Handle extraction (to get miopenHandle/hipblasHandle) happens in
+    // HIP→LLVM lowering
     //
     // State struct layout (used by HipToLLVM.cpp):
     //   struct State {
     //     hipStream_t stream;              // offset 0 (8 bytes)
-    //     miopenHandle_t miopenHandle;     // offset 8 (8 bytes)  ← used by hip.conv
-    //     hipblasLtHandle_t hipblasHandle; // offset 16 (8 bytes) ← used by hip.gemm
-    //     void** gpu_weights;              // offset 24 (8 bytes)
+    //     miopenHandle_t miopenHandle;     // offset 8 (8 bytes)  ← used by
+    //     hip.conv hipblasLtHandle_t hipblasHandle; // offset 16 (8 bytes) ←
+    //     used by hip.gemm void** gpu_weights;              // offset 24 (8
+    //     bytes)
     //   };
     //
-    // Phase 2 TODO: Define high-level state type: !hip.state<...> for better type safety
+    // Phase 2 TODO: Define high-level state type: !hip.state<...> for better
+    // type safety
     auto funcOp = convOp->getParentOfType<func::FuncOp>();
     if (!funcOp) {
       return rewriter.notifyMatchFailure(convOp, "Not inside a function");
@@ -202,18 +210,21 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // First argument should be the state (typed as !hip.context for now)
     auto &entryBlock = funcOp.getBody().front();
     if (entryBlock.getNumArguments() == 0) {
-      return rewriter.notifyMatchFailure(convOp, "Function has no arguments (expected context as first arg)");
+      return rewriter.notifyMatchFailure(
+          convOp, "Function has no arguments (expected context as first arg)");
     }
 
     Value context = entryBlock.getArgument(0);
 
     // Verify it's a context type
     if (!isa<hip::ContextType>(context.getType())) {
-      return rewriter.notifyMatchFailure(convOp, "First function argument is not a !hip.context");
+      return rewriter.notifyMatchFailure(
+          convOp, "First function argument is not a !hip.context");
     }
 
     // Pass context directly to hip.conv
-    // The hip.conv operation will use this context to access miopenHandle during HIP→LLVM lowering
+    // The hip.conv operation will use this context to access miopenHandle
+    // during HIP→LLVM lowering
     Value handle = context;
 
     // ⭐ IN-PLACE SEMANTICS (Phase 1: Naive inline allocation)
@@ -226,35 +237,39 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     auto memRefType = cast<MemRefType>(outputMemRefType);
     for (int64_t i = 0; i < memRefType.getRank(); ++i) {
       if (memRefType.isDynamicDim(i)) {
-        // Get dimension size from input (assumes ONNX shape inference succeeded)
+        // Get dimension size from input (assumes ONNX shape inference
+        // succeeded)
         Value dimSize = rewriter.create<memref::DimOp>(loc, X, i);
         dynamicSizes.push_back(dimSize);
       }
     }
 
     // Allocate GPU memory for output
-    auto outputBuffer = rewriter.create<hip::AllocOp>(
-        loc, outputMemRefType, handle, dynamicSizes);
+    auto outputBuffer = rewriter.create<hip::AllocOp>(loc, outputMemRefType,
+                                                      handle, dynamicSizes);
 
-    // Create HIP Conv operation (in-place: writes to pre-allocated output buffer)
-    // Signature: hip.conv(%handle, %input, %weights, %bias?, %output)
+    // Create HIP Conv operation (in-place: writes to pre-allocated output
+    // buffer) Signature: hip.conv(%handle, %input, %weights, %bias?, %output)
     SmallVector<Value, 5> operands = {handle, X, W};
     if (B) {
       operands.push_back(B);
     }
-    operands.push_back(outputBuffer.getResult());  // ⭐ Output buffer as argument
+    operands.push_back(
+        outputBuffer.getResult()); // ⭐ Output buffer as argument
 
     // Prepare attributes (unwrap optional values)
     SmallVector<NamedAttribute, 5> attributes;
-    attributes.push_back(rewriter.getNamedAttr("kernel_shape", kernelShapeAttr.value()));
+    attributes.push_back(
+        rewriter.getNamedAttr("kernel_shape", kernelShapeAttr.value()));
     attributes.push_back(rewriter.getNamedAttr("strides", stridesAttr.value()));
     attributes.push_back(rewriter.getNamedAttr("pads", padsAttr.value()));
-    attributes.push_back(rewriter.getNamedAttr("dilations", dilationsAttr.value()));
+    attributes.push_back(
+        rewriter.getNamedAttr("dilations", dilationsAttr.value()));
     attributes.push_back(rewriter.getNamedAttr("group", groupAttr));
 
     // Build the in-place operation (no results!)
-    OperationState opState(loc, hip::ConvOp::getOperationName(),
-                          operands, {}, attributes);  // ⭐ Empty result types
+    OperationState opState(loc, hip::ConvOp::getOperationName(), operands, {},
+                           attributes); // ⭐ Empty result types
 
     rewriter.create(opState);
 
@@ -283,16 +298,15 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 // and memref.copy. This avoids GPU-to-GPU copies via CPU memcpy intrinsics.
 //
 // Example transformation:
-//   Before: %tmp = hip.alloc(...) ; hip.conv(..., %tmp) ; memref.copy %tmp, %out
-//   After:  hip.conv(..., %out)  // Zero-copy, writes directly to output!
+//   Before: %tmp = hip.alloc(...) ; hip.conv(..., %tmp) ; memref.copy %tmp,
+//   %out After:  hip.conv(..., %out)  // Zero-copy, writes directly to output!
 
 struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(
-      func::ReturnOp returnOp,
-      OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
+  LogicalResult
+  matchAndRewrite(func::ReturnOp returnOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
     auto loc = returnOp.getLoc();
     auto funcOp = returnOp->getParentOfType<func::FuncOp>();
@@ -325,8 +339,8 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
 
       // Count uses (excluding return operation)
       unsigned numUses = 0;
-      Operation* writeOp = nullptr;
-      for (Operation* user : allocOp.getResult().getUsers()) {
+      Operation *writeOp = nullptr;
+      for (Operation *user : allocOp.getResult().getUsers()) {
         // Skip the return operation itself
         if (user == returnOp.getOperation()) {
           continue;
@@ -356,7 +370,7 @@ struct ReturnOpConversion : public OpConversionPattern<func::ReturnOp> {
       newOperands.back() = outputArg;
 
       OperationState newState(writeOp->getLoc(), writeOp->getName(),
-                             newOperands, {}, writeOp->getAttrs());
+                              newOperands, {}, writeOp->getAttrs());
       rewriter.setInsertionPoint(writeOp);
       rewriter.create(newState);
 
@@ -408,29 +422,25 @@ public:
 
       // Create memref type with address space 1 (GPU memory)
       // Use default (identity) layout and GPU memory space
-      auto memSpace = IntegerAttr::get(
-          IntegerType::get(type.getContext(), 64), 1);
+      auto memSpace =
+          IntegerAttr::get(IntegerType::get(type.getContext(), 64), 1);
       return MemRefType::get(shape, elementType,
-                            AffineMap(),  // Default (identity) layout
-                            memSpace);
+                             AffineMap(), // Default (identity) layout
+                             memSpace);
     });
 
     // Rule 2: Keep MemRefType unchanged (already converted or GPU types)
-    addConversion([](MemRefType type) -> Type {
-      return type;
-    });
+    addConversion([](MemRefType type) -> Type { return type; });
 
     // Rule 3: Keep HIP types unchanged
-    addConversion([](hip::ContextType type) -> Type {
-      return type;
-    });
+    addConversion([](hip::ContextType type) -> Type { return type; });
 
     // Rule 4: Keep scalar types unchanged (i64, f32, etc.)
     // Only convert types not covered by specific rules above
     addConversion([](Type type) -> std::optional<Type> {
       // If it's a tensor type that wasn't handled by Rule 1, fail
       if (isa<TensorType>(type)) {
-        return std::nullopt;  // Conversion failed
+        return std::nullopt; // Conversion failed
       }
       // For all other types, keep unchanged
       return type;
@@ -439,8 +449,9 @@ public:
     // Register materialization hooks (required by MLIR infrastructure)
     // These handle edge cases where type conversions need temporary values
 
-    // Source materialization: Create a value of the original type from converted type
-    // (e.g., when converting memref back to tensor for unconverted operations)
+    // Source materialization: Create a value of the original type from
+    // converted type (e.g., when converting memref back to tensor for
+    // unconverted operations)
     addSourceMaterialization([](OpBuilder &builder, Type resultType,
                                 ValueRange inputs, Location loc) -> Value {
       if (inputs.size() != 1)
@@ -450,8 +461,9 @@ public:
           .getResult(0);
     });
 
-    // Target materialization: Create a value of the converted type from original type
-    // (e.g., when an operation needs a converted type but gets unconverted input)
+    // Target materialization: Create a value of the converted type from
+    // original type (e.g., when an operation needs a converted type but gets
+    // unconverted input)
     addTargetMaterialization([](OpBuilder &builder, Type resultType,
                                 ValueRange inputs, Location loc) -> Value {
       if (inputs.size() != 1)
@@ -468,17 +480,18 @@ public:
 //===----------------------------------------------------------------------===//
 
 /// Check if a function is an ONNX function (has tensor types + ONNX operations)
-/// This allows the pass to coexist with other MLIR passes and skip non-ONNX functions.
-/// Also makes the pass idempotent: already-transformed functions won't match.
+/// This allows the pass to coexist with other MLIR passes and skip non-ONNX
+/// functions. Also makes the pass idempotent: already-transformed functions
+/// won't match.
 static bool isOnnxFunction(func::FuncOp funcOp) {
   auto funcType = funcOp.getFunctionType();
 
   // Quick filter: ONNX functions use tensor types
-  bool hasTensorTypes = llvm::any_of(funcType.getInputs(), [](Type t) {
-    return isa<TensorType>(t);
-  }) || llvm::any_of(funcType.getResults(), [](Type t) {
-    return isa<TensorType>(t);
-  });
+  bool hasTensorTypes =
+      llvm::any_of(funcType.getInputs(),
+                   [](Type t) { return isa<TensorType>(t); }) ||
+      llvm::any_of(funcType.getResults(),
+                   [](Type t) { return isa<TensorType>(t); });
 
   if (!hasTensorTypes)
     return false;
@@ -509,16 +522,20 @@ public:
 
   StringRef getArgument() const final { return "convert-onnx-to-hip"; }
   StringRef getDescription() const final {
-    return "Convert ONNX dialect operations to HIP dialect operations (module-level for constant handling)";
+    return "Convert ONNX dialect operations to HIP dialect operations "
+           "(module-level for constant handling)";
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<hip::HipDialect>();
     registry.insert<func::FuncDialect>();
-    registry.insert<memref::MemRefDialect>();  // Needed for memref.dim and memref.copy
-    registry.insert<arith::ArithDialect>();    // Needed for arith.constant (i32 status)
-    registry.insert<ONNXDialect>();            // Needed for ONNX operations
-    registry.insert<LLVM::LLVMDialect>();      // Needed for LLVM globals (constant storage)
+    registry.insert<memref::MemRefDialect>(); // Needed for memref.dim and
+                                              // memref.copy
+    registry.insert<arith::ArithDialect>();   // Needed for arith.constant (i32
+                                              // status)
+    registry.insert<ONNXDialect>();           // Needed for ONNX operations
+    registry.insert<LLVM::LLVMDialect>(); // Needed for LLVM globals (constant
+                                          // storage)
   }
 
   void runOnOperation() override {
@@ -570,7 +587,8 @@ private:
   /// Constant registry: maps SSA values to their global constant indices
   DenseMap<Value, ConstantInfo> constantRegistry_;
 
-  /// Discover all onnx.Constant operations in the module and assign global indices
+  /// Discover all onnx.Constant operations in the module and assign global
+  /// indices
   LogicalResult discoverConstants(ModuleOp module) {
     int64_t nextIndex = 0;
 
@@ -593,7 +611,8 @@ private:
 
           auto elementsAttr = dyn_cast<ElementsAttr>(valueAttr.value());
           if (!elementsAttr) {
-            // Not an ElementsAttr - skip (shouldn't happen for normal constants)
+            // Not an ElementsAttr - skip (shouldn't happen for normal
+            // constants)
             return WalkResult::advance();
           }
 
@@ -606,7 +625,8 @@ private:
           int64_t numElements = 1;
           for (int64_t dim : shape) {
             if (dim <= 0) {
-              // Dynamic or zero dimension - skip (shouldn't happen for constants)
+              // Dynamic or zero dimension - skip (shouldn't happen for
+              // constants)
               return WalkResult::advance();
             }
             numElements *= dim;
@@ -623,7 +643,7 @@ private:
 
           // Store constant info
           ConstantInfo info(nextIndex, elementsAttr, elementType, shape,
-                           totalSize, debugName);
+                            totalSize, debugName);
 
           constantRegistry_[constantOp.getResult()] = std::move(info);
           nextIndex++;
@@ -641,7 +661,8 @@ private:
         llvm::errs() << "  [" << info.globalIndex << "] " << info.name
                      << " : shape=[";
         for (size_t i = 0; i < info.shape.size(); ++i) {
-          if (i > 0) llvm::errs() << "x";
+          if (i > 0)
+            llvm::errs() << "x";
           llvm::errs() << info.shape[i];
         }
         llvm::errs() << "], size=" << info.sizeInBytes << " bytes\n";
@@ -654,7 +675,7 @@ private:
   /// Generate LLVM global variables for all discovered constants
   LogicalResult generateConstantGlobals(ModuleOp module) {
     if (constantRegistry_.empty()) {
-      return success();  // No constants to generate
+      return success(); // No constants to generate
     }
 
     OpBuilder builder(module.getBodyRegion());
@@ -676,26 +697,22 @@ private:
       }
 
       // Create LLVM array type
-      auto llvmElementType = info.elementType;  // f32, i64, etc.
-      auto llvmArrayType = LLVM::LLVMArrayType::get(llvmElementType, numElements);
+      auto llvmElementType = info.elementType; // f32, i64, etc.
+      auto llvmArrayType =
+          LLVM::LLVMArrayType::get(llvmElementType, numElements);
 
       // Create global variable with embedded constant data
       // Note: LLVM::GlobalOp requires an Attribute as initializer
       // ElementsAttr is already an Attribute, so we can use it directly
       auto globalOp = builder.create<LLVM::GlobalOp>(
-          module.getLoc(),
-          llvmArrayType,
-          /*isConstant=*/true,
-          LLVM::Linkage::Internal,
-          info.name,
-          info.value,  // Embed dense<...> data
+          module.getLoc(), llvmArrayType,
+          /*isConstant=*/true, LLVM::Linkage::Internal, info.name,
+          info.value, // Embed dense<...> data
           /*alignment=*/0,
-          /*addr_space=*/0
-      );
+          /*addr_space=*/0);
 
-      llvm::errs() << "  Generated global: @" << info.name
-                   << " : !llvm.array<" << numElements << " x "
-                   << llvmElementType << ">\n";
+      llvm::errs() << "  Generated global: @" << info.name << " : !llvm.array<"
+                   << numElements << " x " << llvmElementType << ">\n";
     }
 
     return success();
@@ -722,7 +739,8 @@ private:
         inputRanks.push_back(tensorType.getRank());
       } else {
         // Non-tensor input - skip metadata generation for this module
-        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor input in @main, skipping metadata\n";
+        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor input in @main, "
+                        "skipping metadata\n";
         return success();
       }
     }
@@ -735,30 +753,37 @@ private:
         outputRanks.push_back(tensorType.getRank());
       } else {
         // Non-tensor output - skip metadata generation
-        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor output in @main, skipping metadata\n";
+        llvm::errs() << "[ONNX→HIP] Warning: Non-tensor output in @main, "
+                        "skipping metadata\n";
         return success();
       }
     }
 
     // Set module attributes
     OpBuilder builder(module.getContext());
-    module->setAttr("hipdnn.input_count", builder.getI64IntegerAttr(inputCount));
-    module->setAttr("hipdnn.input_ranks", builder.getDenseI64ArrayAttr(inputRanks));
-    module->setAttr("hipdnn.output_count", builder.getI64IntegerAttr(outputCount));
-    module->setAttr("hipdnn.output_ranks", builder.getDenseI64ArrayAttr(outputRanks));
+    module->setAttr("hipdnn.input_count",
+                    builder.getI64IntegerAttr(inputCount));
+    module->setAttr("hipdnn.input_ranks",
+                    builder.getDenseI64ArrayAttr(inputRanks));
+    module->setAttr("hipdnn.output_count",
+                    builder.getI64IntegerAttr(outputCount));
+    module->setAttr("hipdnn.output_ranks",
+                    builder.getDenseI64ArrayAttr(outputRanks));
 
     llvm::errs() << "[ONNX→HIP] Generated module metadata:\n";
     llvm::errs() << "  input_count = " << inputCount << "\n";
     llvm::errs() << "  input_ranks = [";
     for (size_t i = 0; i < inputRanks.size(); ++i) {
-      if (i > 0) llvm::errs() << ", ";
+      if (i > 0)
+        llvm::errs() << ", ";
       llvm::errs() << inputRanks[i];
     }
     llvm::errs() << "]\n";
     llvm::errs() << "  output_count = " << outputCount << "\n";
     llvm::errs() << "  output_ranks = [";
     for (size_t i = 0; i < outputRanks.size(); ++i) {
-      if (i > 0) llvm::errs() << ", ";
+      if (i > 0)
+        llvm::errs() << ", ";
       llvm::errs() << outputRanks[i];
     }
     llvm::errs() << "]\n";
@@ -769,7 +794,7 @@ private:
   /// Generate initialization functions for constant management
   LogicalResult generateInitializationFunctions(ModuleOp module) {
     if (constantRegistry_.empty()) {
-      return success();  // No constants, no initialization needed
+      return success(); // No constants, no initialization needed
     }
 
     OpBuilder builder(module.getBodyRegion());
@@ -807,8 +832,8 @@ private:
       auto contextType = hip::ContextType::get(builder.getContext());
       auto i32Type = builder.getI32Type();
       auto funcType = builder.getFunctionType({contextType}, {i32Type});
-      auto funcOp = builder.create<func::FuncOp>(
-          loc, "initialize_constants", funcType);
+      auto funcOp =
+          builder.create<func::FuncOp>(loc, "initialize_constants", funcType);
       funcOp.setPublic();
 
       Block *entryBlock = funcOp.addEntryBlock();
@@ -822,8 +847,8 @@ private:
 
         // Get address of global constant
         auto ptrType = LLVM::LLVMPointerType::get(builder.getContext());
-        Value dataPtr = builder.create<LLVM::AddressOfOp>(
-            loc, ptrType, info.name);
+        Value dataPtr =
+            builder.create<LLVM::AddressOfOp>(loc, ptrType, info.name);
 
         // Create index constant
         Value index = builder.create<arith::ConstantOp>(
@@ -856,8 +881,8 @@ private:
       auto contextType = hip::ContextType::get(builder.getContext());
       auto i32Type = builder.getI32Type();
       auto funcType = builder.getFunctionType({contextType}, {i32Type});
-      auto funcOp = builder.create<func::FuncOp>(
-          loc, "release_constants", funcType);
+      auto funcOp =
+          builder.create<func::FuncOp>(loc, "release_constants", funcType);
       funcOp.setPublic();
 
       Block *entryBlock = funcOp.addEntryBlock();
@@ -942,8 +967,8 @@ private:
         newInputs.push_back(convertedType ? convertedType : inputType);
       }
 
-      // Destination-passing style: Add output arguments instead of return values
-      // Convert result types to memref and add as function arguments
+      // Destination-passing style: Add output arguments instead of return
+      // values Convert result types to memref and add as function arguments
       for (Type resultType : funcType.getResults()) {
         Type convertedType = typeConverter.convertType(resultType);
         Type outputType = convertedType ? convertedType : resultType;
@@ -959,9 +984,11 @@ private:
       auto newFuncType = builder.getFunctionType(newInputs, newResults);
       func.setFunctionType(newFuncType);
 
-      // Update block argument types for inputs (except context which we just added)
-      // Note: Output arguments were already added with correct types above
-      unsigned numInputArgs = 1 + funcType.getInputs().size();  // context + original inputs
+      // Update block argument types for inputs (except context which we just
+      // added) Note: Output arguments were already added with correct types
+      // above
+      unsigned numInputArgs =
+          1 + funcType.getInputs().size(); // context + original inputs
       for (unsigned i = 1; i < numInputArgs; ++i) {
         Type oldType = entryBlock.getArgument(i).getType();
         Type newType = typeConverter.convertType(oldType);
@@ -1004,9 +1031,11 @@ private:
     // illegal will be legal by default in partial conversion.
     // target.addLegalDialect<ONNXDialect>();
 
-    // Set up rewrite patterns (pass typeConverter and constantRegistry to patterns)
+    // Set up rewrite patterns (pass typeConverter and constantRegistry to
+    // patterns)
     RewritePatternSet patterns(context);
-    patterns.add<ConstantToHipPattern>(typeConverter, context, constantRegistry_);
+    patterns.add<ConstantToHipPattern>(typeConverter, context,
+                                       constantRegistry_);
     patterns.add<ConvToHipPattern>(typeConverter, context);
     patterns.add<ReturnOpConversion>(typeConverter, context);
 

@@ -5,7 +5,7 @@ add_onnx_mlir_library(PerfLib
   EXCLUDE_FROM_OM_LIBS
 
   LINK_LIBS PUBLIC
-  benchmark 
+  benchmark
   LLVMSupport
   )
 
@@ -65,4 +65,3 @@ add_perf_unittest(PerfElementwise
   PerfElementwise.cpp
   LINK_LIBS PRIVATE ${TEST_LINK_LIBS}
   )
-

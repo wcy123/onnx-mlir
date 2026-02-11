@@ -7,7 +7,7 @@ module {
     %c10 = arith.constant 10: index
     %0 = memref.alloc(%arg1) : memref<?x128x256xf32, #map>
     %1 = krnl.get_linear_offset_index %arg0 at [%arg2, %c5, %c10] : memref<?x128x256xf32, #map>
-    return %1: index 
+    return %1: index
   }
 
 // CHECK-DAG:   [[MAP_0_:#.+]] = affine_map<(d0, d1, d2) -> (d0)>

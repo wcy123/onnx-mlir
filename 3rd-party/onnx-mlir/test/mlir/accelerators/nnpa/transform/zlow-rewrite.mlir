@@ -924,7 +924,7 @@ func.func @handle_zlow_reshape_success(%arg0: memref<8x12x1x12x32x64xf16>, %arg1
 // COM:   %alloc_1 = memref.alloc(%dim) {alignment = 4096 : i64} : memref<?x58x58x128xf16, #map>
 // COM:   "zlow.stick"(%alloc_0, %alloc_1) <{layout = "NCHW"}> : (memref<?x128x58x58xf32>, memref<?x58x58x128xf16, #map>) -> ()
 // COM:   return %alloc_1 : memref<?x58x58x128xf16, #map>
-// COM: 
+// COM:
 // COM: // CHECK-LABEL:  func.func @should_not_rewrite_unstick_pad_stick_nchw
 // COM: // CHECK: zlow.unstick
 // COM: // CHECK: affine.for
@@ -940,4 +940,3 @@ func.func @handle_zlow_reshape_success(%arg0: memref<8x12x1x12x32x64xf16>, %arg1
 // COM: // CHECK: affine.store
 // COM: // CHECK: zlow.stick
 // COM: }
-

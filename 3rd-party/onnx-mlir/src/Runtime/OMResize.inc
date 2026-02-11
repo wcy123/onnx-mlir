@@ -334,7 +334,7 @@ void Resize_Scales(
   } else {
     assert(0 && "Resize runtime: unsupported mode");
   }
-  
+
   interpolate_nd_OMTensor(
       /*OMTensor */ output,
       /*OMTensor */ data,

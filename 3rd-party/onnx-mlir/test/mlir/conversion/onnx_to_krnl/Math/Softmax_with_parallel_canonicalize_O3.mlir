@@ -51,4 +51,3 @@ func.func @test_softmax_v13_parallel(%arg0 : tensor<10x20x30xf32>) -> tensor<*xf
 // CHECK:           return [[RES_]] : memref<10x20x30xf32>
 // CHECK:         }
 }
-

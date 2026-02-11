@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef F32_TO_DLF16_TD 
-#define F32_TO_DLF16_TD 
+#ifndef F32_TO_DLF16_TD
+#define F32_TO_DLF16_TD
 
 #ifndef OP_BASE
 include "src/Accelerators/NNPA/Dialect/ZHigh/ZHigh.td"
@@ -31,7 +31,7 @@ include "src/Accelerators/NNPA/Dialect/ZHigh/ZHighOps/OpHelper.td"
 /// >;
 
 //===----------------------------------------------------------------------===//
-// DRR patterns 
+// DRR patterns
 //===----------------------------------------------------------------------===//
 
 // zhigh.F32ToDLF16 (zhigh.DLF16ToF32(%X)) = %X

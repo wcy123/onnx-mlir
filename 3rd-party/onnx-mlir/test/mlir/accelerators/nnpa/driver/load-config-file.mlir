@@ -16,4 +16,3 @@ func.func @test_load_config_file(%arg0: tensor<?x?xf32>) -> tensor<?x?xf32> {
 // CHECK:           return [[VAR_3_]] : tensor<?x?xf32>
 // CHECK:         }
 }
-

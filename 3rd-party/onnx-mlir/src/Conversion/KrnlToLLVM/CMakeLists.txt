@@ -15,9 +15,9 @@ add_onnx_mlir_library(OMKrnlToLLVM
   KrnlRoundEven.cpp
   KrnlStrlen.cpp
   KrnlStrncmp.cpp
-  KrnlToLLVMHelper.cpp  
+  KrnlToLLVMHelper.cpp
   KrnlUnaryMath.cpp
-  KrnlVectorTypeCast.cpp 
+  KrnlVectorTypeCast.cpp
   RuntimeAPI.cpp
 
   LINK_LIBS PUBLIC

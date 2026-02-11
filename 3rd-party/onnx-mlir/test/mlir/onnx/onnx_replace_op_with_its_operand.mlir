@@ -36,5 +36,3 @@ func.func @test_ignore_attention_layer(%arg0: tensor<1x?xi64>, %arg1: tensor<1x?
 // DRIVER:           return [[VAR_1_]] : tensor<1x12x?x?xf32>
 // DRIVER:         }
 }
-
-

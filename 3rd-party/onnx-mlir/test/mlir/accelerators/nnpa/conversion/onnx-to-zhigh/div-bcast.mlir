@@ -41,4 +41,3 @@ func.func @test_div_unknown_scalar2(%arg0 : tensor<?x10xf32>) -> tensor<*xf32> {
 // CHECK:           return [[VAR_7_]] : tensor<?x10xf32>
 // CHECK:         }
 }
-

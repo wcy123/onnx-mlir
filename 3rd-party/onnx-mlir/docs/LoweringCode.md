@@ -15,7 +15,7 @@ OpBuilder rewriter; // Typically inherited from a caller context.
 Location loc; // Typically derived from an operation.
 Value intRes = AddIOp::create(rewriter, loc, firstIntVal, secondIntVal);
 Value floatRes = AddFOp::create(rewriter, loc, firstFloatVal, secondFloatVal);
-``` 
+```
 ***Code: Traditional way to add numbers.***
 
 In the above code, we need to distinguish between int and float type operations. We also need to repetitively pass the location.
@@ -176,7 +176,7 @@ Let us now look how we can optimize loops using the Krnl builder. Consider our s
 Value zero, array, ub0;
 // Define a 2-dimensional iteration space.
 ValueRange loopDef = createKrnl.defineLoops(1);
-// Block the loop by a factor 4. First returned value in ValueRange 
+// Block the loop by a factor 4. First returned value in ValueRange
 // loops over blocks, the second return value loops inside a block.
 ValueRange loopBlockDef = createKrnl.block(loopDef, 4);
 // Permute the blocked loops

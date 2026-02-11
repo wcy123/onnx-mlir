@@ -80,4 +80,3 @@ func.func @should_lower_to_zlow_unknown_dims(%arg0: tensor<1x?x?x7xf32>) -> tens
 // CHECK:           return [[RES_3_]] : memref<1x?x?x7xf32>
 // CHECK:         }
 }
-

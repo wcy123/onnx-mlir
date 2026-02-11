@@ -9,6 +9,6 @@ RUN apt-get install -y vim bash valgrind clang-format lsb-release \
 RUN python3 -m pip install -U pip && pip install commitizen
 
 # For development
-ENV LLVM_PROJECT_ROOT=/workdir/llvm-project 
+ENV LLVM_PROJECT_ROOT=/workdir/llvm-project
 ENV MLIR_DIR=/workdir/llvm-project/build/lib/cmake/mlir
-ENV eval "$(ssh-agent)" 
+ENV eval "$(ssh-agent)"

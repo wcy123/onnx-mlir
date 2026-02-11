@@ -118,7 +118,7 @@ func.func @test_matmul_splitting_arch15_A_B(%arg0: tensor<?x2097152x768xf32>, %a
 // -----
 
 // Rewrite N-D QLinearMatMul into 3-D one.
-  
+
 func.func @test_nd_qlinearmatmul_nd_nd(%arg0: tensor<?x?x384x64xf32> {onnx.dim_params = "0:bs,1:sl"}, %arg1: tensor<?x?x64x384xf32> {onnx.dim_params = "0:bs,1:sl"}, %arg2: tensor<f32>, %arg3: tensor<i8>) -> tensor<?x?x384x384xf32> {
   %0 = "onnx.QuantizeLinear"(%arg0, %arg2, %arg3) : (tensor<?x?x384x64xf32>, tensor<f32>, tensor<i8>) -> tensor<?x?x384x64xi8>
   %1 = "onnx.QuantizeLinear"(%arg1, %arg2, %arg3) : (tensor<?x?x64x384xf32>, tensor<f32>, tensor<i8>) -> tensor<?x?x64x384xi8>

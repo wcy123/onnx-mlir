@@ -611,11 +611,11 @@ func.func @test_constant_3() -> tensor<3xi64> {
 // -----
 
 func.func @test_castlike(%arg0 : tensor<*xf32>, %arg1 : tensor<*xf16>) -> tensor<*xf16> {
-  %0 = "onnx.CastLike"(%arg0, %arg1) {saturate = 1 : si64} : (tensor<*xf32>, tensor<*xf16>) -> tensor<*xf16> 
+  %0 = "onnx.CastLike"(%arg0, %arg1) {saturate = 1 : si64} : (tensor<*xf32>, tensor<*xf16>) -> tensor<*xf16>
   "onnx.Return"(%0) : (tensor<*xf16>) -> ()
 
   // CHECK-LABEL: test_castlike
-  // CHECK: [[RES:%.+]] = "onnx.Cast"(%arg0) <{saturate = 1 : si64, to = f16}> : (tensor<*xf32>) -> tensor<*xf16> 
+  // CHECK: [[RES:%.+]] = "onnx.Cast"(%arg0) <{saturate = 1 : si64, to = f16}> : (tensor<*xf32>) -> tensor<*xf16>
   // CHECK: onnx.Return [[RES]] : tensor<*xf16>
 }
 
@@ -623,7 +623,7 @@ func.func @test_castlike(%arg0 : tensor<*xf32>, %arg1 : tensor<*xf16>) -> tensor
 
 func.func @test_sum(%arg0: tensor<128x10xf32>, %arg1: tensor<64x128x10xf32>, %arg2: tensor<10xf32>, %arg3: tensor<64x1x1xf32>) -> tensor<64x128x10xf32> {
   %0 = "onnx.Sum"(%arg0, %arg1, %arg2, %arg3) : (tensor<128x10xf32>, tensor<64x128x10xf32>, tensor<10xf32>, tensor<64x1x1xf32>) -> tensor<64x128x10xf32>
-  onnx.Return %0 : tensor<64x128x10xf32> 
+  onnx.Return %0 : tensor<64x128x10xf32>
   // CHECK-LABEL:       func @test_sum
   // CHECK-SAME:     (%[[ARG0:.*]]: {{.*}}, %[[ARG1:.*]]: {{.*}}, %[[ARG2:.*]]: {{.*}}, %[[ARG3:.*]]: {{.*}})
   // CHECK-NEXT:      %[[SUM0:.*]] = "onnx.Add"(%[[ARG0]], %[[ARG1]])
@@ -636,7 +636,7 @@ func.func @test_sum(%arg0: tensor<128x10xf32>, %arg1: tensor<64x128x10xf32>, %ar
 
 func.func @test_sum_to_unranked(%arg0: tensor<128x10xf32>, %arg1: tensor<64x128x10xf32>, %arg2: tensor<10xf32>, %arg3: tensor<64x1x1xf32>) -> tensor<*xf32> {
   %0 = "onnx.Sum"(%arg0, %arg1, %arg2, %arg3) : (tensor<128x10xf32>, tensor<64x128x10xf32>, tensor<10xf32>, tensor<64x1x1xf32>) -> tensor<*xf32>
-  onnx.Return %0 : tensor<*xf32> 
+  onnx.Return %0 : tensor<*xf32>
   // CHECK-LABEL:       func @test_sum
   // CHECK-SAME:     (%[[ARG0:.*]]: {{.*}}, %[[ARG1:.*]]: {{.*}}, %[[ARG2:.*]]: {{.*}}, %[[ARG3:.*]]: {{.*}})
   // CHECK-NEXT:      %[[SUM0:.*]] = "onnx.Add"(%[[ARG0]], %[[ARG1]])
@@ -650,7 +650,7 @@ func.func @test_sum_to_unranked(%arg0: tensor<128x10xf32>, %arg1: tensor<64x128x
 
 func.func @test_sum_single_input(%arg0: tensor<64x128x10xf32>) -> tensor<64x128x10xf32> {
   %0 = "onnx.Sum"(%arg0) : (tensor<64x128x10xf32>) -> tensor<64x128x10xf32>
-  onnx.Return %0 : tensor<64x128x10xf32> 
+  onnx.Return %0 : tensor<64x128x10xf32>
   // CHECK-LABEL:       func @test_sum_single_input
   // CHECK-SAME:     (%[[ARG0:.*]]: {{.*}})
   // CHECK-NEXT:      onnx.Return %[[ARG0]]
@@ -660,7 +660,7 @@ func.func @test_sum_single_input(%arg0: tensor<64x128x10xf32>) -> tensor<64x128x
 
 func.func @test_sum_single_input_to_unranked(%arg0: tensor<64x128x10xf32>) -> tensor<*xf32> {
   %0 = "onnx.Sum"(%arg0) : (tensor<64x128x10xf32>) -> tensor<*xf32>
-  onnx.Return %0 : tensor<*xf32> 
+  onnx.Return %0 : tensor<*xf32>
   // CHECK-LABEL:       func @test_sum_single_input_to_unranked
   // CHECK-SAME:     (%[[ARG0:.*]]: {{.*}})
   // CHECK-NEXT:      %[[CAST:.*]] = "onnx.Cast"(%[[ARG0]]) <{saturate = 1 : si64, to = f32}> : (tensor<64x128x10xf32>) -> tensor<*xf32>
@@ -734,7 +734,7 @@ func.func @sce_mean_with_weight_NCD1D2(%arg0: tensor<64x10x2x3xf32>, %arg1: tens
   // CHECK-NEXT:     %[[REDUCE_AXIS:.*]] = onnx.Constant dense<1> : tensor<1xi64>
   // CHECK-NEXT:     %[[SUM:.*]] = "onnx.ReduceSum"(%[[WEIGHT_PROD]], %[[REDUCE_AXIS]]) <{keepdims = 1 : si64, noop_with_empty_axes = 0 : si64}> : ({{.*}}) -> tensor<64x1x2x3xf32>
   // CHECK-NEXT:     %[[SUML:.*]] = "onnx.ReduceSum"(%[[SUM]], %[[NONE]]) <{keepdims = 0 : si64, noop_with_empty_axes = 0 : si64}> : ({{.*}}) -> tensor<f32>
-  
+
   // This block is an `onnx.EinSum` expanded by a different pattern rewrite
   // CHECK-NEXT:     %[[TRANSPOSE_ONE_HOT:.*]] = "onnx.Transpose"(%[[ONE_HOT_LABELS_F]]) <{perm = [0, 2, 3, 1]}> : ({{.*}}) -> tensor<64x2x3x10xf32>
   // CHECK-NEXT:     %[[COLLAPSED_SHAPE:.*]] = onnx.Constant dense<[384, 10]> : tensor<2xi64>
@@ -743,8 +743,8 @@ func.func @sce_mean_with_weight_NCD1D2(%arg0: tensor<64x10x2x3xf32>, %arg1: tens
   // CHECK-NEXT:     %[[EXPANDED_WEIGHT:.*]] = "onnx.Reshape"(%[[ARG2]], %[[EXPANDED_WEIGHT_SHAPE]]) <{allowzero = 0 : si64}> : ({{.*}}) -> tensor<10x1xf32>
   // CHECK-NEXT:     %[[MATMUL:.*]] = "onnx.MatMul"(%[[COLLAPSED_ONE_SHOT]], %[[EXPANDED_WEIGHT]]) : ({{.*}}) -> tensor<384x1xf32>
   // CHECK-NEXT:     %[[W_SHAPE:.*]] = onnx.Constant dense<[64, 2, 3]> : tensor<3xi64>
-  // CHECK-NEXT:     %[[W:.*]] = "onnx.Reshape"(%[[MATMUL]], %[[W_SHAPE]]) <{allowzero = 0 : si64}> : ({{.*}}) -> tensor<64x2x3xf32>  
-  
+  // CHECK-NEXT:     %[[W:.*]] = "onnx.Reshape"(%[[MATMUL]], %[[W_SHAPE]]) <{allowzero = 0 : si64}> : ({{.*}}) -> tensor<64x2x3xf32>
+
   // CHECK-NEXT:     %[[SUMW:.*]] = "onnx.ReduceSum"(%[[W]], %[[NONE]]) <{keepdims = 0 : si64, noop_with_empty_axes = 0 : si64}> : ({{.*}}) -> tensor<f32>
   // CHECK-NEXT:     %[[MEAN:.*]] = "onnx.Div"(%[[SUML]], %[[SUMW]])
   // CHECK-NEXT:     %[[LOSS:.*]] = "onnx.Neg"(%[[MEAN]])

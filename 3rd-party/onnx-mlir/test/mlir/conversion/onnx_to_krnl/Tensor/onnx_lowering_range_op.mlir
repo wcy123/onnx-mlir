@@ -187,7 +187,7 @@ func.func @test_range_static_f32() -> tensor<*xf32> {
   // CHECK: [[START_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<2.000000e+00> : tensor<1xf32>}> : () -> memref<1xf32>
   // CHECK: [[LIMIT_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1.000000e+01> : tensor<1xf32>}> : () -> memref<1xf32>
   // CHECK: [[DELTA_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1.000000e+00> : tensor<1xf32>}> : () -> memref<1xf32>
-    
+
   // CHECK: %[[C0:.*]] = arith.constant 0 : index
   // CHECK: [[START:%.*]] = krnl.load [[START_GLOBAL]][%[[C0]]] : memref<1xf32>
   // CHECK: [[DELTA:%.*]] = krnl.load [[DELTA_GLOBAL]][%[[C0]]] : memref<1xf32>
@@ -222,7 +222,7 @@ func.func @test_range_static_f64() -> tensor<*xf64> {
   // CHECK: [[START_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<2.000000e+00> : tensor<1xf64>}> : () -> memref<1xf64>
   // CHECK: [[LIMIT_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1.000000e+01> : tensor<1xf64>}> : () -> memref<1xf64>
   // CHECK: [[DELTA_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1.000000e+00> : tensor<1xf64>}> : () -> memref<1xf64>
-    
+
   // CHECK: %[[C0:.*]] = arith.constant 0 : index
   // CHECK: [[START:%.*]] = krnl.load [[START_GLOBAL]][%[[C0]]] : memref<1xf64>
   // CHECK: [[DELTA:%.*]] = krnl.load [[DELTA_GLOBAL]][%[[C0]]] : memref<1xf64>
@@ -257,7 +257,7 @@ func.func @test_range_static_i16() -> tensor<*xi16> {
   // CHECK: [[START_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<2> : tensor<1xi16>}> : () -> memref<1xi16>
   // CHECK: [[LIMIT_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<10> : tensor<1xi16>}> : () -> memref<1xi16>
   // CHECK: [[DELTA_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1> : tensor<1xi16>}> : () -> memref<1xi16>
-    
+
   // CHECK: %[[C0:.*]] = arith.constant 0 : index
   // CHECK: [[START:%.*]] = krnl.load [[START_GLOBAL]][%[[C0]]] : memref<1xi16>
   // CHECK: [[DELTA:%.*]] = krnl.load [[DELTA_GLOBAL]][%[[C0]]] : memref<1xi16>
@@ -292,7 +292,7 @@ func.func @test_range_static_i32() -> tensor<*xi32> {
   // CHECK: [[START_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<2> : tensor<1xi32>}> : () -> memref<1xi32>
   // CHECK: [[LIMIT_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<10> : tensor<1xi32>}> : () -> memref<1xi32>
   // CHECK: [[DELTA_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1> : tensor<1xi32>}> : () -> memref<1xi32>
-    
+
   // CHECK: %[[C0:.*]] = arith.constant 0 : index
   // CHECK: [[START:%.*]] = krnl.load [[START_GLOBAL]][%[[C0]]] : memref<1xi32>
   // CHECK: [[DELTA:%.*]] = krnl.load [[DELTA_GLOBAL]][%[[C0]]] : memref<1xi32>
@@ -327,7 +327,7 @@ func.func @test_range_static_i64() -> tensor<*xi64> {
   // CHECK: [[START_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<2> : tensor<1xi64>}> : () -> memref<1xi64>
   // CHECK: [[LIMIT_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<10> : tensor<1xi64>}> : () -> memref<1xi64>
   // CHECK: [[DELTA_GLOBAL:%.*]] = "krnl.global"() <{name = {{.*}}, shape = [1], value = dense<1> : tensor<1xi64>}> : () -> memref<1xi64>
-    
+
   // CHECK: %[[C0:.*]] = arith.constant 0 : index
   // CHECK: [[START:%.*]] = krnl.load [[START_GLOBAL]][%[[C0]]] : memref<1xi64>
   // CHECK: [[DELTA:%.*]] = krnl.load [[DELTA_GLOBAL]][%[[C0]]] : memref<1xi64>

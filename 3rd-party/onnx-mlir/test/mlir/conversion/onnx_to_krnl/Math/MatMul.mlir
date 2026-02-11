@@ -29,4 +29,3 @@ func.func private @test_matmul1(%arg0 : tensor<16x16xf32>, %arg1 : tensor<16x16x
 // CHECK:           return [[RES_]] : memref<16x16xf32>
 // CHECK:         }
 }
-

@@ -264,4 +264,3 @@ func.func private @test_conv_no_bias_no_pad_w_strides(%arg0 : tensor<1x9x32x64xf
 // CHECK:           return [[RES_]] : memref<1x5x14x29xf32>
 // CHECK:         }
 }
-

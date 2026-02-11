@@ -78,7 +78,7 @@ def ReplaceSequenceAt :  NativeCodeCall<
 
 def UpgradeGridSampleV16Mode :  NativeCodeCall<
     "onnx_mlir::upgradeGridSampleV16Mode($_builder, $0)">;
-    
+
 def CanSequenceAtBeReplaced :
    Constraint<CPred<"::onnx_mlir::canSequenceAtBeReplaced($_self)">, "check whether the SequenceAt can be replaced with split">;
 

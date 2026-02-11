@@ -63,4 +63,3 @@ func.func private @test_pool_unknown_dimensions(%arg0 : tensor<1x3x?x32xf32>) ->
 // CHECK:           return [[RES_]] : memref<1x3x?x31xf32>
 // CHECK:         }
 }
-

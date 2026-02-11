@@ -38,7 +38,7 @@ def ShapeInferenceOpInterface : OpInterface<"ShapeInferenceOpInterface"> {
                     "mlir::LogicalResult", "inferShapes",
                     (ins "std::function<void(mlir::Region&)>":$shapeInferenceFunc)>
   ];
-  
+
   let cppNamespace = "::mlir";
 }
 

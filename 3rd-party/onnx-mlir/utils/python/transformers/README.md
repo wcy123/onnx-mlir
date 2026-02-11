@@ -91,7 +91,7 @@ You can find an usage example in the script [`gpt2-decode.py`](gpt2-decode.py). 
 After successful compilation, the script will take the model and generate some tokens based on the defined prompt.
 
 ```bash
-Command: ONNX_MLIR_HOME=/workdir/onnx-mlir/build/Debug python gpt2-decode.py -m /workdir/onnx-mlir/utils/python/transformers -o 100 2>&1 | tee log.txt 
+Command: ONNX_MLIR_HOME=/workdir/onnx-mlir/build/Debug python gpt2-decode.py -m /workdir/onnx-mlir/utils/python/transformers -o 100 2>&1 | tee log.txt
 ```
 
 The output should look similar to this:
@@ -127,4 +127,3 @@ You can further modify the inference using the following flags:
 | -o    | Number of output tokens |
 | --prompt   | Prompt that is fed to model  |
 | -i    | Number of iterations  |
-

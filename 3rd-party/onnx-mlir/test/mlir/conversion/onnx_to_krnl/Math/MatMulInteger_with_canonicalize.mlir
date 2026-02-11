@@ -159,4 +159,3 @@ func.func @test_matmulinteger_per_row_a(%arg0: tensor<16x32xui8>, %arg1: tensor<
 // CHECK:           return [[RES_6_]] : memref<16x64xi32>
 // CHECK:         }
 }
-

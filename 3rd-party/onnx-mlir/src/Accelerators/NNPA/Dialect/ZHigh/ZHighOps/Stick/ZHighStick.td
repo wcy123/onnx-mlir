@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef STICK_TD 
-#define STICK_TD 
+#ifndef STICK_TD
+#define STICK_TD
 
 #ifndef OP_BASE
 include "src/Accelerators/NNPA/Dialect/ZHigh/ZHigh.td"
@@ -31,7 +31,7 @@ include "src/Accelerators/NNPA/Dialect/ZHigh/ZHighOps/OpHelper.td"
 /// >;
 
 //===----------------------------------------------------------------------===//
-// DRR patterns 
+// DRR patterns
 //===----------------------------------------------------------------------===//
 
 def NoneTypeStickRemovalPattern : Pat<
@@ -78,7 +78,7 @@ def ReplaceONNXLeakyReluPattern: Pat<
                                              $out),
                                             $layout,
                                             // Donot saturate since input orignally from NNPA
-                                            (NoneIntegerAttr)), 
+                                            (NoneIntegerAttr)),
                               (returnType $X)),
                   (returnType $X))),
   [(IsStaticShapeTensor $X), (IsPlusConstantFloat $alpha),
@@ -127,7 +127,7 @@ def ReplaceONNXSoftplusPattern: Pattern<
 // zDNN-supported operations.
 //
 // In this rewriting pattern we use:
-//   - `exp(log(x)/2)` for `sqrt(x)`, and 
+//   - `exp(log(x)/2)` for `sqrt(x)`, and
 //   - `div(1,x) for `reciprocal`
 // So, `1/sqrt(X) = div(1, exp(log(x)/2)) = exp(log(x)/(-2))
 //                                        = exp(-0.5 * log(x))`
@@ -153,7 +153,7 @@ def ReplaceONNXReciprocalSqrtPattern: Pat<
 // ```
 //    %66 = "zhigh.Unstick"(%65) : (tensor<12x384x64xf16, #zhigh.layout<{dataLayout = "3DS"}>>) -> tensor<12x384x64xf32>
 //    %67 = "onnx.Reshape"(%66, %2) {allowzero = 0 : si64} : (tensor<12x384x64xf32>, tensor<4xi64>) -> tensor<1x12x384x64xf32>
-//    %68 = "onnx.Transpose"(%67) {onnx_node_name = "Transpose_94", perm = [0, 2, 1, 3]} : (tensor<1x12x384x64xf32>) -> tensor<1x384x12x64xf32> 
+//    %68 = "onnx.Transpose"(%67) {onnx_node_name = "Transpose_94", perm = [0, 2, 1, 3]} : (tensor<1x12x384x64xf32>) -> tensor<1x384x12x64xf32>
 //    %69 = "onnx.Reshape"(%68, %9) {allowzero = 0 : si64, onnx_node_name = "Reshape_104"} : (tensor<1x384x12x64xf32>, tensor<3xi64>) -> tensor<1x384x768xf32>
 //    %70 = "zhigh.Stick"(%69) {layout = "3DS"} : (tensor<1x384x768xf32>) -> tensor<1x384x768xf16, #zhigh.layout<{dataLayout = "3DS"}>>
 // ```
@@ -168,7 +168,7 @@ def ReplaceONNXReciprocalSqrtPattern: Pat<
 // High level intuition for this is that the reshape / transpose / reshape
 // perform some memory layout operations, which results in no change in the
 // 3DS representation as that representation also perform layout changes.
-// 
+//
 // Limitation: current pattern assume static sizes.
 
 def ReshapeTransposeReshapeRoberta3DSWPattern1 : Pat<
@@ -194,7 +194,7 @@ def ReshapeTransposeReshapeRoberta3DSWPattern1 : Pat<
      (IsShapeDimMultipleOf64<2> $X), // Third dim of input is a multiple of 64.
      (Is4DTransposePermutationEqualTo0213 $perm), // Permute middle 2 dims.
      (IsLeftmostTiling3DTo4D $reshape1), // 1st reshape is tiling in the leftmost dimension
-     (IsRightmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the last two dimensions. 
+     (IsRightmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the last two dimensions.
    ]
 >;
 
@@ -234,7 +234,7 @@ def ReshapeTransposeReshapeRoberta3DSWPattern2 : Pat<
      (IsShapeDimMultipleOf64<2> $X), // Third dim of input is a multiple of 64.
      (Is4DTransposePermutationEqualTo0213 $perm), // Permute middle 2 dims.
      (IsRightmostTiling3DTo4DBy64 $reshape1), // 1st reshape is tiling by 64 the rightmost dimension
-     (IsLeftmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the first two dimensions. 
+     (IsLeftmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the first two dimensions.
    ]
 >;
 
@@ -250,7 +250,7 @@ def ReshapeTransposeReshapeRoberta3DSWPattern2 : Pat<
 //  - the 1st Reshape can be expressed by an affine map, i.e. (d0, d1) -> (d0/256, d0%256, d1/64, d1%/64)
 //  - the Transpose can be expressed by an affine map, i.e. (d0, d1, d2, d3) -> (d0, d2, d1, d3), and
 //  - the 2nd Reshape can be expressed by an affine map, i.e. (d0, d1, d2, d3)  -> (d0*12+d1, d2, d3)
-// 
+//
 // Thus, we will replace Reshape, Transpose by onnx.ShapeTransform operations
 // that can be composed automatically into a single onnx.ShapeTransform.
 //
@@ -283,7 +283,7 @@ def ReshapeTransposeReshape2DTo3DSPattern : Pat<
    (IsStaticShapeTensor $reshape1), (IsStaticShapeTensor $transpose),
    (IsStaticShapeTensor $reshape2),(IsStaticShapeTensor $stick),
    (IsTiling2DTo4D $reshape1), // 1st reshape is tiling over each input dimension
-   (IsLeftmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the first two dimensions. 
+   (IsLeftmostCollapsing4DTo3D $reshape2), // 2nd reshape is collapsing the first two dimensions.
   ]
 >;
 
@@ -315,7 +315,7 @@ def ReshapeTransposeReshape3DSTo2DPattern : Pat<
    (IsStaticShapeTensor $reshape1), (IsStaticShapeTensor $transpose),
    (IsStaticShapeTensor $reshape2),(IsStaticShapeTensor $stick),
    (IsLeftmostTiling3DTo4D $reshape1), // 1st reshape is tiling over each input dimension
-   (IsCollapsing4DTo2D $reshape2), // 2nd reshape is collapsing the first two dimensions. 
+   (IsCollapsing4DTo2D $reshape2), // 2nd reshape is collapsing the first two dimensions.
   ]
 >;
 

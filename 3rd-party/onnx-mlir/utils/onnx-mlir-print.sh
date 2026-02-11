@@ -22,4 +22,3 @@
 # onnx-mlir options. It is not added by default
 
 onnx-mlir-truncate.sh ${@:1:$#-1} --mlir-print-ir-after-all ${@: -1}
-  

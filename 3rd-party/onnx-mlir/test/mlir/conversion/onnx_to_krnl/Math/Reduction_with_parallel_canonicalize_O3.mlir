@@ -147,4 +147,3 @@ func.func private @test_reducemean_v13_f32_big_enough(%arg0 : tensor<128x64x32xf
 // CHECK:           return [[RES_]] : memref<128x32xf32>
 // CHECK:         }
 }
-

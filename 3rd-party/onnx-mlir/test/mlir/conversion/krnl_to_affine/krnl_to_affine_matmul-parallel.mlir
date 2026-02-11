@@ -538,4 +538,3 @@ func.func @krnl_matmul_parallel_partial_blocks(%arg0: memref<127x255xf32> {onnx.
 // CHECK:           return [[RES_]] : memref<127x63xf32>
 // CHECK:         }
 }
-

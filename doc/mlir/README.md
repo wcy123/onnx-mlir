@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # MLIR Compilation Design Documents
 
 This directory contains detailed design documents for the MLIR-based compilation pipeline.

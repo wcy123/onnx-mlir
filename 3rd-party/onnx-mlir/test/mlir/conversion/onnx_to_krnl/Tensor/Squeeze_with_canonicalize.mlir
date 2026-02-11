@@ -33,4 +33,3 @@ func.func private @test_squeeze_unknown_dimensions(%arg0 : tensor<?x1x32x?x64xf3
 // CHECK:           return [[VAR_reinterpret_cast_]] : memref<?x32x64xf32>
 // CHECK:         }
 }
-

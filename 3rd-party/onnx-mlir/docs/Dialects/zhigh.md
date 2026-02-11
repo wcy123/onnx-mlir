@@ -1278,4 +1278,3 @@ Effects: `MemoryEffects::Effect{}`
 | Result | Description |
 | :----: | ----------- |
 | `Out` | tensor of 32-bit float values |
-

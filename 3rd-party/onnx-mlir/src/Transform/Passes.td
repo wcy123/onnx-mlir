@@ -36,7 +36,7 @@ def BufferOMPLoopHoistingPass : Pass<"buffer-omploop-hoisting", "func::FuncOp"> 
   let summary = "Hoist buffer(alloc and dealloc) for omp loops";
   let description = [{
     This pass hoists buffer alloc/dealloc from omp worksharing loop
-    to the omp.parallel, so that the buffer is created for each thread in 
+    to the omp.parallel, so that the buffer is created for each thread in
     the parallel struct only once.
     Example from:
 
@@ -62,7 +62,7 @@ def BufferOMPLoopHoistingPass : Pass<"buffer-omploop-hoisting", "func::FuncOp"> 
       memref.dealloc(%t);
     }
 
-    This function is similar to the BufferLoopHoistingPass, but for 
+    This function is similar to the BufferLoopHoistingPass, but for
     omp loops with alloc and dealloc. The wsloop is the destination place.
     It is assumed that bufferization::buildBufferDeallocationPipeline
     and createConvertBufferizationToMemRefPass() have been called.

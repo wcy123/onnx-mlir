@@ -1,13 +1,13 @@
 # Build the run-onnx-lib utility
 #
-# When called without parameters, we build the tool for dynamically linking of 
+# When called without parameters, we build the tool for dynamically linking of
 # a model. It will need to be passed at runtime.
 #
 # When called with one parameter, we build the tool for the model passed
-# as a parameter. 
+# as a parameter.
 #
 # Assumptions:
-# 1) script run in the onnx-mlir/build subdir. 
+# 1) script run in the onnx-mlir/build subdir.
 # 2) llvm-project is built with all its libraries (needed to run the tool)
 
 if [ -z $ONNX_MLIR_HOME ]; then

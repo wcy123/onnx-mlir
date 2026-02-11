@@ -34,5 +34,3 @@ module {
   }
   "onnx.EntryPoint"() {func = @main_graph} : () -> ()
 }
-
-

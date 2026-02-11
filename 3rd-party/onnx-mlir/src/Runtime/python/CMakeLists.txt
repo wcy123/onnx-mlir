@@ -42,7 +42,7 @@ endif()
 
 # Refer to onnx-mlir/CMakeList.txt
 # Since PyExecutionSessionBase include onnx/onnx_pb.h, absl lib may be needed.
-# Another solution is to simply add onnx into link library, which was tested 
+# Another solution is to simply add onnx into link library, which was tested
 # and proven. This solution seems more elegant to me.
 # However, not sure whether it is too much to link onnx to PyRuntimeC, though
 # third_party/onnx is built in both normal and light-weight driver
@@ -161,4 +161,3 @@ llvm_update_compile_flags(PyCompileAndRuntimeC)
 install(TARGETS PyCompileAndRuntimeC
   DESTINATION lib
   )
-

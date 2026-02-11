@@ -7,7 +7,7 @@ func.func @test_combine_conv_split(%arg0: tensor<1x1x512x512xf32>) -> tensor<1x9
   %2 = onnx.Constant dense<0.00999999976> : tensor<32x1x3x3xf32>
   %3 = onnx.Constant dense<0.00999999976> : tensor<32xf32>
   %4 = onnx.Constant dense<0.00999999976> : tensor<32x1x3x3xf32>
-  %5 = onnx.Constant dense<0.00999999976> : tensor<32xf32> 
+  %5 = onnx.Constant dense<0.00999999976> : tensor<32xf32>
   %6 = "onnx.Conv"(%arg0, %0, %1) {auto_pad = "NOTSET", group = 1 : si64, pads = [1, 1, 1, 1]} : (tensor<1x1x512x512xf32>, tensor<32x1x3x3xf32>, tensor<32xf32>) -> tensor<1x32x512x512xf32> loc("conv1")
   %7 = "onnx.Conv"(%arg0, %2, %3) {auto_pad = "NOTSET", group = 1 : si64, pads = [1, 1, 1, 1]} : (tensor<1x1x512x512xf32>, tensor<32x1x3x3xf32>, tensor<32xf32>) -> tensor<1x32x512x512xf32> loc("conv2")
   %8 = "onnx.Conv"(%arg0, %4, %5) {auto_pad = "NOTSET", group = 1 : si64, pads = [1, 1, 1, 1]} : (tensor<1x1x512x512xf32>, tensor<32x1x3x3xf32>, tensor<32xf32>) -> tensor<1x32x512x512xf32> loc("conv3")

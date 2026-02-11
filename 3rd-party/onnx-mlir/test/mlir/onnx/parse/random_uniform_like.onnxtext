@@ -4,7 +4,7 @@
    ir_version: 4,
    opset_import: ["" : 9]
 >
-test_eye_like_dtype (float[unk__a,unk__b] RandomUniformLike_in) => (bfloat16[] RandomUniformLike_out) 
+test_eye_like_dtype (float[unk__a,unk__b] RandomUniformLike_in) => (bfloat16[] RandomUniformLike_out)
 {
    RandomUniformLike_out = RandomUniformLike<dtype: int = 16> (RandomUniformLike_in)
 }

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef RECOMPOSE_TO_STICK_UNSTICK_TD 
-#define RECOMPOSE_TO_STICK_UNSTICK_TD 
+#ifndef RECOMPOSE_TO_STICK_UNSTICK_TD
+#define RECOMPOSE_TO_STICK_UNSTICK_TD
 
 #ifndef OP_BASE
 include "src/Accelerators/NNPA/Dialect/ZHigh/ZHigh.td"
@@ -31,7 +31,7 @@ include "src/Accelerators/NNPA/Dialect/ZHigh/ZHighOps/OpHelper.td"
 /// >;
 
 //===----------------------------------------------------------------------===//
-// DRR patterns 
+// DRR patterns
 //===----------------------------------------------------------------------===//
 
 def NoneLayoutAttr: NativeCodeCall<"StringAttr()">;

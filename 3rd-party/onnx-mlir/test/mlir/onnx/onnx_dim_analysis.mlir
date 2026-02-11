@@ -497,7 +497,7 @@ func.func @test_correct_dimgroup_axis_for_onnx_dim(%arg0: tensor<1x?xi64>) -> te
   %1 = "onnx.Dim"(%arg0) {axis = 1 : si64} : (tensor<1x?xi64>) -> tensor<1xi64>
   %2 = "onnx.Concat"(%0, %0, %0, %1) {axis = 0 : si64} : (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) -> tensor<4xi64>
   %3 = onnx.ConstantOfShape(%2) {value = dense<0.000000e+00> : tensor<1xf32>} : (tensor<4xi64>) -> tensor<1x1x1x?xf32>
-  return %3: tensor<1x1x1x?xf32> 
+  return %3: tensor<1x1x1x?xf32>
 
 // CHECK-LABEL:  func.func @test_correct_dimgroup_axis_for_onnx_dim
 // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x?xi64>) -> tensor<1x1x1x?xf32> {
@@ -509,12 +509,12 @@ func.func @test_correct_dimgroup_axis_for_onnx_dim(%arg0: tensor<1x?xi64>) -> te
 // CHECK:           "onnx.DimGroup"([[VAR_3_]]) <{axis = 3 : si64, group_id = 0 : si64}> : (tensor<1x1x1x?xf32>) -> ()
 // CHECK:           return [[VAR_3_]] : tensor<1x1x1x?xf32>
 // CHECK:         }
-}  
+}
 
 // -----
 
 func.func @test_matmul_reduction_dimension(%arg0: tensor<5x?xf32>, %arg1: tensor<?x10xf32>) -> tensor<5x10xf32> {
-  %0 =  "onnx.MatMul"(%arg0, %arg1) : (tensor<5x?xf32>, tensor<?x10xf32>) -> tensor<5x10xf32> 
+  %0 =  "onnx.MatMul"(%arg0, %arg1) : (tensor<5x?xf32>, tensor<?x10xf32>) -> tensor<5x10xf32>
   return %0 : tensor<5x10xf32>
 // CHECK-LABEL:  func.func @test_matmul_reduction_dimension
 // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<5x?xf32>, [[PARAM_1_:%.+]]: tensor<?x10xf32>) -> tensor<5x10xf32> {
@@ -528,7 +528,7 @@ func.func @test_matmul_reduction_dimension(%arg0: tensor<5x?xf32>, %arg1: tensor
 // -----
 
 func.func @test_gemm_reduction_dimension(%arg0: tensor<5x?xf32>, %arg1: tensor<?x10xf32>, %arg2: tensor<10xf32>) -> tensor<5x10xf32> {
-  %0 =  "onnx.Gemm"(%arg0, %arg1, %arg2) : (tensor<5x?xf32>, tensor<?x10xf32>, tensor<10xf32>) -> tensor<5x10xf32> 
+  %0 =  "onnx.Gemm"(%arg0, %arg1, %arg2) : (tensor<5x?xf32>, tensor<?x10xf32>, tensor<10xf32>) -> tensor<5x10xf32>
   return %0 : tensor<5x10xf32>
 
 // CHECK-LABEL:  func.func @test_gemm_reduction_dimension
@@ -543,7 +543,7 @@ func.func @test_gemm_reduction_dimension(%arg0: tensor<5x?xf32>, %arg1: tensor<?
 // -----
 
 func.func @test_gemm_reduction_dimension_trans(%arg0: tensor<?x5xf32>, %arg1: tensor<10x?xf32>, %arg2: tensor<10xf32>) -> tensor<5x10xf32> {
-  %0 =  "onnx.Gemm"(%arg0, %arg1, %arg2) {transA = 1 : si64, transB = 1 : si64} : (tensor<?x5xf32>, tensor<10x?xf32>, tensor<10xf32>) -> tensor<5x10xf32> 
+  %0 =  "onnx.Gemm"(%arg0, %arg1, %arg2) {transA = 1 : si64, transB = 1 : si64} : (tensor<?x5xf32>, tensor<10x?xf32>, tensor<10xf32>) -> tensor<5x10xf32>
   return %0 : tensor<5x10xf32>
 
 // CHECK-LABEL:  func.func @test_gemm_reduction_dimension_trans
@@ -635,6 +635,5 @@ func.func @test_rnn_input_dims(%X: tensor<?x?x10xf32>, %W: tensor<1x4x10xf32>, %
 // CHECK-DAG:       "onnx.DimGroup"([[PARAM_0_]]) <{axis = 0 : si64, group_id = 0 : si64}> : (tensor<?x?x10xf32>) -> ()
 // CHECK:           [[Y_:%.+]], [[VAR_Y_h_:%.+]] = "onnx.RNN"([[PARAM_0_]], [[PARAM_1_]], [[PARAM_2_]], [[PARAM_3_]], [[PARAM_4_]], [[PARAM_5_]]) <{activations = ["Tanh", "Tanh"], direction = "forward", hidden_size = 4 : si64, layout = 0 : si64}> : (tensor<?x?x10xf32>, tensor<1x4x10xf32>, tensor<1x4x4xf32>, tensor<1x8xf32>, tensor<?xi32>, tensor<?x?x4xf32>) -> (none, tensor<*xf32>)
 // CHECK:           return [[VAR_Y_h_]] : tensor<*xf32>
-// CHECK:         } 
+// CHECK:         }
 }
-

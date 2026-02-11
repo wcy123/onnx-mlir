@@ -28,7 +28,7 @@ func.func @test_krnl_global_constant_alignment() -> memref<3xf32> {
 
 // -----
 
-// Test that the global constant is aligned on a 16 bytes boundary when an explicit alignment is not specified. 
+// Test that the global constant is aligned on a 16 bytes boundary when an explicit alignment is not specified.
 func.func @test_krnl_global_constant_no_alignment() -> memref<2xi64> {
   %0 = "krnl.global"() {name = "constant", shape = [2], value = dense<[0, 1]> : tensor<2xi64>} : () -> memref<2xi64>
   return %0 : memref<2xi64>

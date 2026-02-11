@@ -27,4 +27,3 @@ func.func @test_mul_constant_1_loc(%arg0 : tensor<3xf32>) -> tensor<3xf32> {
   // CHECK-DAG:      [[LOC_CONST]] = loc("Constant")
   // CHECK-DAG:      [[LOC_MUL]] = loc("Mul")
 }
-

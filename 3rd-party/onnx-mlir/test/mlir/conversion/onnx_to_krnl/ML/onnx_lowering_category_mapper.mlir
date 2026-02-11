@@ -17,7 +17,7 @@ func.func private @test_category_mapper_string_to_int64(%arg0 : tensor<2x2x!onnx
   // CHECK-DAG: [[DEFAULT_INT64:%.+]] = arith.constant -1 : i64
   // CHECK-DAG: [[ZERO:%.+]] = arith.constant 0 : i32
   // CHECK-DAG: [[LOOP_0:%.+]]:2 = krnl.define_loops 2
-  // CHECK:     krnl.iterate([[LOOP_0]]#0, [[LOOP_0]]#1) with ([[LOOP_0]]#0 -> [[I_0:%.+]] = 0 to 2, [[LOOP_0]]#1 -> [[I_1:%.+]] = 0 to 2){  
+  // CHECK:     krnl.iterate([[LOOP_0]]#0, [[LOOP_0]]#1) with ([[LOOP_0]]#0 -> [[I_0:%.+]] = 0 to 2, [[LOOP_0]]#1 -> [[I_1:%.+]] = 0 to 2){
   // CHECK:     [[IVS:%.+]]:2 = krnl.get_induction_var_value([[LOOP_0]]#0, [[LOOP_0]]#1) : (!krnl.loop, !krnl.loop) -> (index, index)
   // CHECK:     [[LOAD1:%.+]] = krnl.load %arg0{{.}}[[IVS]]#0, [[IVS]]#1{{.}} : memref<2x2x!krnl.string>
   // CHECK:     [[INDEX:%.+]] = "krnl.find_index"([[LOAD1]], [[G]], [[V]], [[LEN]]) : (!krnl.string, memref<3xi32>, memref<3xi32>, i32) -> index
@@ -60,7 +60,7 @@ func.func private @test_category_mapper_int64_to_string(%arg0 : tensor<2x2xi64>)
   // CHECK:     [[LOAD3:%.+]] = krnl.load [[CAT_STRINGS]]{{.}}[[INDEX]]{{.}} : memref<3x!krnl.string>
   // CHECK:     krnl.store [[LOAD3]], [[ALLOCA]]{{.}}[[IVS]]#0, [[IVS]]#1{{.}} : memref<2x2x!krnl.string>
   // CHECK:     } else {
-  // CHECK:     [[LOAD4:%.+]] = krnl.load [[DEFAULT_STRING]][] : memref<!krnl.string>    
+  // CHECK:     [[LOAD4:%.+]] = krnl.load [[DEFAULT_STRING]][] : memref<!krnl.string>
   // CHECK:     krnl.store [[LOAD4]], [[ALLOCA]]{{.}}[[IVS]]#0, [[IVS]]#1{{.}} : memref<2x2x!krnl.string>
   // CHECK:     }
   // CHECK:     return [[ALLOCA]] : memref<2x2x!krnl.string>

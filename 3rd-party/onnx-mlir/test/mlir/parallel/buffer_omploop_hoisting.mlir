@@ -7,7 +7,7 @@ func.func @omploop_hoist_basic() {
   %c1 = arith.constant 1 : index
   %c4 = arith.constant 4 : index
   %c512 = arith.constant 512 : index
-  
+
   omp.parallel {
     omp.wsloop {
       omp.loop_nest (%arg3) : index = (%c0) to (%c512) step (%c4) {
@@ -172,7 +172,7 @@ func.func @omploop_hoist_check_dealloc() {
   %c1 = arith.constant 1 : index
   %c4 = arith.constant 4 : index
   %c512 = arith.constant 512 : index
-  
+
   omp.parallel {
     omp.wsloop {
       omp.loop_nest (%arg3) : index = (%c0) to (%c512) step (%c4) {
@@ -217,7 +217,7 @@ func.func @omploop_hoist_alloca() {
   %c1 = arith.constant 1 : index
   %c4 = arith.constant 4 : index
   %c512 = arith.constant 512 : index
-  
+
   omp.parallel {
     omp.wsloop {
       omp.loop_nest (%arg3) : index = (%c0) to (%c512) step (%c4) {

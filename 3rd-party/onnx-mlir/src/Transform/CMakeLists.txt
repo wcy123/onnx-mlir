@@ -55,7 +55,7 @@ add_onnx_mlir_library(OMInstrument
 
 add_onnx_mlir_library(BufferOMPLoopHoist
   BufferOMPLoopHoist.cpp
-  
+
   DEPENDS
   OMTransformsPassIncGen
 

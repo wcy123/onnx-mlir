@@ -470,7 +470,7 @@ def replaceONNXReduceMeanV13Pattern : Pat<
 //===----------------------------------------------------------------------===//
 def replaceONNXReduceMaxPattern : Pat<
   (ONNXReduceMaxOp:$res $data, $axes, $keepdims, $noop_with_empty_axes),
-  (ZHighUnstickOp (ZHighReduceMaxOp (ZHighStickOp:$s_x $data, (NoneLayoutAttr), 
+  (ZHighUnstickOp (ZHighReduceMaxOp (ZHighStickOp:$s_x $data, (NoneLayoutAttr),
                                     (GetDefaultSaturation)))),
   [(IsCompatibleWithNNPALevelArch15)]
 >;
@@ -483,7 +483,7 @@ def replaceONNXReduceMaxPattern : Pat<
 //===----------------------------------------------------------------------===//
 def replaceONNXReduceMinPattern : Pat<
   (ONNXReduceMinOp:$res $data, $axes, $keepdims, $noop_with_empty_axes),
-  (ZHighUnstickOp (ZHighReduceMinOp (ZHighStickOp:$s_x $data, (NoneLayoutAttr), 
+  (ZHighUnstickOp (ZHighReduceMinOp (ZHighStickOp:$s_x $data, (NoneLayoutAttr),
                                     (GetDefaultSaturation)))),
   [(IsCompatibleWithNNPALevelArch15)]
 >;
@@ -618,7 +618,7 @@ def replaceONNXMatMulPattern : Pat<
 //===----------------------------------------------------------------------===//
 
 // Be careful, this check is very specific to '$0' of rank 2 and '$1' of rank 1.
-// Limitation: requires dim to be static. 
+// Limitation: requires dim to be static.
 def HaveSameLastDimR2R1: Constraint<
   CPred<"(!mlir::cast<ShapedType>($0.getType()).isDynamicDim(1))" #
         " && (!mlir::cast<ShapedType>($1.getType()).isDynamicDim(0))" #
@@ -656,7 +656,7 @@ def replaceONNXMatMulAddUnstackedOrBCast23Pattern2 : Pat<
         (ZHighStickOp $b, (GetMatMulBiasLayoutStringAttr (GetRank $x),
                                                          (GetRank $y)), (GetDefaultSaturation)),
         (GetZeroI64Attr), (GetZeroI64Attr))),
-  [(HasRankOf<2> $y), (HasRankOf<1> $b), (HaveSameLastDimR2R1 $y, $b), 
+  [(HasRankOf<2> $y), (HasRankOf<1> $b), (HaveSameLastDimR2R1 $y, $b),
    (IsMatMulLegalForZDNN $m)], [],
   (addBenefit 0)
 >;
@@ -665,7 +665,7 @@ def replaceONNXMatMulAddUnstackedOrBCast23Pattern2 : Pat<
 // Replace onnx.add and onnx.matmul with stacked tensors with ZHighMatMul
 //===----------------------------------------------------------------------===//
 
-// Be careful, this check if the first and the last dim (of ranked 3 vectors) 
+// Be careful, this check if the first and the last dim (of ranked 3 vectors)
 // are the same: testing s & p in (s,n,p) with (s, 1, p)
 def HaveSameFirstAndLastDimR3: Constraint<
   CPred<"(!mlir::cast<ShapedType>($0.getType()).isDynamicDim(0))" #

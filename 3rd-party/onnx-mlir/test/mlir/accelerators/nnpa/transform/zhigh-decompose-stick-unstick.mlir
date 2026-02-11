@@ -212,4 +212,3 @@ func.func @test_nhwc(%arg0: tensor<1x3x5x?xf16, #zhigh.layout<{dataLayout = "NHW
 // CHECK:           return [[VAR_2_]] : tensor<1x5x3x?xf16, #zhigh.layout<{dataLayout = "NHWC"}>>
 // CHECK:         }
 }
-

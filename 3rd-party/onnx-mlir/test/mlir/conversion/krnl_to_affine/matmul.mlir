@@ -1,7 +1,7 @@
-// RUN: onnx-mlir-opt -O3 --convert-krnl-to-affine --canonicalize %s -split-input-file 
+// RUN: onnx-mlir-opt -O3 --convert-krnl-to-affine --canonicalize %s -split-input-file
 
 // disabled for testing
-//| FileCheck %s 
+//| FileCheck %s
 
 // -----
 
@@ -17,8 +17,8 @@ func.func private @matmulKrnl_full_tiles(%A: memref<4x6xf32>, %B: memref<6x8xf32
     krnl.permute(%ib, %il, %jb, %jl, %kb, %kl) [0, 3, 1, 4, 2, 5] : !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop
     krnl.iterate(%ib, %jb, %kb) with (%ii -> %i = 0 to 4, %jj -> %j = 0 to 8, %kk -> %k = 0 to 6) {
         //%iii, %jjj, %kkk = krnl.get_induction_var_value(%ib, %jb, %kb) : (!krnl.loop, !krnl.loop, !krnl.loop) -> (index, index, index)
-        krnl.matmul %A [%c0, %c0], %B[%c0, %c0], %C[%c0, %c0], (%il, %jl, %kl), (%c0, %c0, %c0), (%c4, %c8, %c6) 
-            {unroll=false, simdize=true} : 
+        krnl.matmul %A [%c0, %c0], %B[%c0, %c0], %C[%c0, %c0], (%il, %jl, %kl), (%c0, %c0, %c0), (%c4, %c8, %c6)
+            {unroll=false, simdize=true} :
             memref<4x6xf32>, memref<6x8xf32>, memref<4x8xf32>, (!krnl.loop, !krnl.loop, !krnl.loop)
     }
     return
@@ -57,17 +57,17 @@ func.func private @matmulKrnl_full_tiles(%A: memref<4x6xf32>, %B: memref<6x8xf32
 
 // -----
 
-func.func @matmulKrnl_runtime(%A: memref<4x6xf32>, %B: memref<6x8xf32>, %C: memref<4x8xf32>, 
-        %sn: index, %sm: index, %sk: index, 
+func.func @matmulKrnl_runtime(%A: memref<4x6xf32>, %B: memref<6x8xf32>, %C: memref<4x8xf32>,
+        %sn: index, %sm: index, %sk: index,
         %dn: index, %dm: index, %dk: index) {
-    %c0 = arith.constant 0: index 
+    %c0 = arith.constant 0: index
     %ii, %jj, %kk = krnl.define_loops 3
     %ib, %il = krnl.block %ii 4 : (!krnl.loop) -> (!krnl.loop, !krnl.loop)
     %jb, %jl = krnl.block %jj 8 : (!krnl.loop) -> (!krnl.loop, !krnl.loop)
     %kb, %kl = krnl.block %kk 6 : (!krnl.loop) -> (!krnl.loop, !krnl.loop)
     krnl.permute(%ib, %il, %jb, %jl, %kb, %kl) [0, 3, 1, 4, 2, 5] : !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop, !krnl.loop
     krnl.iterate(%ib, %jb, %kb) with (%ii -> %i = 0 to 4, %jj -> %j = 0 to 8, %kk -> %k = 0 to 6) {
-        krnl.matmul %A[%c0,%c0], %B[%c0,%c0], %C[%c0,%c0], (%il, %jl, %kl), (%sn, %sm, %sk), (%dn, %dm, %dk) {simdize=true, unroll=false} : 
+        krnl.matmul %A[%c0,%c0], %B[%c0,%c0], %C[%c0,%c0], (%il, %jl, %kl), (%sn, %sm, %sk), (%dn, %dm, %dk) {simdize=true, unroll=false} :
           memref<4x6xf32>, memref<6x8xf32>, memref<4x8xf32>, (!krnl.loop, !krnl.loop, !krnl.loop)
     }
     return

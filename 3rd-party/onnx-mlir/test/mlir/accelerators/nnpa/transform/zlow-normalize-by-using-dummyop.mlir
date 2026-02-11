@@ -18,4 +18,3 @@ module {
   // PASSED:           return [[RES_]] : memref<1x1x3x1x32x64xf16>
   // PASSED:         }
 }
-

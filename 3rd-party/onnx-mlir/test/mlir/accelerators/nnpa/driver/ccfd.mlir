@@ -25,7 +25,7 @@
 // No stick and unstick between two LSTMs.
 // CHECK-NOT: zlow.stick
 // CHECK-NOT: zlow.unstick
-// 
+//
 // CHECK-DAG: krnl.global
 // CHECK-DAG: krnl.global
 // CHECK-DAG: krnl.global
@@ -36,24 +36,24 @@
 // CHECK-DAG: krnl.global
 // CHECK-DAG: memref.alloc
 // CHECK-NEXT: zlow.lstm
-// 
+//
 // No stick and unstick in between.
 // CHECK-NOT: zlow.stick
 // CHECK-NOT: zlow.unstick
-// 
+//
 // CHECK-DAG: krnl.global
 // CHECK-DAG: krnl.global
 // CHECK-DAG: memref.alloc
 // CHECK-DAG: krnl.global
 // CHECK-NEXT: zlow.matmul
-// 
+//
 // No stick and unstick in between.
 // CHECK-NOT: zlow.stick
 // CHECK-NOT: zlow.unstick
-// 
+//
 // CHECK-DAG: memref.alloc
 // CHECK-DAG: krnl.global
 // CHECK-NEXT: zlow.sigmoid
-// 
+//
 // CHECK: memref.alloc
 // CHECK-NEXT: zlow.unstick

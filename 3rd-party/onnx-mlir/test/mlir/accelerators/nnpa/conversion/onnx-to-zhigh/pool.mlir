@@ -158,7 +158,7 @@ func.func @test_pool_2d_not_lowered_kernel_greater_than_64(%arg0: tensor<1x3x65x
 func.func @test_pool_not_lowered_not_same_padding(%arg0: tensor<1x3x32x32xf32>) -> tensor<*xf32> {
   %0 = "onnx.MaxPoolSingleOut"(%arg0) {auto_pad = "NOTSET", dilations = [1, 1], kernel_shape = [2, 2], pads = [0, 0, 2, 2], strides = [1, 1]} : (tensor<1x3x32x32xf32>) -> tensor<*xf32>
   return %0 : tensor<*xf32>
-  // CHECK: "onnx.MaxPoolSingleOut" 
+  // CHECK: "onnx.MaxPoolSingleOut"
 }
 
 // -----

@@ -54,4 +54,3 @@ func.func @add_with_par(%arg0: memref<16x8x128xf32>) -> (memref<16x8x128xf32>)  
 // CHECK:           return [[RES_]] : memref<16x8x128xf32>
 // CHECK:         }
 }
-

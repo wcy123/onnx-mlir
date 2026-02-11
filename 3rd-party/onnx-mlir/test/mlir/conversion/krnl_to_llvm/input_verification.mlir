@@ -79,7 +79,7 @@ module {
 // CHECK:           [[VAR_41_:%.+]] = llvm.call @__errno_location() : () -> !llvm.ptr
 // CHECK:           llvm.store [[VAR_15_1_]], [[VAR_41_]] : i32, !llvm.ptr
 // CHECK:           llvm.return [[VAR_14_2_]] : !llvm.ptr
-// CHECK:         ^bb10:  // pred: ^bb8 
+// CHECK:         ^bb10:  // pred: ^bb8
 // CHECK:           [[VAR_42_:%.+]] = llvm.getelementptr [[VAR_32_]][2] : (!llvm.ptr) -> !llvm.ptr, i64
 // CHECK:           [[LOAD_VAR_40_MEM_:%.+]] = llvm.load [[VAR_42_]] : !llvm.ptr -> i64
 // CHECK:           [[VAR_42_0_:%.+]] = llvm.icmp "ne" [[VAR_7_2_]], [[LOAD_VAR_40_MEM_]] : i64

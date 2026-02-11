@@ -1,6 +1,6 @@
 // RUN: onnx-mlir --printIR --EmitONNXIR %s | FileCheck %s
 
-// COM: Check that Dequantize-MatMul-Quantize is always recomposed to QLinearMatMul before the removal of Quantize-Dequantize is applied. 
+// COM: Check that Dequantize-MatMul-Quantize is always recomposed to QLinearMatMul before the removal of Quantize-Dequantize is applied.
 // COM: Otherwise, the recomposition of QLinearMatMul failed due to pattern mismatched (lack of DequantizeLinear).
 module {
   func.func @qlinear_matmul(%arg0: tensor<?x?x768xf32>, %arg1: tensor<f32>, %arg2: tensor<i8>, %arg3: tensor<768x768xi8>, %arg4: tensor<f32>, %arg5: tensor<i8>, %arg6: tensor<f32>, %arg7: tensor<i8>) -> (tensor<?x?x768xi8>) {
@@ -10,7 +10,7 @@ module {
       %3 = "onnx.MatMul"(%1, %2) : (tensor<?x?x768xf32>, tensor<768x768xf32>) -> tensor<?x?x768xf32>
       %4 = "onnx.QuantizeLinear"(%3, %arg6, %arg7) {axis = 1 : si64} : (tensor<?x?x768xf32>, tensor<f32>, tensor<i8>) -> tensor<?x?x768xi8>
       return %4: tensor<?x?x768xi8>
-  
+
   }
   "onnx.EntryPoint"() {func = @main_graph} : () -> ()
 

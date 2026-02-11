@@ -22,7 +22,7 @@ compile_args="-O3 -mcpu=z17 -maccel=NNPA -profile-ir=ZHigh"
 dims=(128 256 512 1024 2048 3072 4096)
 #dims=(512 1024)
 
-for m in ${dims[@]} 
+for m in ${dims[@]}
 do
   for k in ${dims[@]}
   do
@@ -40,7 +40,7 @@ do
         "onnx.EntryPoint"() {func = @main_graph} : () -> ()
       }
 EOF
-      
+
       echo "  Quantization"
       # Instrument file in log dir.
       export ONNX_MLIR_INSTRUMENT_FILE=log/${m}-${k}-${n}-compile-quant.log

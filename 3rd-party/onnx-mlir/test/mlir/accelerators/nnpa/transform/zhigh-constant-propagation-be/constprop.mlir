@@ -66,7 +66,7 @@ func.func @remove_stick_2ds() -> tensor<2x3xf16, #zhigh.layout<{dataLayout = "2D
 
 // -----
 
-// COM: Test constant stickify for layout 3D. 
+// COM: Test constant stickify for layout 3D.
 // CHECK: func @remove_stick_3d() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "3D"}>> {
 func.func @remove_stick_3d() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "3D"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[0., 1., 2.], [3., 4., 5.]]]> : tensor<1x2x3xf32>} : () -> tensor<1x2x3xf32>
@@ -87,7 +87,7 @@ func.func @remove_stick_3d() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "3
 
 // -----
 
-// COM: Test constant stickify for layout 3DS. 
+// COM: Test constant stickify for layout 3DS.
 // CHECK: func @remove_stick_3ds() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "3DS"}>> {
 func.func @remove_stick_3ds() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "3DS"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[0., 1., 2.], [3., 4., 5.]]]> : tensor<1x2x3xf32>} : () -> tensor<1x2x3xf32>
@@ -108,7 +108,7 @@ func.func @remove_stick_3ds() -> tensor<1x2x3xf16, #zhigh.layout<{dataLayout = "
 
 // -----
 
-// COM: Test constant stickify for layout 4D. 
+// COM: Test constant stickify for layout 4D.
 // CHECK: func @remove_stick_4d() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "4D"}>> {
 func.func @remove_stick_4d() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "4D"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[[0., 1., 2.], [3., 4., 5.]]]]> : tensor<1x1x2x3xf32>} : () -> tensor<1x1x2x3xf32>
@@ -129,7 +129,7 @@ func.func @remove_stick_4d() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = 
 
 // -----
 
-// COM: Test constant stickify for layout NHWC. 
+// COM: Test constant stickify for layout NHWC.
 // CHECK: func @remove_stick_nhwc() -> tensor<1x2x3x1xf16, #zhigh.layout<{dataLayout = "NHWC"}>> {
 func.func @remove_stick_nhwc() -> tensor<1x2x3x1xf16, #zhigh.layout<{dataLayout = "NHWC"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[[0., 1., 2.], [3., 4., 5.]]]]> : tensor<1x1x2x3xf32>} : () -> tensor<1x1x2x3xf32>
@@ -150,7 +150,7 @@ func.func @remove_stick_nhwc() -> tensor<1x2x3x1xf16, #zhigh.layout<{dataLayout 
 
 // -----
 
-// COM: Test constant stickify for layout NCHW. 
+// COM: Test constant stickify for layout NCHW.
 // CHECK: func @remove_stick_nchw() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "NCHW"}>> {
 func.func @remove_stick_nchw() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "NCHW"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[[0., 1., 2.], [3., 4., 5.]]]]> : tensor<1x1x2x3xf32>} : () -> tensor<1x1x2x3xf32>
@@ -171,7 +171,7 @@ func.func @remove_stick_nchw() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout 
 
 // -----
 
-// COM: Test constant stickify for layout CNNK_HWCK. 
+// COM: Test constant stickify for layout CNNK_HWCK.
 // CHECK: func @remove_stick_cnnk_hwck() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "HWCK"}>> {
 func.func @remove_stick_cnnk_hwck() -> tensor<1x1x2x3xf16, #zhigh.layout<{dataLayout = "HWCK"}>> {
   %inp = "onnx.Constant"() {value = dense<[[[[0., 1., 2.], [3., 4., 5.]]]]> : tensor<1x1x2x3xf32>} : () -> tensor<1x1x2x3xf32>

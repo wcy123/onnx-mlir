@@ -16,11 +16,11 @@ To invoke the test, use the following command:
 
 ```
 cmake --build . --config Release --target check-onnx-backend[-jni]
-``` 
+```
 Packages, such as third_party/onnx, needs to be installed to run the backend test. You can install your own onnx package with command `pip install your-onnx-mlir/third_party/onnx`.
 JNI test requires the jsoniter jar which is downloaded from its maven repository by default if no installed version is found on the system. If the user turns on the cmake option `ONNX_MLIR_BUILD_JSONITER` when building ONNX-MLIR, the jsoniter jar will be built locally from the source cloned from its github repository. Note that building jsoniter jar locally requires the maven build tool to be installed.
 
-All the test cases provided by onnx package are listed in file `test/backend/all_test_names.txt`. check-onnx-backend will selectively run some of them. 
+All the test cases provided by onnx package are listed in file `test/backend/all_test_names.txt`. check-onnx-backend will selectively run some of them.
 The node and model tests in onnx that will be run by check-onnx-backend is defined by variable test_to_enable in `test/backend/test.py`. User can test one test case by environment variable `TEST_CASE_BY_USER`. For example,
 ```
 TEST_CASE_BY_USER=selected_test_name cmake --build . --config Release --target check-onnx-backend[-jni]
@@ -44,10 +44,10 @@ indicates that the test `test_and2d_cpu` can run (1) with static shape, (2) with
 
 ### Tests with unknown dimensions
 
-Testing with dynamic tensor sizes is most easily performed by using the following command, also used by our checkers. 
+Testing with dynamic tensor sizes is most easily performed by using the following command, also used by our checkers.
 ```
 cmake --build . --config Release --target check-onnx-backend-dynamic[-jni]
-``` 
+```
 
 The onnx node tests usually have known dimension size for input tensors. So, to test tensor with unknown dimension, the model importer (Build/FrontendONNXTransformer.cpp) provides a functionality to generate such cases. When the environment variable, `IMPORTER_FORCE_DYNAMIC`, is set, the frontend import will turn the all the dimensions (by default) of all the input tensors of the model into -1. For example,
 ```
@@ -136,10 +136,10 @@ Models can also be preserved when built in other manners by setting the
 `overridePreserveFiles` value in the `onnx-mlir/src/Compiler/CompilerUtils.cpp` file to
 `KeepFilesOfType::All`, for example.
 
-When the onnx model is older than the current version supported by onnx-mlir, 
-onnx version converter can be invoked with environment variable `INVOKECONVERTER` set 
-to true. For example, converter will be called for all test cases for 
-`INVOKECONVERTER=true make check-onnx-backend`. 
+When the onnx model is older than the current version supported by onnx-mlir,
+onnx version converter can be invoked with environment variable `INVOKECONVERTER` set
+to true. For example, converter will be called for all test cases for
+`INVOKECONVERTER=true make check-onnx-backend`.
 In test.py, there is a list called `test_need_converter` for you to invoke converter on individual cases.
 
 The tool directly scans the signature provided by the model, initializes the needed inputs with random
@@ -190,7 +190,7 @@ func @test_default_transpose(%arg0 : tensor<5x5x1x32xf32>) -> tensor<*xf32> {
   "std.return"(%0) : (tensor<*xf32>) -> ()
 ```
 
-You can run the shape inference pass  on this test case, and get the following 
+You can run the shape inference pass  on this test case, and get the following
 output:
 ```
 module  {
@@ -204,7 +204,7 @@ Manually check whether the output is correct.
 If the output is correct, cover the output to what can be automatically checked
 in future. Use command:
 ```
-Debug/bin/onnx-mlir-opt --shape-inference test.mlir | python ../utils/mlir2FileCheck.py 
+Debug/bin/onnx-mlir-opt --shape-inference test.mlir | python ../utils/mlir2FileCheck.py
 ```
 You will get the following:
 ```
@@ -215,18 +215,18 @@ You will get the following:
 // CHECK:           return [[VAR_0_]] : tensor<32x1x5x5xf32>
 // CHECK:         }
 ```
-Combine the source and the check code and add to the adequate test cases. 
+Combine the source and the check code and add to the adequate test cases.
 All the test cases for onnx dialect are collected under test/mlir/onnx directory.
-These test cases can be invoked with `make check-onnx-lit`. 
+These test cases can be invoked with `make check-onnx-lit`.
 This target is an essential requirement for a build.
 
 ## Numerical Tests
 
 Numerical tests are used to test for numerical correctness in addition to the tests provided by the ONNX package.
 The goal is to provide extensive numerical value based unit tests; this is very important for ensuring that
-optimization transformations are valid and correct: more corner cases will arise as we specialize for specific 
-architecture parameters (like vector width). Numerical tests generates extensive amount of numerical value-based 
-unit tests based on simple, naive (and extremely slow) implementation of operations being tested, used to verify 
+optimization transformations are valid and correct: more corner cases will arise as we specialize for specific
+architecture parameters (like vector width). Numerical tests generates extensive amount of numerical value-based
+unit tests based on simple, naive (and extremely slow) implementation of operations being tested, used to verify
 the correctness of our operation lowering and optimization.
 
 Numerical tests should be structured such that the following two components are independent and separate:
@@ -268,7 +268,7 @@ test case parameters and invoke the value checking function `isOMConvTheSameAsNa
   });
   assert(success && "error while performing RapidCheck tests");
 ```
-  
+
 Sometimes it is convenient to be able to see the mlir files associated with a
 numerical tests. To do so, the easiest is to set the `overridePreserveFiles`
 variable in `src/Compiler/CompilerUtils.cpp` to the types of files that you want to
@@ -387,7 +387,7 @@ $ ONNX_MLIR_HOME=/onnx-mlir/build/Release/ python RunONNXModelZoo.py -m mnist-8 
 ```
 Run the script with `-h` to see all the options. In addition to the `-m` flag to specify a model and `-c` flag to specify the compile options, useful options are the `-k` flag to leave the onnx model in the current directory as a `.tgz` file, and the `-l debug` flag to print lots of debugging info.
 
-To find out which models are available, run the script with `-p` to print the list of available models; or `-m` followed by an incomplete name, and the script will suggest the exact names. 
+To find out which models are available, run the script with `-p` to print the list of available models; or `-m` followed by an incomplete name, and the script will suggest the exact names.
 
 Without specifying a model using `-m`, the script will check all models in the ONNX model zoo.
 

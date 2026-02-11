@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
 #ifndef DLL_LINKER_H
 #define DLL_LINKER_H
 
@@ -12,55 +16,50 @@ namespace hipdnn {
 
 class DLLLinker {
 public:
-    DLLLinker();
-    ~DLLLinker();
+  DLLLinker();
+  ~DLLLinker();
 
-    // Link object file with libraries to produce DLL/SO
-    // Platform-specific:
-    //   Windows: Produces .dll using LLD-LINK (PE/COFF)
-    //   Linux: Produces .so using LLD-ELF (shared object)
-    //
-    // Parameters:
-    //   objectFile: Input object file path (.obj on Windows, .o on Linux)
-    //   outputDLL: Output DLL path (.dll on Windows, .so on Linux)
-    //   libraries: Library names to link (e.g., "amdhip64", "MIOpen")
-    //   libraryPaths: Directories to search for libraries
-    //   exportSymbols: Symbol names to export from DLL (inference_init, etc.)
-    //
-    // Returns: true on success, false on failure
-    bool linkDLL(
-        const std::string& objectFile,
-        const std::string& outputDLL,
-        const std::vector<std::string>& libraries,
-        const std::vector<std::string>& libraryPaths,
-        const std::vector<std::string>& exportSymbols);
+  // Link object file with libraries to produce DLL/SO
+  // Platform-specific:
+  //   Windows: Produces .dll using LLD-LINK (PE/COFF)
+  //   Linux: Produces .so using LLD-ELF (shared object)
+  //
+  // Parameters:
+  //   objectFile: Input object file path (.obj on Windows, .o on Linux)
+  //   outputDLL: Output DLL path (.dll on Windows, .so on Linux)
+  //   libraries: Library names to link (e.g., "amdhip64", "MIOpen")
+  //   libraryPaths: Directories to search for libraries
+  //   exportSymbols: Symbol names to export from DLL (inference_init, etc.)
+  //
+  // Returns: true on success, false on failure
+  bool linkDLL(const std::string &objectFile, const std::string &outputDLL,
+               const std::vector<std::string> &libraries,
+               const std::vector<std::string> &libraryPaths,
+               const std::vector<std::string> &exportSymbols);
 
-    // Verify DLL has required exports (debugging utility)
-    // Returns: true if all symbols are exported, false otherwise
-    bool verifyDLLExports(
-        const std::string& dllPath,
-        const std::vector<std::string>& requiredSymbols);
+  // Verify DLL has required exports (debugging utility)
+  // Returns: true if all symbols are exported, false otherwise
+  bool verifyDLLExports(const std::string &dllPath,
+                        const std::vector<std::string> &requiredSymbols);
 
 private:
-    // Platform-specific linker implementations
+  // Platform-specific linker implementations
 #ifdef _WIN32
-    bool linkDLL_Windows(
-        const std::string& objectFile,
-        const std::string& outputDLL,
-        const std::vector<std::string>& libraries,
-        const std::vector<std::string>& libraryPaths,
-        const std::vector<std::string>& exportSymbols);
+  bool linkDLL_Windows(const std::string &objectFile,
+                       const std::string &outputDLL,
+                       const std::vector<std::string> &libraries,
+                       const std::vector<std::string> &libraryPaths,
+                       const std::vector<std::string> &exportSymbols);
 
-    // Create module definition file (.def) for Windows exports
-    bool createModuleDefinitionFile(
-        const std::string& defPath,
-        const std::vector<std::string>& exportSymbols);
+  // Create module definition file (.def) for Windows exports
+  bool
+  createModuleDefinitionFile(const std::string &defPath,
+                             const std::vector<std::string> &exportSymbols);
 #else
-    bool linkDLL_Linux(
-        const std::string& objectFile,
-        const std::string& outputDLL,
-        const std::vector<std::string>& libraries,
-        const std::vector<std::string>& libraryPaths);
+  bool linkDLL_Linux(const std::string &objectFile,
+                     const std::string &outputDLL,
+                     const std::vector<std::string> &libraries,
+                     const std::vector<std::string> &libraryPaths);
 #endif
 };
 

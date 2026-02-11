@@ -5,4 +5,3 @@ module attributes {} {
   }
   "onnx.EntryPoint"() {func = @main_graph} : () -> ()
 }
-

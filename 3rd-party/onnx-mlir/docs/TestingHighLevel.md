@@ -82,4 +82,3 @@ The following CMake variables from LLVM and ONNX-MLIR can be used when compiling
 **LLVM_EXTERNAL_LIT**:PATH
   Path to the lit tool. Defaults to an empty string and LLVM will find the tool based on **MLIR_DIR** if possible.
   This is required when **MLIR_DIR** points to an install directory.
-

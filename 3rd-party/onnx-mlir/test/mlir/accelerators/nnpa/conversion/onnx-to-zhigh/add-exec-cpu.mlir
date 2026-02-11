@@ -11,4 +11,3 @@ func.func @test_add_force_cpu(%arg0 : tensor<10x10xf32>, %arg1 : tensor<10x10xf3
   // CHECK:           "onnx.Add"({{.*}}, {{.*}}) {device = "cpu", onnx_node_name = "test/add2"}
   // CHECK:           return
 }
-

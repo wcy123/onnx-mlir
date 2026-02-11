@@ -36,11 +36,11 @@ By using a JSON file, users can currenlty control two following features:
 ### Semantics
 
 - Each object in this `device_placement` list specifies where (on which device) specific ONNX operators should be executed:
-  - `"device": "cpu"`: the matched ONNX operators run on CPU. 
-  - `"device": "nnpa"`: the matched ONNX operators **may** run on NNPA. The compiler will check again if these operators are really suitable for NNPA or not. 
-  - `"device": ""`: The compiler will decide on which device the matched ONNX operators will run. 
+  - `"device": "cpu"`: the matched ONNX operators run on CPU.
+  - `"device": "nnpa"`: the matched ONNX operators **may** run on NNPA. The compiler will check again if these operators are really suitable for NNPA or not.
+  - `"device": ""`: The compiler will decide on which device the matched ONNX operators will run.
 - An ONNX operator is matched if both `node_type` AND `onnx_node_name` are matched. Once an ONNX operator is matched, its attribute `device` is updated using the JSON value.
-- The list is evaluated in sequence, with earlier items having precedence. If an ONNX operator matches an object, it does not matches against the remaining objects in the list. 
+- The list is evaluated in sequence, with earlier items having precedence. If an ONNX operator matches an object, it does not matches against the remaining objects in the list.
 
 ## quantization[] object fields
 
@@ -52,14 +52,14 @@ By using a JSON file, users can currenlty control two following features:
 
 - Fields have the same names as ONNX operator's attributes.
 - Strings for `node _type` and `onnx_node_name` can be any [ECMAScript regular expressions](https://cplusplus.com/reference/regex/ECMAScript/).
- 
+
 ### Semantics
 
 - Each object in this `quantization` list specifies whether ONNX operators should be quantized or not:
-  - `"quantize": false`: the matched ONNX operators are not quantized. 
-  - `"quantize": true`: the matched ONNX operators **may** be quantized. The compiler will check again if these operators are really suitable for quantization or not. 
+  - `"quantize": false`: the matched ONNX operators are not quantized.
+  - `"quantize": true`: the matched ONNX operators **may** be quantized. The compiler will check again if these operators are really suitable for quantization or not.
 - An ONNX operator is matched if both `node_type` AND `onnx_node_name` are matched. Once an ONNX operator is matched, its attribute `quantize` is updated using the JSON value.
-- The list is evaluated in sequence, with earlier items having precedence. If an ONNX operator matches an object, it does not matches against the remaining objects in the list. 
+- The list is evaluated in sequence, with earlier items having precedence. If an ONNX operator matches an object, it does not matches against the remaining objects in the list.
 
 # Examples
 - Let's use the following input model as an example:

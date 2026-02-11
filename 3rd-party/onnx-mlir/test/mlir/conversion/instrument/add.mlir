@@ -21,4 +21,3 @@ func.func @test_instrument_add_onnx(%arg0 : tensor<10x10xf32>, %arg1 : tensor<10
 // CHECK:           "krnl.runtime_instrument"() <{nodeName = "model/add1", opName = "onnx.Add", tag = 6 : i64}> : () -> ()
 // CHECK:           return
 // CHECK:         }
-

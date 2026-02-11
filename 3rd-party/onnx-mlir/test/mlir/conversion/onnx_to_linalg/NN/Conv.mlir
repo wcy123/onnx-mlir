@@ -100,4 +100,3 @@ func.func @conv_reject_dilation(%arg0: tensor<1x3x5x5xf32>,
   // CHECK-NOT: linalg.conv_2d_nchw_fchw
   // CHECK: %{{.+}} = "onnx.Conv"(%arg0, %arg1, %{{.+}}) <{auto_pad = "NOTSET", dilations = [2, 2], group = 1 : si64, pads = [0, 0, 0, 0], strides = [1, 1]}> : (tensor<1x3x5x5xf32>, tensor<2x3x3x3xf32>, none) -> tensor<1x2x3x3xf32>
 }
-

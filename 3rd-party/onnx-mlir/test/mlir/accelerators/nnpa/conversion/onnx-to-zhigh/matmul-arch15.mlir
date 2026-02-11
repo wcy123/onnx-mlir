@@ -384,4 +384,3 @@ func.func @test_onnx_to_transposeab_matmul_to_zhigh_3d(%arg0 : tensor<100x4x8xf3
 // CHECK:           return [[VAR_2_]] : tensor<*xf32>
 // CHECK:         }
 }
-

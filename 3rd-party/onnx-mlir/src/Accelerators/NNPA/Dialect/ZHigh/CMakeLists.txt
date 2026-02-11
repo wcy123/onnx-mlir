@@ -49,7 +49,7 @@ add_onnx_mlir_library(OMZHighOps
   OMDiagnostic
 
   LINK_LIBS PUBLIC
-  OMONNXOps # Use ONNXShapeHelper 
+  OMONNXOps # Use ONNXShapeHelper
   OMLayoutHelper
   OMShapeHelperOpInterface
   OMNNPACompilerOptions

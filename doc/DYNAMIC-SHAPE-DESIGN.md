@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # Dynamic Shape Support Design
 
 **Note:** This is the authoritative source for dynamic shape design. Other documents reference this for details.

@@ -1656,4 +1656,3 @@ Effects: `MemoryEffects::Effect{}`
 | Operand | Description |
 | :-----: | ----------- |
 | `operands` | variadic of any type |
-

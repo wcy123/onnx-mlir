@@ -90,7 +90,7 @@ endif()
 
 find_package(Python3 ${LLVM_MINIMUM_PYTHON_VERSION} REQUIRED COMPONENTS Interpreter Development)
 
-# absl is needed by llvm and onnx 
+# absl is needed by llvm and onnx
 if(NOT ONNX_MLIR_ENABLE_PYRUNTIME_LIGHT)
   find_package(absl REQUIRED)
 endif()
@@ -243,4 +243,3 @@ else()
   add_subdirectory(docs)
   add_subdirectory(test)
 endif()
-

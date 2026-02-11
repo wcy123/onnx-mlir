@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # MLIR Test Files
 
 This directory contains MLIR test inputs for the compilation pipeline.

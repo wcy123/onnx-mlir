@@ -33,4 +33,3 @@ set_target_properties(RuntimeNNPA
   POSITION_INDEPENDENT_CODE TRUE
   COMPILE_OPTIONS "${C_COMPILE_OPTIONS}"
   )
-

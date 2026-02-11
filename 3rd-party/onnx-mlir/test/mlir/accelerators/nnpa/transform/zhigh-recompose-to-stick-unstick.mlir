@@ -17,5 +17,3 @@ func.func @test_relu(%arg0: tensor<1x3x5x?xf32>) -> tensor<1x3x5x?xf32> {
 // CHECK:           return [[VAR_2_]] : tensor<1x3x5x?xf32>
 // CHECK:         }
 }
-
-

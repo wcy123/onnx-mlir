@@ -1143,4 +1143,3 @@ func.func @tan_function(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
 // CHECK: [[ACOS:%.+]]  = "krnl.tan"([[LOAD]]) : (f32) -> f32
 // CHECK: {{.*}}store [[ACOS]], [[ALLOC]][[[IV]]#0, [[IV]]#1] : memref<10x10xf32>
 // CHECK: return [[ALLOC]] : memref<10x10xf32>
-

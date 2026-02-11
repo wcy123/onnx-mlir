@@ -23,7 +23,7 @@
 #endif
 
 #ifndef __USE_GNU
-#define __USE_GNU 
+#define __USE_GNU
 #endif
 #include <stdlib.h> // For qsort_r
 #include <stdint.h> // For uint64_t, int64_t
@@ -55,7 +55,7 @@ static void heap_sift_down(uint64_t *heap, int64_t start, int64_t end,
     int (*compare)(const void *, const void *, void *),
 #endif
     void *data) {
-  
+
   int64_t root = start;
   while ((root * 2 + 1) <= end) { // While root has at least one child
     int64_t child = root * 2 + 1;
@@ -198,7 +198,7 @@ void omTensorTopK(OMTensor *orderTensor, const OMTensor *inputTensor,
                            dim4 * strides[4];
             void *data = ((char *)dataPtr) + datasize * off;
             uint64_t *idx = order + off;
-            
+
             // --- Stable TopK Logic (Partial Heapsort) ---
 
             // STEP 1: Build the initial K-heap using the heap comparator.
@@ -245,7 +245,3 @@ void omTensorTopK(OMTensor *orderTensor, const OMTensor *inputTensor,
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
-
-
-

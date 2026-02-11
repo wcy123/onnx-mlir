@@ -82,4 +82,3 @@ func.func private @test_constant_of_shape_static_dims() -> tensor<*xf32> {
   // CHECK: }
   // CHECK: return [[RES]] : memref<3x4x5xf32>
 }
-

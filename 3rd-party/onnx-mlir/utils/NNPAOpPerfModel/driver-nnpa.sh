@@ -7,7 +7,7 @@
 #   param2: op_name to be grepped (can be a regexp, e.g. "(cpuOp|nnpaOp)")
 #   param3: architecture (xxx in --march=xxx)
 #
-# env var: 
+# env var:
 #  e4:       add dim to the shape; e.g. e4="1", e4="1x1" (default none).
 #  skipCPU:  if non-empty, skip CPU computations (default empty).
 #  skipNNPA: if non-empty, skip NNPA computations (default empty).
@@ -61,9 +61,9 @@ function run_matmul3d_experiment {
     do
         opt=$compile_option
         opp=$compile_option # No commas here.
-        # MatMul (B=e3 x N=e2 x M=e1) * (B=e3 x M=e1 x K=e1) = (B=e3 x N=e2 x K=e1): 
+        # MatMul (B=e3 x N=e2 x M=e1) * (B=e3 x M=e1 x K=e1) = (B=e3 x N=e2 x K=e1):
         if [ "$bcast23" -gt "0" ]
-        then 
+        then
             # Has bcast 23: 3D x 2D
             opt+=" --shapeInformation=0:${e3}x${e2}x${e1},1:${e1}x${e1}" # has comma.
             opp+=" --shapeInformation=0:${e3}x${e2}x${e1} 1:${e1}x${e1}" # has no comma.
@@ -182,7 +182,7 @@ egrep $grep_pattern $log_file > $stat_name
 paste -d "," $tile_name $stat_name > $res_file
 rm $tile_name $stat_name
 
-# data has gathered the info from 
+# data has gathered the info from
 # Title: "Tile, $e3, $e2, $e1, option, $opt"
 #
 # and from the operation being monitored:

@@ -37,7 +37,7 @@ include "src/IR/AttrBase.td"
   the following def.
 
   let extraClassDeclaration = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXxxxOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXxxxOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXxxxOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -154,12 +154,12 @@ def ONNXCustomOp:ONNX_Op<"Custom",
     }
     static std::vector<int> getTypeMap() {
       // Assume the element type of the output is the same as the first input
-      return {30}; 
+      return {30};
     }
   }];
 
   let extraClassDefinition = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXCustomOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXCustomOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXCustomOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -192,7 +192,7 @@ def ONNXDimOp : ONNX_Op<"Dim",
   let hasCanonicalizer = 1;
   let hasVerifier = 1;
   let extraClassDefinition = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXDimOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXDimOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXDimOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -258,7 +258,7 @@ def ONNXLayoutTransformOp:ONNX_Op<"LayoutTransform", [Pure,
     DeclareOpInterfaceMethods<ShapeHelperOpInterface>]> {
   let summary = "An operation that transforms data between different layout formats";
   let description = [{
-    An operation that transforms a tensor from a layout to another layout. 
+    An operation that transforms a tensor from a layout to another layout.
     A layout is defined by an attribute, i.e. `target_layout`, which allows this
     operation work with an arbitrary layout (e.g. a layout used for accelerators).
 
@@ -266,7 +266,7 @@ def ONNXLayoutTransformOp:ONNX_Op<"LayoutTransform", [Pure,
     transformed to a normal tensor that does not have layout.
 
     If `target_layout` is the same as the input's layout, this operation will
-    become an no-op by canonicalization. 
+    become an no-op by canonicalization.
 
     The input and output tensors must have the same shape.
 
@@ -283,7 +283,7 @@ def ONNXLayoutTransformOp:ONNX_Op<"LayoutTransform", [Pure,
   let hasVerifier = 1;
 
   let extraClassDefinition = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXLayoutTransformOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXLayoutTransformOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXLayoutTransformOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -421,9 +421,9 @@ def ONNXBatchNormalizationInferenceModeOp: ONNX_Op<"BatchNormalizationInferenceM
     static int getNumberOfResults() { return 1; }
     static std::vector<int> getTypeMap() { return {30}; }
   }];
-  
-  let extraClassDefinition = [{  
-    onnx_mlir::ONNXOpShapeHelper * ONNXBatchNormalizationInferenceModeOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+
+  let extraClassDefinition = [{
+    onnx_mlir::ONNXOpShapeHelper * ONNXBatchNormalizationInferenceModeOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXBatchNormalizationInferenceModeOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -463,9 +463,9 @@ def ONNXMaxPoolSingleOutOp: ONNX_Op<"MaxPoolSingleOut",
     static int getNumberOfResults() { return 1; }
     static std::vector<int> getTypeMap() { return {30}; }
   }];
-  
-  let extraClassDefinition = [{  
-    onnx_mlir::ONNXOpShapeHelper * ONNXMaxPoolSingleOutOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+
+  let extraClassDefinition = [{
+    onnx_mlir::ONNXOpShapeHelper * ONNXMaxPoolSingleOutOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXMaxPoolSingleOutOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -497,7 +497,7 @@ def ONNXConcatShapeTransposeOp: ONNX_Op<"ConcatShapeTranspose", [Pure,
      AnyTypeOf<[TensorOf<[UI8]>, TensorOf<[UI16]>, TensorOf<[UI32]>, TensorOf<[UI64]>, TensorOf<[I8]>, TensorOf<[I16]>, TensorOf<[I32]>, TensorOf<[I64]>, TensorOf<[BF16]>, TensorOf<[F16]>, TensorOf<[F32]>, TensorOf<[F64]>, TensorOf<[StringType]>, TensorOf<[I1]>, TensorOf<[Complex<F32>]>, TensorOf<[Complex<F64>]>]>:$transposed);
 
   let extraClassDefinition = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXConcatShapeTransposeOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXConcatShapeTransposeOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXConcatShapeTransposeOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -505,7 +505,7 @@ def ONNXConcatShapeTransposeOp: ONNX_Op<"ConcatShapeTranspose", [Pure,
     }
   }];
 }
- 
+
 //===----------------------------------------------------------------------===//
 // ONNXShapeTransformOp
 def ONNXShapeTransformOp: ONNX_Op<"ShapeTransform", [Pure,
@@ -549,7 +549,7 @@ def ONNXShapeTransformOp: ONNX_Op<"ShapeTransform", [Pure,
   let results = (outs AnyTypeOf<[TensorOf<[F32]>]>:$output);
 
   let extraClassDefinition = [{
-    onnx_mlir::ONNXOpShapeHelper * ONNXShapeTransformOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper, 
+    onnx_mlir::ONNXOpShapeHelper * ONNXShapeTransformOp::getShapeHelper(mlir::Operation *op, mlir::ArrayRef<mlir::Value> oper,
         onnx_mlir::IndexExprBuilder *ieb, onnx_mlir::IndexExprScope *scope) {
       onnx_mlir::ONNXOpShapeHelper *sh = new onnx_mlir::ONNXShapeTransformOpShapeHelper(op, oper, ieb, scope);
       assert(sh && "failed to allocate shape helper");
@@ -567,7 +567,7 @@ def ONNXShapeTransformOp: ONNX_Op<"ShapeTransform", [Pure,
 // TODO: When upgrading ONNX to 23, it introduces RMSNormalization, which is
 // the operation listed below EXCEPT:
 // * does not have a B input
-// * does not have a InvStdDev output. 
+// * does not have a InvStdDev output.
 // This operation ONNXRMSLayerNormalizationOp should be replaced by the standard op,
 // and some care should be used in onnx-mlir/src/Conversion/ONNXToKrnl/NN/Normalization.cpp
 // to ensure we don't use a `getB()`. Can be predicated by the code below.

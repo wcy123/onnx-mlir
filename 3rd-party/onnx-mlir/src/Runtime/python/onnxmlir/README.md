@@ -1,6 +1,6 @@
 <!--- SPDX-License-Identifier: Apache-2.0 -->
 # onnx-mlir-python-driver
-This light weight python driver for onnx-mlir compiler is a python package that does not depend on the building of onnx-mlir compiler or llvm-project. It uses  onnx-mlir compiler container through docker or podman python package, or locally installed onnx-mlir compiler to compile a model, and then run the compiled model through python interface. 
+This light weight python driver for onnx-mlir compiler is a python package that does not depend on the building of onnx-mlir compiler or llvm-project. It uses  onnx-mlir compiler container through docker or podman python package, or locally installed onnx-mlir compiler to compile a model, and then run the compiled model through python interface.
 A simple example of using container can be found in [use_compiler_container.py](https://github.ibm.com/chentong/onnx-mlir-python-driver/blob/main/tests/use_compiler_container.py):
 ```
 import numpy as np
@@ -49,7 +49,7 @@ If you want to use podman package:
 pip3 install onnx-mlir-python-driver[podman]
 ```
 ### Verify
-Run a test case in onnx-mlir-python-driver/tests. 
+Run a test case in onnx-mlir-python-driver/tests.
 You can try the precompiled model first to just check the package with container:
 ```
 cd onnx-mlir-python-driver/tests

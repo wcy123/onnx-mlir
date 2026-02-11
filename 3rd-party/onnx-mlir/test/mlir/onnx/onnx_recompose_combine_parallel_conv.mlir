@@ -13,7 +13,7 @@ func.func @test_conv_concat_simple(%arg0: tensor<1x1x512x512xf32>) -> tensor<1x6
   // CHECK-LABEL: func @test_conv_concat_simple
   // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x1x512x512xf32>) -> tensor<1x64x512x512xf32> {
   // CHECK:      [[VAR_0_:%.+]] = onnx.Constant dense<{{.*}}> : tensor<64x1x3x3xf32>
-  
+
   // CHECK:      [[VAR_1_:%.+]] = onnx.Constant dense<{{.*}}> : tensor<64xf32>
 
   // CHECK:     [[VAR_2_:%.+]] = "onnx.Conv"([[PARAM_0_]], [[VAR_0_]], [[VAR_1_]])
@@ -47,7 +47,7 @@ func.func @test_conv_concat_complex(%arg0: tensor<1x1x512x512xf32>) -> tensor<1x
   // CHECK-LABEL: func @test_conv_concat_complex
   // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x1x512x512xf32>) -> tensor<1x192x512x512xf32> {
   // CHECK:      [[VAR_0_:%.+]] = onnx.Constant dense<{{.*}}> : tensor<192x1x3x3xf32>
-  
+
   // CHECK:      [[VAR_1_:%.+]] = onnx.Constant dense<{{.*}}> : tensor<192xf32>
 
   // CHECK:     [[VAR_2_:%.+]] = "onnx.Conv"([[PARAM_0_]], [[VAR_0_]], [[VAR_1_]])
@@ -184,7 +184,7 @@ func.func @complex_and_bias_none(%arg0: tensor<1x16x160x256xf32>, %wts0: tensor<
     %37 = "onnx.Concat"(%35, %36) {axis = -2 : si64} : (tensor<1x7x160x1x512xf32>, tensor<1x7x160x1x512xf32>) -> tensor<1x7x160x2x512xf32>
     %38 = "onnx.Reshape"(%37, %0) {allowzero = 0 : si64} : (tensor<1x7x160x2x512xf32>, tensor<4xi64>) -> tensor<1x7x320x512xf32>
     onnx.Return %38 : tensor<1x7x320x512xf32>
-    
+
 // CHECK-LABEL:  func.func @complex_and_bias_none
 // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x16x160x256xf32>, [[PARAM_1_:%.+]]: tensor<7x16x3x3xf32>, [[PARAM_2_:%.+]]: tensor<7x16x3x3xf32>, [[PARAM_3_:%.+]]: tensor<7x16x3x3xf32>, [[PARAM_4_:%.+]]: tensor<7x16x3x3xf32>) -> tensor<1x7x320x512xf32> {
 // CHECK-DAG:       [[VAR_0_:%.+]] = onnx.Constant dense<7> : tensor<4xi64>
@@ -209,4 +209,3 @@ func.func @complex_and_bias_none(%arg0: tensor<1x16x160x256xf32>, %wts0: tensor<
 // CHECK:         }
 
 }
-

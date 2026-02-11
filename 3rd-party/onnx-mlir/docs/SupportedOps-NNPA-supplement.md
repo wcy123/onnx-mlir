@@ -3,7 +3,7 @@
 
 # Supported Operations for Target *NNPA*.
 
-This document highlights operations that are performed on NNPA hardware that are not explicilty supported by ONNX. 
+This document highlights operations that are performed on NNPA hardware that are not explicilty supported by ONNX.
 
 * **Minimum NNPA Level(Inclusive)** indicates the lowest and highest NNPA level a model may have for onnx-mlir to support compiling a model with the operator.
     * A ^ indicates onnx-mlir is compatible with the latest level of the NNPA Architecture which is z17.
@@ -16,5 +16,5 @@ This document highlights operations that are performed on NNPA hardware that are
     * MatMul Broadcast - Adds Bcast1 support to the MatMul operation.
 
 | Op |Minimum NNPA Level(Inclusive) |Limitations |Notes |
-| --- |--- |--- |--- | 
-| **Invsqrt** |z17 - ^ | Input tensor must be less than or equal to 4 dimensions. | | 
+| --- |--- |--- |--- |
+| **Invsqrt** |z17 - ^ | Input tensor must be less than or equal to 4 dimensions. | |

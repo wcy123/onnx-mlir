@@ -12,11 +12,11 @@ Support of Location info propagation in transformation is one of the attractive 
 - Create location info when an ONNX model is imported. If there is `onnx_node_name` string attribute for an operation, the string is transferred to its location. Otherwise, Unknown location is used.
 - MLIR adds file location (in form of filename:line:column) to nodes when reading in a MLIR file, unless the MLIR file already contains location.
 - Use the flag `--preserveLocations` to turn on location info in the output.
-- With the previous two combined, we can track the source of error by dumping out the MLIR file(without `--preserveLocations`) at desired stage (for example, EmitONNXIR, or EmitMLIR), and then continuing transformation by loading the dumped file. The location info will be line number for that dumped file, providing more details than just from the onnx model. 
+- With the previous two combined, we can track the source of error by dumping out the MLIR file(without `--preserveLocations`) at desired stage (for example, EmitONNXIR, or EmitMLIR), and then continuing transformation by loading the dumped file. The location info will be line number for that dumped file, providing more details than just from the onnx model.
 
 ## ONNX model
-When reading an ONNX model (.onnx file), onnx-mlir tries to attach location info to the generated IR. 
-Some ONNX exporter annotates every operation with an StringAttr, "onnx_node_name", with an unique string for that operation. 
+When reading an ONNX model (.onnx file), onnx-mlir tries to attach location info to the generated IR.
+Some ONNX exporter annotates every operation with an StringAttr, "onnx_node_name", with an unique string for that operation.
 The importer of onnx-mlir converts the "onnx_node_name" attribute in the ONNX file tostring location info for the operation.
 If the ONNX model does not have "onnx_node_name" attribute, Unknown location is attached.
 
@@ -52,7 +52,7 @@ There is no useful location info.
 
 ## MLIR file
 
-MLIR automatically creates location info when the intermediate file (.mlir file) is read in as long as there is no location info in that .mlir file.  
+MLIR automatically creates location info when the intermediate file (.mlir file) is read in as long as there is no location info in that .mlir file.
 For example, though there is no location info for the test_add.onnx, we can dump the importer result and load it again. Then we can find useful location info in the output.
 Commands:
 ```
@@ -82,4 +82,3 @@ The test_add.onnx.mlir content:
 ```
 
 If you want to track the operations for krnl IR, dump the file after lowering to krnl.
-

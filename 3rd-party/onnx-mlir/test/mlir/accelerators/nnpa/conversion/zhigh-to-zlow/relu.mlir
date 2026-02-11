@@ -1,6 +1,6 @@
 // RUN: onnx-mlir-opt --march=z16 --maccel=NNPA --shape-inference --convert-onnx-to-krnl --canonicalize %s -split-input-file | FileCheck %s
 
-func.func @should_lower_to_zlow(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @should_lower_to_zlow(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Relu"(%arg0) : (tensor<3x4x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 
@@ -25,7 +25,7 @@ func.func @should_lower_to_zlow(%arg0: tensor<3x4x5xf16, #zhigh.layout<{dataLayo
 
 // -----
 
-func.func @should_lower_to_zlow_unknown_dims(%arg0: tensor<3x?x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> { 
+func.func @should_lower_to_zlow_unknown_dims(%arg0: tensor<3x?x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16> {
   %0 = "zhigh.Relu"(%arg0) : (tensor<3x?x5xf16, #zhigh.layout<{dataLayout = "3D"}>>) -> tensor<*xf16>
   return %0 : tensor<*xf16>
 

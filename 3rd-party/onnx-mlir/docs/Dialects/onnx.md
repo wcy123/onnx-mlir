@@ -4453,7 +4453,7 @@ Effects: `MemoryEffects::Effect{}`
 
 _An operation that transforms data between different layout formats_
 
-An operation that transforms a tensor from a layout to another layout. 
+An operation that transforms a tensor from a layout to another layout.
 A layout is defined by an attribute, i.e. `target_layout`, which allows this
 operation work with an arbitrary layout (e.g. a layout used for accelerators).
 
@@ -4461,7 +4461,7 @@ operation work with an arbitrary layout (e.g. a layout used for accelerators).
 transformed to a normal tensor that does not have layout.
 
 If `target_layout` is the same as the input's layout, this operation will
-become an no-op by canonicalization. 
+become an no-op by canonicalization.
 
 The input and output tensors must have the same shape.
 
@@ -5096,7 +5096,7 @@ MaxPool consumes an input tensor X and applies max pooling across
  ```
  pad_shape[i] = (output_spatial_shape[i] - 1) * strides_spatial_shape[i] + ((kernel_spatial_shape[i] - 1) * dilations[i] + 1) - input_spatial_shape[i]
  ```
- The output of each pooling window is maximum number of elements exclude pad. 
+ The output of each pooling window is maximum number of elements exclude pad.
 
 
 Traits: `AlwaysSpeculatableImplTrait`
@@ -9963,7 +9963,7 @@ _ONNX Softmax operation_
 
 The operator computes the normalized exponential values for the given input:
 
- Softmax(input, axis) = Exp(input) / ReduceSum(Exp(input), axis=axis, keepdims=1) 
+ Softmax(input, axis) = Exp(input) / ReduceSum(Exp(input), axis=axis, keepdims=1)
 
 The \"axis\" attribute indicates the dimension along which Softmax
 will be performed. The output tensor has the same shape
@@ -11294,4 +11294,3 @@ Effects: `MemoryEffects::Effect{}`
 | Result | Description |
 | :----: | ----------- |
 | `Z` | SeqType of tuple with any combination of string type or 32-bit float values values or SeqType of tuple with any combination of 64-bit signless integer or 32-bit float values values |
-

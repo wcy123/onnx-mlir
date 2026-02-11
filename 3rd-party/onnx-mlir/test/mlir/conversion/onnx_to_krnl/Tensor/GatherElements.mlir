@@ -26,4 +26,3 @@ func.func @test_gather_elements(%arg0: tensor<4xi64>, %arg1: tensor<2xi64>) -> t
 // CHECK:           return [[RES_]] : memref<2xi64>
 // CHECK:         }
 }
-

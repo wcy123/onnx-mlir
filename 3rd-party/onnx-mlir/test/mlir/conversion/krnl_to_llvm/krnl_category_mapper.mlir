@@ -6,7 +6,7 @@
 func.func private @test_find_index_str(%str: !krnl.string) -> index {
   %G = "krnl.global"() {name = "G", shape = [3], value = dense<[1,0,-3]> : tensor<3xi32>} : () -> memref<3xi32>
   %V = "krnl.global"() {name = "V", shape = [3], value = dense<[1,2,0]> : tensor<3xi32>} : () -> memref<3xi32>
-  %c3 = arith.constant 3 : i32  
+  %c3 = arith.constant 3 : i32
   %index = "krnl.find_index"(%str, %G, %V, %c3) : (!krnl.string, memref<3xi32>, memref<3xi32>, i32) -> index
   return %index : index
 }
@@ -29,7 +29,7 @@ func.func private @test_find_index_str(%str: !krnl.string) -> index {
 func.func private @test_find_index_int(%val: i64) -> index {
   %G = "krnl.global"() {name = "G", shape = [3], value = dense<[1,0,-3]> : tensor<3xi32>} : () -> memref<3xi32>
   %V = "krnl.global"() {name = "V", shape = [3], value = dense<[1,2,0]> : tensor<3xi32>} : () -> memref<3xi32>
-  %c3 = arith.constant 3 : i32  
+  %c3 = arith.constant 3 : i32
   %index = "krnl.find_index"(%val, %G, %V, %c3) : (i64, memref<3xi32>, memref<3xi32>, i32) -> index
   return %index : index
 
@@ -84,11 +84,11 @@ func.func private @test_category_mapper_string_to_int64(%arg0: memref<2x2x!krnl.
   // CHECK:    [[BASE_ADDR:%.+]] = llvm.mlir.addressof @om.strArray.cats_strings : !llvm.ptr
   // CHECK:    [[I8_BASE_ADDR:%.+]] = llvm.bitcast %1 : !llvm.ptr to !llvm.ptr
   // CHECK:    [[CAT_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][0] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[CAT_INS_VAL:%.+]] = llvm.insertvalue [[CAT_GEP]], [[ARRAY]][0] : !llvm.array<3 x ptr> 
+  // CHECK:    [[CAT_INS_VAL:%.+]] = llvm.insertvalue [[CAT_GEP]], [[ARRAY]][0] : !llvm.array<3 x ptr>
   // CHECK:    [[DOG_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][4] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[DOG_INS_VAL:%.+]] = llvm.insertvalue [[DOG_GEP]], [[CAT_INS_VAL]][1] : !llvm.array<3 x ptr> 
+  // CHECK:    [[DOG_INS_VAL:%.+]] = llvm.insertvalue [[DOG_GEP]], [[CAT_INS_VAL]][1] : !llvm.array<3 x ptr>
   // CHECK:    [[COW_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][8] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[COW_INS_VAL:%.+]] = llvm.insertvalue [[COW_GEP]], [[DOG_INS_VAL]][2] : !llvm.array<3 x ptr> 
+  // CHECK:    [[COW_INS_VAL:%.+]] = llvm.insertvalue [[COW_GEP]], [[DOG_INS_VAL]][2] : !llvm.array<3 x ptr>
   // CHECK:    llvm.return [[COW_INS_VAL]] : !llvm.array<3 x ptr>
   // CHECK:  }
   // CHECK-DAG: llvm.mlir.global internal constant @cats_int64s{{.*}}(dense<[1, 2, 3]> : tensor<3xi64>) {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<3 x i64>
@@ -96,8 +96,8 @@ func.func private @test_category_mapper_string_to_int64(%arg0: memref<2x2x!krnl.
   // CHECK-DAG: llvm.mlir.global internal constant @G{{.*}}(dense<[1, 0, -3]> : tensor<3xi32>) {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<3 x i32>
 
   // CHECK-LABEL: @test_category_mapper_string_to_int64(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64) -> !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
-  // CHECK-DAG:   [[C0:%.+]] = llvm.mlir.constant(0 : i32) : i32  
-  // CHECK-DAG:   [[DEF_VAL:%.+]] = llvm.mlir.constant(-1 : i64) : i64  
+  // CHECK-DAG:   [[C0:%.+]] = llvm.mlir.constant(0 : i32) : i32
+  // CHECK-DAG:   [[DEF_VAL:%.+]] = llvm.mlir.constant(-1 : i64) : i64
   // CHECK-DAG:   [[LEN:%.+]] = llvm.mlir.constant(3 : i32) : i32
 
   /// Find the index of the input string:
@@ -116,14 +116,14 @@ func.func private @test_category_mapper_string_to_int64(%arg0: memref<2x2x!krnl.
   // CHECK:       [[STREQ:%.+]] = llvm.call @strncmp([[STR2]], [[STR3]], [[STRLEN]]) : (!llvm.ptr, !llvm.ptr, i64) -> i32
 
   /// Store the index if valid, otherwise store the default value:
-  // CHECK-NEXT:  [[IS_EQUAL:%.+]] = llvm.icmp "eq" [[STREQ]], [[C0]] : i32  
+  // CHECK-NEXT:  [[IS_EQUAL:%.+]] = llvm.icmp "eq" [[STREQ]], [[C0]] : i32
   // CHECK-NEXT:  llvm.cond_br [[IS_EQUAL]], [[LAB_TRUE:\^.+]], [[LAB_FALSE:\^.+]]
   // CHECK:       [[LAB_TRUE]]:
-  // CHECK:       [[GEP1:%.+]] = llvm.getelementptr {{.*}} : (!llvm.ptr, i64) -> !llvm.ptr  
-  // CHECK:       [[LOAD1:%.+]] = llvm.load [[GEP1]] : !llvm.ptr  
-  // CHECK:       llvm.store [[LOAD1]], {{.*}} : i64, !llvm.ptr 
+  // CHECK:       [[GEP1:%.+]] = llvm.getelementptr {{.*}} : (!llvm.ptr, i64) -> !llvm.ptr
+  // CHECK:       [[LOAD1:%.+]] = llvm.load [[GEP1]] : !llvm.ptr
+  // CHECK:       llvm.store [[LOAD1]], {{.*}} : i64, !llvm.ptr
   // CHECK-NEXT:  llvm.br [[IF_END:\^.+]]
-  // CHECK:       [[LAB_FALSE]]:  
+  // CHECK:       [[LAB_FALSE]]:
   // CHECK:       llvm.store [[DEF_VAL]], {{.*}} : i64, !llvm.ptr
   // CHECK-NEXT:  llvm.br [[IF_END]]
   // CHECK:       [[IF_END]]:
@@ -165,18 +165,18 @@ func.func private @test_category_mapper_int64_to_string(%arg0: memref<2x2xi64>) 
   // CHECK:    [[BASE_ADDR:%.+]] = llvm.mlir.addressof @om.strArray.cats_strings : !llvm.ptr
   // CHECK:    [[I8_BASE_ADDR:%.+]] = llvm.bitcast %1 : !llvm.ptr to !llvm.ptr
   // CHECK:    [[CAT_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][0] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[CAT_INS_VAL:%.+]] = llvm.insertvalue [[CAT_GEP]], [[ARRAY]][0] : !llvm.array<3 x ptr> 
+  // CHECK:    [[CAT_INS_VAL:%.+]] = llvm.insertvalue [[CAT_GEP]], [[ARRAY]][0] : !llvm.array<3 x ptr>
   // CHECK:    [[DOG_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][4] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[DOG_INS_VAL:%.+]] = llvm.insertvalue [[DOG_GEP]], [[CAT_INS_VAL]][1] : !llvm.array<3 x ptr> 
+  // CHECK:    [[DOG_INS_VAL:%.+]] = llvm.insertvalue [[DOG_GEP]], [[CAT_INS_VAL]][1] : !llvm.array<3 x ptr>
   // CHECK:    [[COW_GEP:%.+]] = llvm.getelementptr [[I8_BASE_ADDR]][8] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK:    [[COW_INS_VAL:%.+]] = llvm.insertvalue [[COW_GEP]], [[DOG_INS_VAL]][2] : !llvm.array<3 x ptr> 
+  // CHECK:    [[COW_INS_VAL:%.+]] = llvm.insertvalue [[COW_GEP]], [[DOG_INS_VAL]][2] : !llvm.array<3 x ptr>
   // CHECK:    llvm.return [[COW_INS_VAL]] : !llvm.array<3 x ptr>
   // CHECK:  }
   // CHECK-DAG:  llvm.mlir.global internal constant @cats_int64s{{.*}}(dense<[1, 2, 3]> : tensor<3xi64>) {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<3 x i64>
   // CHECK-DAG:  llvm.mlir.global internal constant @V{{.*}}(dense<[2, 1, 0]> : tensor<3xi32>) {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<3 x i32>
   // CHECK-DAG:  llvm.mlir.global internal constant @G{{.*}}(dense<[-1, 1, 0]> : tensor<3xi32>) {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<3 x i32>
 
-  // CHECK-LABEL: @test_category_mapper_int64_to_string(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64) -> !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)> 
+  // CHECK-LABEL: @test_category_mapper_int64_to_string(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64) -> !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
   // CHECK-DAG:   [[LEN:%.+]] = llvm.mlir.constant(3 : i32) : i32
   // CHECK:       [[MALLOC:%.+]] = llvm.call @malloc({{.*}}) : (i64) -> !llvm.ptr
   // CHECK:       [[UNDEF:%.+]] = llvm.mlir.poison : !llvm.struct<(ptr, ptr, i64)>
@@ -186,25 +186,25 @@ func.func private @test_category_mapper_int64_to_string(%arg0: memref<2x2xi64>) 
   // CHECK:       [[DEF_VAL:%.+]] = llvm.insertvalue [[C0]], [[EV_2]][2] : !llvm.struct<(ptr, ptr, i64)>
 
   /// Find the index of the input string:
-  // CHECK-DAG:   [[INPUT:%.+]] = llvm.load {{.*}} : !llvm.ptr  
+  // CHECK-DAG:   [[INPUT:%.+]] = llvm.load {{.*}} : !llvm.ptr
   // CHECK-DAG:   [[G:%.+]] = llvm.extractvalue {{.*}}[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
   // CHECK-DAG:   [[V:%.+]] = llvm.extractvalue {{.*}}[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
   // CHECK:       [[INDEX:%.+]] = llvm.call @find_index_i64([[INPUT]], [[G]], [[V]], [[LEN]]) : (i64, !llvm.ptr, !llvm.ptr, i32) -> i64
 
   /// Determine whether the index is valid:
-  // CHECK:       [[EV1:%.+]] = llvm.extractvalue {{.*}}[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> 
+  // CHECK:       [[EV1:%.+]] = llvm.extractvalue {{.*}}[1] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
   // CHECK-DAG:   [[GEP1:%.+]] = llvm.getelementptr {{.*}}[[EV1]]{{.*}}[[INDEX]]{{.*}} : (!llvm.ptr, i64) -> !llvm.ptr
   // CHECK-DAG:   [[INDEX1:%.+]] = llvm.load [[GEP1]] : !llvm.ptr
 
   /// Store the index if valid, otherwise store the default value:
-  // CHECK-NEXT:  [[IS_EQUAL:%.+]] = llvm.icmp "eq" {{.*}}, [[INDEX1]] : i64  
+  // CHECK-NEXT:  [[IS_EQUAL:%.+]] = llvm.icmp "eq" {{.*}}, [[INDEX1]] : i64
   // CHECK-NEXT:  llvm.cond_br [[IS_EQUAL]], [[LAB_TRUE:\^.+]], [[LAB_FALSE:\^.+]]
   // CHECK:       [[LAB_TRUE]]:
-  // CHECK:       [[GEP1:%.+]] = llvm.getelementptr {{.*}} : (!llvm.ptr, i64) -> !llvm.ptr 
-  // CHECK:       [[LOAD1:%.+]] = llvm.load [[GEP1]] : !llvm.ptr 
-  // CHECK:       llvm.store [[LOAD1]], {{.*}} : i64, !llvm.ptr 
+  // CHECK:       [[GEP1:%.+]] = llvm.getelementptr {{.*}} : (!llvm.ptr, i64) -> !llvm.ptr
+  // CHECK:       [[LOAD1:%.+]] = llvm.load [[GEP1]] : !llvm.ptr
+  // CHECK:       llvm.store [[LOAD1]], {{.*}} : i64, !llvm.ptr
   // CHECK-NEXT:  llvm.br [[IF_END:\^.+]]
-  // CHECK:       [[LAB_FALSE]]:  
+  // CHECK:       [[LAB_FALSE]]:
   // CHECK:       [[EV2:%.+]] = llvm.extractvalue [[DEF_VAL]][1] : !llvm.struct<(ptr, ptr, i64)>
   // CHECK:       [[LOAD_EXT_VAL:%.+]] = llvm.load [[EV2]] : !llvm.ptr
   // CHECK:       llvm.store [[LOAD_EXT_VAL]], {{.*}} : i64, !llvm.ptr

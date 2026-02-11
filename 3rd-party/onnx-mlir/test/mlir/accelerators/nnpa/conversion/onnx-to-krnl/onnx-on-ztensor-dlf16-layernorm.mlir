@@ -337,4 +337,3 @@ func.func @layer_norm_after(%arg0: tensor<256x256xf32>, %arg1: tensor<256xf32>) 
 // CHECK-DAG:       [[RES_4_:%.+]] = memref.alloc() {{.*}}: memref<3xi64>
 // CHECK:         }
 }
-

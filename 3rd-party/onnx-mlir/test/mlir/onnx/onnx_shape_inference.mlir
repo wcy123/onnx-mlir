@@ -873,7 +873,7 @@ func.func @test_reshape_dynamic(%arg0 : tensor<5x5x1x32xf32>, %arg1 : tensor<4xi
 // -----
 
 //===----------------------------------------------------------------------===//
-/// Test the reshape op rank inference when an input is empty 
+/// Test the reshape op rank inference when an input is empty
 //===----------------------------------------------------------------------===//
 
 func.func @test_reshape_concat_0(%arg0 : tensor<5x5x1x32xf32>) -> tensor<*xf32> {
@@ -4353,7 +4353,7 @@ func.func @test_random_uniform_static_f64() -> tensor<*xf64> {
 func.func @test_random_uniform_static_bf16() -> tensor<*xbf16> {
   %0 = "onnx.RandomUniform"() {shape = [3, 4, 5], dtype = 16 : si64, low = 0.0 :f32, high = 1.0 : f32, seed = 2.0 : f32} : () -> tensor<*xbf16>
   "onnx.Return"(%0) : (tensor<*xbf16>) -> ()
-  
+
 // CHECK-LABEL:  func.func @test_random_uniform_static_bf16
 // CHECK:           [[VAR_0_:%.+]] = "onnx.RandomUniform"() <{dtype = 16 : si64, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 2.000000e+00 : f32, shape = [3, 4, 5]}> : () -> tensor<3x4x5xbf16>
 }

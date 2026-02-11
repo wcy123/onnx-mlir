@@ -65,4 +65,3 @@ func.func @test_matmul_parallel_successful(%arg0 : tensor<1024x512xf32>, %arg1 :
 // CHECK:           return [[RES_]] : memref<1024x2048xf32>
 // CHECK:         }
 }
-
