@@ -513,8 +513,9 @@ struct ConvertHipToLLVMPass
       signalPassFailure();
 
     // Post-processing: Transform @main function signature
-    // After standard conversion, @main has unpacked memref parameters
-    // We need to pack them into arrays for the C interface
+    // After standard conversion (populateFinalizeMemRefToLLVMConversionPatterns),
+    // @main has memrefs unpacked to scalar parameters (23 params for 1 input + 1 output rank-4)
+    // We wrap it: @main (3 params, struct arrays) → @main_internal (23 params, scalars)
     if (failed(transformMainFunction(module)))
       signalPassFailure();
   }

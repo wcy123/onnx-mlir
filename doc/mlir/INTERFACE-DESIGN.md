@@ -153,6 +153,71 @@ Memref struct.sizes[4] = {N, C, H, W}  (runtime values!)
 Wrappers pass dimensions to MIOpen (runtime!)
 ```
 
+### Call Chain Walkthrough: inference_compute → @main → @main_internal
+
+**How the layers connect:**
+
+```
+C Interface (GenerateInterfacePass generates):
+llvm.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr<span_t>, %outputs: !llvm.ptr<span_t>) -> i32 {
+  // 1. Parse span_t* to get tensor_t array
+  // 2. Build memref structs from tensor_t:
+  //    struct.data = tensor_t.data
+  //    struct.sizes[i] = load tensor_t.shape[i]  ← Runtime dimensions!
+  //    struct.strides[i] = calculated from sizes
+  // 3. Store structs in stack-allocated arrays
+  %input_array = alloca [1 x memref_struct]
+  %output_array = alloca [1 x memref_struct]
+  store %input_struct, %input_array[0]
+  store %output_struct, %output_array[0]
+
+  // 4. Call @main with struct arrays
+  %ret = llvm.call @main(%state, %input_array, %output_array)
+  llvm.return %ret
+}
+
+Wrapper Layer (HipToLLVM generates):
+llvm.func @main(%ctx: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {
+  // 5. Load structs from arrays
+  %input_struct = llvm.load %inputs[0]
+  %output_struct = llvm.load %outputs[0]
+
+  // 6. Unpack structs to scalars (11 extracts per rank-4 tensor = 22 total)
+  %allocated = llvm.extractvalue %input_struct[0]
+  %aligned = llvm.extractvalue %input_struct[1]
+  // ... 20 more extracts
+
+  // 7. Call @main_internal with scalars
+  %ret = llvm.call @main_internal(%ctx, %allocated, %aligned, ...[23 params])
+  llvm.return %ret
+}
+
+Computation Layer (Standard MLIR generates):
+llvm.func @main_internal(23 scalar params) {
+  // 8. Repack scalars to structs (11 inserts per tensor = 22 total)
+  %struct = llvm.mlir.poison
+  %s1 = llvm.insertvalue %struct, %allocated, 0
+  // ... 20 more inserts
+
+  // 9. Actual computation with structs
+  %const = llvm.call @hip_get_constant(...)
+  %ret = llvm.call @miopenConvolutionForward(...)
+  llvm.return %ret
+}
+```
+
+**Performance Note:**
+
+This looks like 3 levels of redundant pack/unpack, but **LLVM optimizes it to zero cost**:
+
+1. **Inlining**: `@main_internal` inlined into `@main`, then `@main` inlined into `@inference_compute`
+2. **SSA forwarding**: `extractvalue %s[0] → %v`, then `insertvalue %v → %s2[0]` becomes direct use of `%s`
+3. **Dead code elimination**: All extract/insert pairs eliminated
+
+**After optimization:** Only struct building in `inference_compute`, direct use in computation. No intermediate pack/unpack operations.
+
+Can verify with: `mlir-translate --mlir-to-llvmir | opt -O2`
+
 ### Prerequisite 2: Constant Management Function Contracts
 
 **Requirement:** Three helper functions for managing constants must exist with well-defined contracts.
