@@ -83,6 +83,8 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 
 ### Stage 4: Compile to Native DLL
 
+**Current Status**: Object file generation ✅ | DLL linking ❌ (requires LLD)
+
 ```bash
 # First, save the interface-generated MLIR to a file
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
@@ -92,32 +94,76 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
   --generate-interface \
   > demo_with_interface.mlir
 
-# Then compile to DLL
+# Compile to object file (Steps 1-6 work)
+export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
   demo_with_interface.mlir \
-  -o inference.dll \
+  -o inference.obj \
+  --mode object \
   -v \
   --keep
 ```
 
-**What you'll see**:
-- LLVM IR translation progress
-- Optimization at O2 level
-- Object file generation (.obj)
-- DLL linking with runtime libraries (HipDnnRuntime.lib, amdhip64.lib, MIOpen.lib)
-- DLL export verification (inference_init, inference_compute, inference_cleanup)
-- Intermediate files kept: .ll (LLVM IR), .obj (object file)
-
-**Verify DLL exports**:
-```bash
-# On Windows
-dumpbin /EXPORTS inference.dll
-
-# Expected output:
-#   inference_init
-#   inference_compute
-#   inference_cleanup
+**What you'll see** (real output from test run):
 ```
+=== MLIR to HIP DLL Compiler ===
+Input: demo_with_interface.mlir
+Output: inference.obj
+Mode: object
+Optimization: O2
+
+--- Step 1: Parsing MLIR ---
+✓ MLIR parsed successfully
+
+--- Step 2: Running MLIR Passes ---
+Skipping passes - assuming input is already in LLVM dialect
+✓ MLIR passes completed
+
+--- Step 3: Translating to LLVM IR ---
+✓ LLVM IR generated
+
+--- Step 4: Optimizing LLVM IR (O2) ---
+✓ Optimization completed
+
+--- Step 5: Emitting LLVM IR ---
+Emitted LLVM IR to: inference.ll
+✓ LLVM IR written to: inference.ll
+
+--- Step 6: Compiling to Object File ---
+Compiled object file to: inference.obj
+✓ Object file created: inference.obj
+
+Output: inference.obj
+```
+
+**Generated files**:
+- `inference.ll` - LLVM IR text format, contains inference_init/compute/cleanup functions
+- `inference.obj` - Object file PE/COFF format, native x86-64 machine code
+
+**DLL linking blocked**:
+
+Attempting `--mode dll` will fail at Step 7:
+```
+--- Step 7: Linking to DLL ---
+ERROR: LLD library not available. Native mode requires LLVM built with LLD.
+       Rebuild LLVM with: -DLLVM_ENABLE_PROJECTS="mlir;lld"
+Error linking DLL
+```
+
+**To enable full DLL compilation**:
+
+Rebuild LLVM with LLD enabled:
+```bash
+cmake -S llvm-project/llvm -B build-llvm \
+  -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+  -DCMAKE_INSTALL_PREFIX=/path/to/install \
+  -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build-llvm --parallel
+cmake --install build-llvm
+```
+
+Then uncomment LLD libraries in `lib/Backend/CMakeLists.txt` (lines 72-76, 84, 101-109, 114)
 
 ---
 
@@ -297,21 +343,21 @@ llvm.func @inference_cleanup(%state_ptr: !llvm.ptr) -> i32
 
 **Four-step pipeline**: MLIR (LLVM dialect) → LLVM IR → Object File → DLL
 
-**Step 1: Translate to LLVM IR**
+**Step 1: Translate to LLVM IR** ✅
 - Convert MLIR to LLVM IR using MLIR's translation infrastructure
 - Preserves all function declarations and C-ABI attributes
 - Output: `.ll` file (LLVM IR text format)
 
-**Step 2: Optimize LLVM IR**
+**Step 2: Optimize LLVM IR** ✅
 - Run LLVM optimization passes (default: -O2)
 - Function inlining, constant propagation, dead code elimination
 - Output: Optimized LLVM IR
 
-**Step 3: Compile to Object File**
+**Step 3: Compile to Object File** ✅
 - Generate native machine code for target platform (x86-64 Windows)
 - Output: `.obj` file (PE/COFF format)
 
-**Step 4: Link to DLL**
+**Step 4: Link to DLL** ❌ (Blocked - requires LLD)
 - Link object file with runtime libraries:
   - **HipDnnRuntime.lib** - Custom runtime (GPU handles, constant management)
   - **amdhip64.lib** - AMD HIP runtime
@@ -320,6 +366,7 @@ llvm.func @inference_cleanup(%state_ptr: !llvm.ptr) -> i32
 - Use LLD-LINK (LLVM's linker) to create DLL
 - Verify exported symbols: `inference_init`, `inference_compute`, `inference_cleanup`
 - Output: `.dll` file (Windows) or `.so` (Linux)
+- **NOTE**: Requires LLVM built with `-DLLVM_ENABLE_PROJECTS="mlir;lld"` (see Stage 4 demo above)
 
 **Tool**: `mlir-hip-compiler` (uses LLVMBackend + DLLLinker libraries)
 
@@ -364,16 +411,17 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
   --generate-interface \
   > ../output/my_stage3.mlir
 
-# 5. Run Stage 4: Compile to DLL
+# 5. Run Stage 4: Compile to Object File
+export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
   ../output/my_stage3.mlir \
-  -o ../output/my_inference.dll \
+  -o ../output/my_inference.obj \
+  --mode object \
   -v \
   --keep
 
-# 6. Verify DLL Exports
-dumpbin /EXPORTS ../output/my_inference.dll
-# Expected: inference_init, inference_compute, inference_cleanup
+# NOTE: DLL linking (--mode dll) requires LLVM built with LLD support
+# Rebuild LLVM with -DLLVM_ENABLE_PROJECTS="mlir;lld" to enable full DLL generation
 ```
 
 ### Expected Output
@@ -411,12 +459,12 @@ grep "sym_visibility.*public" ../output/my_stage3.mlir
 grep "hipdnn\." ../output/my_stage1.mlir
 # Expected: 4 attributes (input_count, input_ranks, output_count, output_ranks)
 
-# Verify DLL exports
-dumpbin /EXPORTS ../output/my_inference.dll | grep "inference_"
-# Expected: inference_init, inference_compute, inference_cleanup
+# Verify object file and LLVM IR generated
+ls -lh ../output/my_stage3.ll ../output/my_stage3.obj
+# Expected: .ll (LLVM IR text) and .obj (PE/COFF object) files
 
-# Check intermediate files (if --keep used)
-ls -lh ../output/my_stage3.ll ../output/my_stage3.obj ../output/my_inference.dll
+# NOTE: DLL generation blocked - requires LLVM built with LLD
+# See Stage 4 demo section above for details
 ```
 
 ---
