@@ -8,7 +8,7 @@ include(FetchContent)
 message(STATUS "Configuring LLVM/MLIR for morphizen-mlir")
 
 # LLVM configuration options
-set(LLVM_ENABLE_PROJECTS "mlir" CACHE STRING "LLVM projects to build")
+set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "LLVM projects to build")
 set(LLVM_TARGETS_TO_BUILD "host" CACHE STRING "LLVM targets to build")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "Enable LLVM assertions")
 set(LLVM_ENABLE_RTTI OFF CACHE BOOL "Disable RTTI in LLVM")

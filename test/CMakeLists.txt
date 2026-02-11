@@ -32,3 +32,6 @@ else()
   message(STATUS "ONNX Runtime not found, skipping ORT integration test")
   message(STATUS "  Hint: Ensure onnxruntime is installed and CMAKE_PREFIX_PATH includes the installation directory")
 endif()
+
+# Integration tests for MLIR to DLL pipeline
+add_subdirectory(integration)

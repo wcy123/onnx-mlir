@@ -21,6 +21,12 @@ if(BUILD_HIP_DIALECT)
   add_subdirectory(lib/HipDialect)
 endif()
 
+# Add runtime library (required for DLL generation)
+add_subdirectory(lib/Runtime)
+
+# Add backend library (LLVM Backend + DLL Linker)
+add_subdirectory(lib/Backend)
+
 if(BUILD_HIP_OPT_TOOL)
   add_subdirectory(tools/hip-opt)
 endif()

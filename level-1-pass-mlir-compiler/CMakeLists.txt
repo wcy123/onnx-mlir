@@ -19,13 +19,27 @@ target_link_libraries(${LIB_NAME} PUBLIC
 	MLIRIR
 	MLIRFuncDialect
 	MLIRArithDialect
+	MLIRLLVMDialect
 	MLIRParser
 	MLIRSupport
+	MLIRPass
+
+	# HipDialect passes
+	HipDialect
+
+	# Backend libraries (LLVM Backend + DLL Linker)
+	LLVMBackend
+
+	# Runtime library
+	HipDnnRuntime
 )
 target_include_directories(${LIB_NAME} PRIVATE
 	include
 	${LLVM_INCLUDE_DIRS}
 	${MLIR_INCLUDE_DIRS}
+	${CMAKE_SOURCE_DIR}/lib/HipDialect
+	${CMAKE_SOURCE_DIR}/lib/Backend
+	${CMAKE_SOURCE_DIR}/lib/Runtime
 )
 target_compile_definitions(${LIB_NAME} PRIVATE -DOUTPUT_NAME="morphizen-level1-pass-mlir-compiler")
 target_link_libraries(${morphizen_ONNXRUNTIME_MORPHIZEN_EP_TARGET} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${LIB_NAME}>")
