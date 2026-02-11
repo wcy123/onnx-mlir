@@ -621,7 +621,7 @@ hip-opt.exe demo_two_layer_conv.mlir \
 
 # 4. Run Stage 3: Generate Interface
 hip-opt.exe demo_two_layer_conv.mlir \
-  --convert-onnx-to-hip --generate-interface
+  --convert-onnx-to-hip --convert-hip-to-llvm --generate-interface
 
 # 5. Run Stage 4: Compile to DLL
 hip-opt.exe demo_two_layer_conv.mlir \

@@ -249,50 +249,104 @@ private:
 
   /// Verify that module has all required prerequisites
   LogicalResult verifyPrerequisites(ModuleOp module) {
-    // Check @main exists (can be func.func or llvm.func)
-    auto mainFunc = module.lookupSymbol<func::FuncOp>("main");
-    auto mainLLVMFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("main");
-    if (!mainFunc && !mainLLVMFunc) {
-      llvm::errs() << "[GenerateInterface] Error: @main function not found\n";
+    MLIRContext *ctx = module.getContext();
+    Type ptrType = LLVM::LLVMPointerType::get(ctx, 0);
+    Type i32Type = IntegerType::get(ctx, 32);
+    Type i64Type = IntegerType::get(ctx, 64);
+
+    // 0. Check pass hasn't run before (idempotency check)
+    if (module.lookupSymbol<LLVM::LLVMFuncOp>("inference_init") ||
+        module.lookupSymbol<LLVM::LLVMFuncOp>("inference_compute") ||
+        module.lookupSymbol<LLVM::LLVMFuncOp>("inference_cleanup")) {
+      llvm::errs() << "[GenerateInterface] Interface functions already exist. "
+                   << "Pass already ran.\n";
       return failure();
     }
 
-    // Check metadata exists
+    // 1. Check @main exists as llvm.func with correct signature: (ptr,ptr,ptr)->i32
+    auto mainFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("main");
+    if (!mainFunc) {
+      // Give helpful error if it's func.func
+      if (module.lookupSymbol<func::FuncOp>("main")) {
+        llvm::errs() << "[GenerateInterface] @main is func.func, needs llvm.func.\n"
+                     << "Run --convert-hip-to-llvm first.\n";
+        return failure();
+      }
+      llvm::errs() << "[GenerateInterface] @main (llvm.func) not found\n";
+      return failure();
+    }
+
+    // Verify @main signature
+    auto mainType = mainFunc.getFunctionType();
+    if (mainType.getNumParams() != 3 ||
+        mainType.getParamType(0) != ptrType ||
+        mainType.getParamType(1) != ptrType ||
+        mainType.getParamType(2) != ptrType ||
+        mainType.getReturnType() != i32Type) {
+      llvm::errs() << "[GenerateInterface] @main has wrong signature.\n"
+                   << "Expected: (ptr, ptr, ptr) -> i32\n";
+      return failure();
+    }
+
+    // 2. Check get_constant_count: () -> i64
+    auto getCountFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count");
+    if (!getCountFunc) {
+      llvm::errs() << "[GenerateInterface] get_constant_count (llvm.func) not found\n";
+      return failure();
+    }
+    auto getCountType = getCountFunc.getFunctionType();
+    if (getCountType.getNumParams() != 0 ||
+        getCountType.getReturnType() != i64Type) {
+      llvm::errs() << "[GenerateInterface] get_constant_count has wrong signature.\n"
+                   << "Expected: () -> i64\n";
+      return failure();
+    }
+
+    // 3. Check initialize_constants: (ptr) -> i32
+    auto initFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants");
+    if (!initFunc) {
+      llvm::errs() << "[GenerateInterface] initialize_constants (llvm.func) not found\n";
+      return failure();
+    }
+    auto initType = initFunc.getFunctionType();
+    if (initType.getNumParams() != 1 ||
+        initType.getParamType(0) != ptrType ||
+        initType.getReturnType() != i32Type) {
+      llvm::errs() << "[GenerateInterface] initialize_constants has wrong signature.\n"
+                   << "Expected: (ptr) -> i32\n";
+      return failure();
+    }
+
+    // 4. Check release_constants: (ptr) -> i32
+    auto releaseFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants");
+    if (!releaseFunc) {
+      llvm::errs() << "[GenerateInterface] release_constants (llvm.func) not found\n";
+      return failure();
+    }
+    auto releaseType = releaseFunc.getFunctionType();
+    if (releaseType.getNumParams() != 1 ||
+        releaseType.getParamType(0) != ptrType ||
+        releaseType.getReturnType() != i32Type) {
+      llvm::errs() << "[GenerateInterface] release_constants has wrong signature.\n"
+                   << "Expected: (ptr) -> i32\n";
+      return failure();
+    }
+
+    // 5. Check all 4 metadata attributes exist
     if (!module->getAttr("hipdnn.input_count")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_count attribute "
-                      "missing\n";
+      llvm::errs() << "[GenerateInterface] hipdnn.input_count attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.input_ranks")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.input_ranks attribute "
-                      "missing\n";
+      llvm::errs() << "[GenerateInterface] hipdnn.input_ranks attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_count")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_count "
-                      "attribute missing\n";
+      llvm::errs() << "[GenerateInterface] hipdnn.output_count attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_ranks")) {
-      llvm::errs() << "[GenerateInterface] Error: hipdnn.output_ranks "
-                      "attribute missing\n";
-      return failure();
-    }
-
-    // Check constant helpers exist
-    if (!module.lookupSymbol("get_constant_count")) {
-      llvm::errs() << "[GenerateInterface] Error: get_constant_count function "
-                      "not found\n";
-      return failure();
-    }
-    if (!module.lookupSymbol("initialize_constants")) {
-      llvm::errs() << "[GenerateInterface] Error: initialize_constants "
-                      "function not found\n";
-      return failure();
-    }
-    if (!module.lookupSymbol("release_constants")) {
-      llvm::errs() << "[GenerateInterface] Error: release_constants function "
-                      "not found\n";
+      llvm::errs() << "[GenerateInterface] hipdnn.output_ranks attribute missing\n";
       return failure();
     }
 

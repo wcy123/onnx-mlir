@@ -72,6 +72,7 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
   tools/hip-opt/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
+  --convert-hip-to-llvm \
   --generate-interface
 ```
 
@@ -330,18 +331,6 @@ llvm.func @inference_cleanup(%state_ptr: !llvm.ptr) -> i32
 - `-v` - Verbose output
 - `--keep` - Keep intermediate files (.ll, .obj)
 
-**Alternative workflow** (one command):
-```bash
-# Skip hip-opt step entirely using --from-onnx-mlir flag
-../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
-  tools/hip-opt/demo_two_layer_conv.mlir \
-  -o inference.dll \
-  --from-onnx-mlir \
-  -v
-```
-
-This runs all passes (ONNX→HIP→LLVM→Interface) + compilation in one step.
-
 ---
 
 ## Try It Yourself
@@ -371,6 +360,7 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
   tools/hip-opt/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
+  --convert-hip-to-llvm \
   --generate-interface \
   > ../output/my_stage3.mlir
 
