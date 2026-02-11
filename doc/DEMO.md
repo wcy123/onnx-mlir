@@ -790,3 +790,33 @@ This document is designed for **small tech meeting presentations** (20-30 minute
 - Update status section when milestones change
 - Ensure "Try It Yourself" commands remain accurate and tested
 - Remember: attendees should be able to follow along and run commands themselves
+
+### **CRITICAL: Real Output Only**
+
+**All code examples MUST come from actual compiler runs, not theoretical output.**
+
+- ❌ **NEVER** write placeholder or imagined MLIR/LLVM code
+- ✅ **ALWAYS** run the actual commands and copy the real output
+- ✅ When updating examples, re-run the compiler and verify output matches
+- ✅ Keep output files in `../output/` directory as source of truth
+- ✅ Line counts in descriptions (e.g., "60 lines", "260 lines") must match actual files
+
+**How to verify**:
+```bash
+# Before updating DEMO.md, regenerate all outputs
+cd tools/hip-opt
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip > ../../output/demo_stage1.mlir
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip --convert-hip-to-llvm > ../../output/demo_stage2.mlir
+../../build/onnx-hipdnn-ep/bin/hip-opt.exe demo_two_layer_conv.mlir --convert-onnx-to-hip --generate-interface > ../../output/demo_stage3.mlir
+
+# Verify line counts
+wc -l ../../output/demo_stage*.mlir
+
+# Then copy-paste from these files into DEMO.md
+```
+
+**This principle ensures**:
+- Examples are accurate and reproducible
+- Attendees see exactly what they'll get when they run commands
+- Documentation stays synchronized with actual implementation
+- No surprises during live demos
