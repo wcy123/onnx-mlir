@@ -95,53 +95,13 @@ int inference_cleanup(void* state);
 
 **About `span_t` and tensor interface:**
 
-The C interface uses these structs to pass tensors between CustomOp and compiled DLL:
-
-```c
-// Single tensor descriptor
-typedef struct {
-    void* data;        // Pointer to tensor data (CPU or GPU memory)
-    int64_t* shape;    // Runtime dimensions (e.g., [2, 3, 256, 256])
-    int rank;          // Number of dimensions (e.g., 4)
-    int data_type;     // Element type (float32, int64, etc.)
-} tensor_t;
-
-// Array of tensors
-typedef struct {
-    tensor_t* data;    // Array of tensor descriptors
-    size_t count;      // Number of tensors (N inputs or M outputs)
-} span_t;
-```
-
-**Usage in inference_compute:**
-- User provides `inputs` (span_t with N tensors) and `outputs` (span_t with M tensors)
-- `inference_compute` loads runtime dimensions from `tensor_t.shape`
-- Builds MLIR memref structs with these runtime values
-- Calls `@main` which executes GPU computation
-
-See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete interface specification.
+The C interface uses `tensor_t` and `span_t` structs to pass tensors between CustomOp and compiled DLL. For complete struct definitions, see [mlir/INTERFACE-DESIGN.md#prerequisite-5-tensor-interface](mlir/INTERFACE-DESIGN.md#prerequisite-5-tensor-interface).
 
 ---
 
 ## Two-Layer Architecture
 
-**Layer 1: C Interface (Public API)**
-- `inference_init`, `inference_compute`, `inference_cleanup`
-- Exported from DLL for CustomOp
-- Handle span_t ↔ memref impedance mismatch
-
-**Layer 2: Internal MLIR Functions (Private)**
-- `@main(context, inputs, outputs) -> i32` - Actual computation
-- `initialize_constants(context) -> i32` - Upload constants
-- `release_constants(context) -> i32` - Free GPU memory
-- `get_constant_count() -> i64` - Metadata helper
-
-**Why two layers?**
-- C interface uses `span_t` (dynamic, opaque)
-- MLIR uses `memref` (typed, structured)
-- Wrappers bridge the gap
-
-See [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for details.
+The compiled DLL has two layers: C interface (public API) and internal MLIR functions (private implementation). For complete architectural details and rationale, see [mlir/INTERFACE-DESIGN.md#two-layer-architecture](mlir/INTERFACE-DESIGN.md#two-layer-architecture).
 
 ---
 

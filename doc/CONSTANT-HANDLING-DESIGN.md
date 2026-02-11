@@ -1,6 +1,8 @@
 # Constant Handling Design
 ## ONNX Initializers in MLIR-based Compilation Pipeline
 
+**Note:** This is the authoritative source for constant handling design and implementation.
+
 **Status**: Design in Progress
 **Date**: 2026-02-10
 **Related**: ARCHITECTURE.md, MLIR-COMPILATION-DESIGN.md, STATE-AND-CONTEXT.md

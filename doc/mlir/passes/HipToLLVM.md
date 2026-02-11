@@ -321,10 +321,11 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<hip::ConvOp> {
 
 ## Dynamic Shape Support
 
-**CRITICAL:** Wrappers extract dimensions at runtime!
+Wrappers extract dimensions at runtime from memref structs. For complete dynamic shape design and rationale, see [../../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md).
 
+Example:
 ```mlir
-// In wrapper function
+// In wrapper function - dimensions extracted at runtime
 %input_n = llvm.extractvalue %input[3, 0] : !llvm.struct<...> -> i64  // RUNTIME!
 %input_c = llvm.extractvalue %input[3, 1] : !llvm.struct<...> -> i64  // RUNTIME!
 %input_h = llvm.extractvalue %input[3, 2] : !llvm.struct<...> -> i64  // RUNTIME!
@@ -335,25 +336,19 @@ llvm.call @miopenSet4dTensorDescriptor(%xDesc, %dataType,
                                         %input_n, %input_c, %input_h, %input_w)
 ```
 
-**This is how dynamic shapes work:**
-1. User provides tensor with shape [2, 3, 256, 256]
-2. inference_compute loads [2, 3, 256, 256] from tensor_t.shape
-3. Builds memref struct with sizes = [2, 3, 256, 256] (runtime values!)
-4. @main loads memref struct from array
-5. Wrapper extracts [2, 3, 256, 256] from struct
-6. MIOpen descriptor created with runtime dimensions
-
 ---
 
 ## Prerequisites Met
 
-This pass satisfies **Prerequisite 1** requirements:
+This pass satisfies Prerequisite 1 requirements from [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#prerequisite-1-main-function-signature):
 
 ✅ Transforms @main to signature: `(context, inputs, outputs) -> i32`
 ✅ Uses memref struct arrays (struct-by-value)
 ✅ Supports dynamic shapes (dimensions extracted at runtime)
 ✅ Generates wrapper functions that handle runtime dimensions
 ✅ Lowers constant helpers to LLVM
+
+For detailed prerequisite specifications, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#generateinterfacepass-prerequisites).
 
 ---
 

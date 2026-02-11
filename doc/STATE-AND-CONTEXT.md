@@ -353,7 +353,7 @@ int inference_init() {
     return 0;
 }
 
-int inference_compute(span_t inputs, span_t outputs) {
+int inference_compute(span_t* inputs, span_t* outputs) {
     // Implicitly uses g_hip_context
     return 0;
 }

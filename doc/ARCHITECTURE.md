@@ -390,7 +390,7 @@ private:
 
   // Function pointers from compiled DLL
   int (*inference_init_)(void** out_state);
-  int (*inference_compute_)(void* state, span_t inputs, span_t outputs);
+  int (*inference_compute_)(void* state, span_t* inputs, span_t* outputs);
   int (*inference_cleanup_)(void* state);
 
 public:
@@ -577,29 +577,11 @@ EPContext (embedded in ONNX model):
 // ============================================================================
 
 /**
- * Tensor descriptor with dynamic shape support
+ * Type Definitions
  *
- * The data pointer is location-agnostic (CPU or GPU).
- * Current implementation: CPU pointer (compiled code handles D2H/H2D transfers)
- * Future: GPU pointer for 100% GPU offloading (TODO: add device_type field)
+ * For complete tensor_t and span_t struct definitions, see:
+ * doc/mlir/INTERFACE-DESIGN.md#prerequisite-5-tensor-interface
  */
-typedef struct {
-    void* data;          // Pointer to tensor data (CPU or GPU)
-    int64_t* shape;      // Array of dimensions [dim0, dim1, ..., dim_{rank-1}]
-    int rank;            // Number of dimensions
-    // TODO: int device_type;  // 0=CPU, 1=GPU (for future 100% GPU offloading)
-} tensor_t;
-
-/**
- * Span: fat pointer (borrowed view of contiguous data)
- *
- * Inspired by Rust slices and C++ std::span
- * Pairs pointer with count for bounds safety
- */
-typedef struct {
-    void* data;          // Pointer to array
-    size_t count;        // Number of elements (not bytes!)
-} span_t;
 
 // ============================================================================
 // Status Codes
@@ -649,11 +631,11 @@ int inference_init(void** out_state);
  * Future: inputs/outputs point to GPU memory (zero-copy, add device_type to tensor_t)
  *
  * @param state Opaque state pointer from inference_init()
- * @param inputs Span of input tensors (count known at compile time, validated at runtime)
- * @param outputs Span of output tensors (count known at compile time, validated at runtime)
+ * @param inputs Pointer to span of input tensors (count known at compile time, validated at runtime)
+ * @param outputs Pointer to span of output tensors (count known at compile time, validated at runtime)
  * @return INFERENCE_SUCCESS on success, error code otherwise
  */
-int inference_compute(void* state, span_t inputs, span_t outputs);
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
 
 /**
  * Cleanup inference state

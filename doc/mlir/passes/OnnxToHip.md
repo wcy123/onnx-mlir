@@ -325,14 +325,16 @@ struct ConvOpConversion : public OpConversionPattern<ONNXConvOp> {
 
 ## Prerequisites Met
 
-This pass satisfies **Prerequisite 1** requirements:
+This pass satisfies Prerequisite 1 requirements from [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#prerequisite-1-main-function-signature):
 
 ✅ Generates @main with signature: `(context, input, output) -> i32`
 ✅ Uses memref types (ready for struct-by-value in later passes)
-✅ Generates constant management helpers
+✅ Generates constant management helpers (see [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md))
 ✅ Adds module metadata for I/O structure
 
 **Note:** This pass generates single-input, single-output @main. Multi-I/O support will be added in Phase 2.
+
+For detailed prerequisite specifications, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#generateinterfacepass-prerequisites).
 
 ---
 

@@ -1,5 +1,7 @@
 # Constant Management Design
 
+**Note:** This document has been consolidated into [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md). Please refer to that document for the complete and authoritative constant handling design and implementation details.
+
 **Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
 
 ---

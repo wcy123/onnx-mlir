@@ -1,5 +1,7 @@
 # C Interface Design and GenerateInterfacePass Prerequisites
 
+**Note:** This is the authoritative source for C interface specifications and GenerateInterfacePass prerequisites.
+
 **Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
 
 ---
@@ -19,7 +21,7 @@ The compiled DLL has **two layers of functions**:
 
 **Layer 1: C Interface (Public API for CustomOp)**
 - `inference_init(void** out_state)` - Exported from DLL
-- `inference_compute(void* state, span_t inputs, span_t outputs)` - Exported from DLL
+- `inference_compute(void* state, span_t* inputs, span_t* outputs)` - Exported from DLL
 - `inference_cleanup(void* state)` - Exported from DLL
 
 **Layer 2: Internal MLIR Functions (Private)**
@@ -35,7 +37,7 @@ The compiled DLL has **two layers of functions**:
 - **MLIR** (compiled code) uses: `memref` structs (typed descriptors)
 
 **Solution:** Wrapper functions bridge the gap
-- `inference_compute` parses `span_t` → builds `memref` descriptors → calls `@main`
+- `inference_compute` parses `span_t*` → builds `memref` descriptors → calls `@main`
 - `@main` operates on memrefs (natural for MLIR, works with existing passes)
 
 ---
@@ -48,13 +50,13 @@ Before implementing the `GenerateInterfacePass`, we must establish clear contrac
 
 **CRITICAL REQUIREMENT: Dynamic Shape Support**
 
-All prerequisites MUST support **dynamic shapes from Day 1**. This means:
+All prerequisites MUST support **dynamic shapes from Day 1**. For complete dynamic shape design and rationale, see [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md).
+
+Summary:
 - ✅ Tensor **rank** is compile-time known (e.g., 4D tensor)
 - ✅ Dimension **values** are runtime (loaded from tensor_t.shape pointer)
 - ✅ No interface changes needed for dynamic shapes
 - ✅ All memref operations must work with runtime dimension values
-
-See [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for comprehensive details.
 
 ### Prerequisite 1: @main Function Signature (Dynamic Shape Ready)
 
@@ -346,7 +348,7 @@ typedef struct {
 **What GenerateInterfacePass generates:**
 
 1. ✅ **inference_init:** Allocate context, create handles, call initialize_constants
-2. ✅ **inference_compute:** Parse span_t, **load runtime dimensions**, build memrefs, call @main
+2. ✅ **inference_compute:** Parse span_t*, **load runtime dimensions**, build memrefs, call @main
 3. ✅ **inference_cleanup:** Call release_constants, destroy handles, free context
 
 **Dynamic Shape Support Summary:**

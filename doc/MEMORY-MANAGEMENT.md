@@ -21,8 +21,8 @@ GPU memory allocation is expensive (~35ms per GB). Optimizing allocation strateg
 - **HIP dialect functions** use **destination-passing style**: Outputs passed as pointer arguments
   - Example: `func.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32`
   - Returns i32 status code (0 = success)
-- **Final C interface** uses **destination-passing style**: Outputs passed via span_t
-  - Example: `int inference_compute(void* state, span_t inputs, span_t outputs)`
+- **Final C interface** uses **destination-passing style**: Outputs passed via span_t*
+  - Example: `int inference_compute(void* state, span_t* inputs, span_t* outputs)`
 
 This design ensures consistent in-place semantics at all levels: operations write to pre-allocated buffers, functions receive output buffers from callers, and the C interface passes outputs via span_t. No memory is returned from functions - all outputs are written to caller-provided buffers.
 

@@ -1,5 +1,7 @@
 # Dynamic Shape Support Design
 
+**Note:** This is the authoritative source for dynamic shape design. Other documents reference this for details.
+
 **Date:** 2026-02-10
 **Status:** Design Document
 **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md)
@@ -74,7 +76,7 @@ typedef struct {
     size_t count;        // Number of tensors
 } span_t;
 
-int inference_compute(void* state, span_t inputs, span_t outputs);
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
 ```
 
 **Key observation:** The interface **already provides runtime shapes** via `tensor_t.shape` pointer!

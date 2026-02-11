@@ -12,108 +12,24 @@ The GenerateInterfacePass generates the three C interface functions that are exp
 
 **Generated functions:**
 1. `inference_init` - Allocates context, creates GPU handles, uploads constants
-2. `inference_compute` - Parses span_t, builds memrefs, calls @main
+2. `inference_compute` - Parses span_t*, builds memrefs, calls @main
 3. `inference_cleanup` - Frees GPU resources, destroys handles
 
 ---
 
 ## Prerequisites
 
-Before this pass can run, the module MUST satisfy these requirements.
+This pass requires 5 prerequisites to be met by prior passes. For detailed specifications, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md#generateinterfacepass-prerequisites).
 
-**Why prerequisites matter:** [GenerateInterfacePass](GenerateInterfacePass.md) generates C interface functions that bridge between user-provided `span_t` arrays and MLIR's internal `@main` function. This requires precise knowledge of:
-- How many inputs/outputs to expect (for validation)
-- What rank each tensor has (for memref struct construction)
-- Where to find constants and GPU handles (for initialization)
+**Summary:**
 
-When @main signature becomes `(context, inputs, outputs) → i32` in [HipToLLVM pass](HipToLLVM.md), type information is lost. Module metadata and helper functions preserve this information.
+1. **@main function signature**: `(context, inputs, outputs) -> i32` with struct-by-value memrefs supporting dynamic shapes
+2. **Module metadata**: Attributes specifying input/output counts and tensor ranks
+3. **Constant management functions**: `get_constant_count`, `initialize_constants`, `release_constants`
+4. **Context struct layout**: Stream, MIOpen/hipBLAS handles, GPU constants array
+5. **Tensor interface types**: `tensor_t` and `span_t` structs for C interface
 
-### Prerequisite 1: @main Function Signature
-
-**Required signature:**
-```mlir
-llvm.func @main(%context: !llvm.ptr,
-                %inputs: !llvm.ptr,   // Pointer to array of input memref structs
-                %outputs: !llvm.ptr)  // Pointer to array of output memref structs
-                -> i32
-```
-
-**Requirements:**
-- Function named `@main` exists
-- First parameter is context pointer
-- Second parameter is array of input memref structs (struct-by-value)
-- Third parameter is array of output memref structs (struct-by-value)
-- Returns i32 status code
-- Memref structs contain runtime dimension values (dynamic shape support)
-
-### Prerequisite 2: Module Metadata
-
-**Required module attributes:**
-```mlir
-module attributes {
-  hipdnn.input_count = 2 : i64,              // N inputs
-  hipdnn.input_ranks = dense<[4, 2]> : tensor<2xi64>,  // ranks for each input
-  hipdnn.output_count = 2 : i64,             // M outputs
-  hipdnn.output_ranks = dense<[2, 1]> : tensor<2xi64>  // ranks for each output
-}
-```
-
-**Why metadata is critical:** When @main signature becomes `(context, inputs, outputs) → i32`, type information is lost (arrays have no compile-time size). Metadata compensates for this loss by preserving:
-- **Input/output counts**: How many tensors to validate and process
-- **Tensor ranks**: Determines memref struct layout (`rank 4` → `array<4xi64>` for sizes/strides)
-- **Loop bounds**: How many iterations when building memref arrays
-
-This enables the pass to:
-1. Generate validation code (check user provides correct number of tensors)
-2. Build memref structs with correct rank-dependent layout
-3. Allocate arrays of correct size
-4. Iterate over inputs/outputs correctly
-
-### Prerequisite 3: Constant Management Helpers
-
-**Required functions:**
-
-```mlir
-llvm.func @get_constant_count() -> i64
-llvm.func @initialize_constants(%context: !llvm.ptr) -> i32
-llvm.func @release_constants(%context: !llvm.ptr) -> i32
-```
-
-**Contracts:**
-- `get_constant_count()`: Pure function, returns number of constants
-- `initialize_constants(context)`: Expects context with handles created and gpu_constants allocated
-- `release_constants(context)`: Frees GPU constant memory
-
-### Prerequisite 4: Context Struct Layout
-
-**Expected layout:**
-```c
-struct HipExecutionContext {
-    hipStream_t stream;              // field 0
-    miopenHandle_t miopenHandle;     // field 1
-    hipblasLtHandle_t hipblasHandle; // field 2
-    void** gpu_constants;            // field 3: dynamically allocated array
-};
-```
-
-### Prerequisite 5: Tensor Interface Types
-
-**C structs (defined in custom-op):**
-```c
-typedef struct {
-    void* data;
-    int64_t* shape;    // Runtime dimensions
-    int rank;
-    int data_type;
-} tensor_t;
-
-typedef struct {
-    tensor_t* data;
-    size_t count;
-} span_t;
-```
-
-See [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) for complete prerequisite details.
+**Why prerequisites matter:** GenerateInterfacePass bridges between user-provided `span_t` arrays and MLIR's internal `@main` function. When @main signature becomes `(context, inputs, outputs) → i32`, type information is lost. Metadata and helper functions preserve this information to enable correct validation and memref construction.
 
 ---
 

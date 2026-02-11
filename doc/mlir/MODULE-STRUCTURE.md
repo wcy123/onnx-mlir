@@ -63,7 +63,7 @@ module {
   }
 
   // Function 2: inference_compute - wrapper around @main
-  // C signature: int inference_compute(void* state, span_t inputs, span_t outputs);
+  // C signature: int inference_compute(void* state, span_t* inputs, span_t* outputs);
   llvm.func @inference_compute(%state: !llvm.ptr,
                                 %inputs: !llvm.ptr,
                                 %outputs: !llvm.ptr) -> i32 {
@@ -194,7 +194,7 @@ llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
 
 **C Signature:**
 ```c
-int inference_compute(void* state, span_t inputs, span_t outputs);
+int inference_compute(void* state, span_t* inputs, span_t* outputs);
 ```
 
 **MLIR Signature:**
@@ -258,7 +258,7 @@ CustomOp (C++ code)
   │           ├─→ hipMemcpy() - copy to GPU
   │           └─→ store GPU pointer in context.gpu_constants[i]
   │
-  ├─→ inference_compute(void* state, span_t inputs, span_t outputs)
+  ├─→ inference_compute(void* state, span_t* inputs, span_t* outputs)
   │     ├─→ Parse span_t
   │     ├─→ Load runtime dimensions from tensor_t.shape
   │     ├─→ Build memref structs
