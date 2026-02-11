@@ -17,17 +17,18 @@ Licensed under the MIT License.
 - [Problem](#problem)
 - [System Architecture](#system-architecture)
 - [Key Design Decisions](#key-design-decisions)
-  - [1. Native DLL vs LLVM IR Storage](#1-native-dll-vs-llvm-ir-storage)
-  - [2. Memory DLL Loading vs Disk Files](#2-memory-dll-loading-vs-disk-files)
-  - [3. Pattern-Based Lowering vs Manual Transformation](#3-pattern-based-lowering-vs-manual-transformation)
-  - [4. Stateful Interface (init/compute/cleanup)](#4-stateful-interface-initcomputecleanup)
-  - [5. Embedded Constants vs External Files](#5-embedded-constants-vs-external-files)
-  - [6. Synchronous Execution vs Async](#6-synchronous-execution-vs-async)
-  - [7. Full Model Fusion vs Per-Op Execution](#7-full-model-fusion-vs-per-op-execution)
-  - [8. Standalone Resources vs Shared Context](#8-standalone-resources-vs-shared-context)
+  - [1. Memory DLL Loading vs Disk Files](#1-memory-dll-loading-vs-disk-files)
+  - [2. Pattern-Based Lowering vs Manual Transformation](#2-pattern-based-lowering-vs-manual-transformation)
+  - [3. Stateful Interface (init/compute/cleanup)](#3-stateful-interface-initcomputecleanup)
+  - [4. Embedded Constants vs External Files](#4-embedded-constants-vs-external-files)
+  - [5. Synchronous Execution vs Async](#5-synchronous-execution-vs-async)
+  - [6. Full Model Fusion vs Per-Op Execution](#6-full-model-fusion-vs-per-op-execution)
+  - [7. Standalone Resources vs Shared Context](#7-standalone-resources-vs-shared-context)
 - [Quality Attributes](#quality-attributes)
 - [Design Principles](#design-principles)
 - [ONNX-MLIR Integration](#onnx-mlir-integration)
+- [Open Architectural Questions](#open-architectural-questions)
+  - [Native DLL vs LLVM IR Storage](#native-dll-vs-llvm-ir-storage)
 - [References](#references)
 
 ---
@@ -39,7 +40,7 @@ Licensed under the MIT License.
 - Large runtime dependencies (LLVM/MLIR libraries)
 - Repeated compilation: Same model recompiled on every process start
 
-This architecture eliminates JIT overhead by compiling models ahead-of-time to native DLLs stored in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html).
+This architecture explores ahead-of-time (AOT) compilation approaches to reduce or eliminate JIT overhead by pre-compiling models and storing compiled artifacts in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html).
 
 ---
 
@@ -65,9 +66,9 @@ The system separates compilation from execution into two distinct stages:
 │      ↓                                                       │
 │  Generate C interface (GenerateInterfacePass)               │
 │      ↓                                                       │
-│  LLVM IR → Native DLL                                       │
+│  LLVM IR → Compiled Artifact (DLL or IR)                    │
 │      ↓                                                       │
-│  Embed DLL in EPContext → ONNX model with EPContext         │
+│  Embed in EPContext → ONNX model with EPContext             │
 │                                                              │
 │  Runs once: At model conversion or first load               │
 └─────────────────────────────────────────────────────────────┘
@@ -75,10 +76,10 @@ The system separates compilation from execution into two distinct stages:
 ┌─────────────────────────────────────────────────────────────┐
 │                  RUNTIME (Custom Op)                         │
 ├─────────────────────────────────────────────────────────────┤
-│  Dependencies: MemoryModule, HIP runtime, MIOpen            │
-│  NO LLVM/MLIR at runtime                                    │
+│  Dependencies: HIP runtime, MIOpen (+ optional: MemoryModule│
+│  or LLVM JIT depending on artifact format)                  │
 │                                                              │
-│  Load EPContext → Extract DLL bytes → Load DLL from memory  │
+│  Load EPContext → Extract artifact → Load and execute       │
 │      ↓                                                       │
 │  Resolve entry points (inference_init/compute/cleanup)      │
 │      ↓                                                       │
@@ -91,15 +92,15 @@ The system separates compilation from execution into two distinct stages:
 ### Architectural Rationale
 
 **Why two stages?**
-- Eliminate JIT compilation overhead (primary goal)
-- Remove heavyweight dependencies from deployment
+- Reduce or eliminate JIT compilation overhead
+- Potentially remove heavyweight dependencies from deployment
 - Enable aggressive compile-time optimizations
 - Support WebNN no-disk-access requirements
 
 **Why separate compilation artifacts?**
-- Compilation tools (LLVM/MLIR) not needed at inference time
-- Smaller deployment footprint
-- Faster startup (load vs compile)
+- Compilation tools (LLVM/MLIR) potentially not needed at inference time
+- Potentially smaller deployment footprint
+- Potentially faster startup (load vs compile)
 
 ### Interface Contract
 
@@ -108,7 +109,7 @@ The compiled DLL exports exactly 3 C functions:
 - `int inference_compute(void* state, span_t* inputs, span_t* outputs)` - Execute inference
 - `int inference_cleanup(void* state)` - Free GPU resources
 
-See [Design Decision #4](#4-stateful-interface-initcomputecleanup) for rationale.
+See [Design Decision #3](#3-stateful-interface-initcomputecleanup) for rationale.
 
 ### Implementation Details
 
@@ -121,29 +122,7 @@ For compilation pipeline details:
 
 ## Key Design Decisions
 
-### 1. Native DLL vs LLVM IR Storage
-
-**Decision:** Compile to native machine code (DLL) stored in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html), not LLVM IR or MLIR bytecode.
-
-**Rationale:**
-- Zero JIT overhead: Compilation happens once, not on every inference startup
-- Lightweight runtime: No LLVM libraries at runtime
-- Fast loading: Direct memory mapping vs JIT compilation
-- EPContext philosophy: Purpose is to eliminate recompilation
-
-**Trade-offs:**
-
-| Aspect | Native DLL | LLVM IR |
-|--------|-----------|---------|
-| **Startup time** | Fast (load from memory) | Slow (requires JIT compilation) |
-| **Runtime deps** | [MemoryModule](https://github.com/fancycode/MemoryModule) only | Large LLVM/MLIR libraries |
-| **Portability** | GPU arch-specific (gfx1150, gfx1030) | Cross-architecture |
-| **EPContext size** | Larger (includes code + weights) | Smaller (IR only) |
-| **Validation** | Requires arch detection at runtime | Compile-time flexible |
-
----
-
-### 2. Memory DLL Loading vs Disk Files
+### 1. Memory DLL Loading vs Disk Files
 
 **Decision:** Load DLL directly from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html) memory buffer using [MemoryModule](https://github.com/fancycode/MemoryModule), no disk I/O.
 
@@ -164,7 +143,7 @@ For compilation pipeline details:
 
 ---
 
-### 3. Pattern-Based Lowering vs Manual Transformation
+### 2. Pattern-Based Lowering vs Manual Transformation
 
 **Decision:** Use [MLIR's pattern rewriting framework](https://mlir.llvm.org/docs/DialectConversion/) with typed operations from [onnx-mlir](https://github.com/onnx/onnx-mlir).
 
@@ -186,7 +165,7 @@ For compilation pipeline details:
 
 ---
 
-### 4. Stateful Interface (init/compute/cleanup)
+### 3. Stateful Interface (init/compute/cleanup)
 
 **Decision:** Three-function lifecycle vs single stateless function.
 
@@ -213,7 +192,7 @@ See [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) for complete specification.
 
 ---
 
-### 5. Embedded Constants vs External Files
+### 4. Embedded Constants vs External Files
 
 **Decision:** Embed weights/biases directly in DLL, not separate files.
 
@@ -236,7 +215,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 6. Synchronous Execution vs Async
+### 5. Synchronous Execution vs Async
 
 **Decision:** `inference_compute()` blocks until GPU work completes.
 
@@ -257,7 +236,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 7. Full Model Fusion vs Per-Op Execution
+### 6. Full Model Fusion vs Per-Op Execution
 
 **Decision:** Entire ONNX model graph fused into single [CustomOp](https://onnxruntime.ai/docs/reference/operators/add-custom-op.html) node.
 
@@ -278,7 +257,7 @@ See [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) for implementatio
 
 ---
 
-### 8. Standalone Resources vs Shared Context
+### 7. Standalone Resources vs Shared Context
 
 **Decision:** Each compiled model creates its own GPU handles (hipStream, miopenHandle, etc.).
 
@@ -308,10 +287,10 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 
 **Approach:**
 - [MemoryModule](https://github.com/fancycode/MemoryModule) for fast in-memory DLL loading
-- [Stateful interface](#4-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
-- [Native compilation](#1-native-dll-vs-llvm-ir-storage): Eliminate JIT overhead entirely
+- [Stateful interface](#3-stateful-interface-initcomputecleanup): Allocate GPU resources once, reuse across inferences
+- Ahead-of-time compilation: Reduce or eliminate JIT overhead
 
-**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#4-stateful-interface-initcomputecleanup)
+**Key Constraint:** GPU memory allocation is expensive (~35ms/GB per [HIP Issue #3809](https://github.com/ROCm/hip/issues/3809)), driving the [stateful interface decision](#3-stateful-interface-initcomputecleanup)
 
 ### Scalability
 
@@ -333,7 +312,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design.
 - Implementation is HIP-specific (all passes target HIP/MIOpen)
 
 **Design Intention:**
-- CustomOp has zero GPU backend dependencies ([Decision #8](#8-standalone-resources-vs-shared-context))
+- CustomOp has zero GPU backend dependencies ([Decision #7](#7-standalone-resources-vs-shared-context))
 - Theoretically can swap backends via different compiled DLL
 - However: Current passes hardcode HIP operations throughout
 
@@ -381,7 +360,7 @@ These principles guided the architectural decisions:
 
 **Application:** All GPU operations abstracted behind `inference_*()` function pointers loaded from DLL
 
-Related decision: [#8 Standalone Resources vs Shared Context](#8-standalone-resources-vs-shared-context)
+Related decision: [#7 Standalone Resources vs Shared Context](#7-standalone-resources-vs-shared-context)
 
 ### 2. Allocate GPU Resources Once
 
@@ -391,7 +370,7 @@ Related decision: [#8 Standalone Resources vs Shared Context](#8-standalone-reso
 
 **Application:** Three-function lifecycle (init allocates, compute reuses, cleanup frees)
 
-Related decision: [#4 Stateful Interface](#4-stateful-interface-initcomputecleanup)
+Related decision: [#3 Stateful Interface](#3-stateful-interface-initcomputecleanup)
 
 ### 3. Type-Safe MLIR Patterns
 
@@ -417,7 +396,7 @@ Related decision: [#4 Stateful Interface](#4-stateful-interface-initcomputeclean
 
 **Application:** ONNX Constant nodes lowered to LLVM globals in compiled DLL
 
-Related decision: [#5 Embedded Constants vs External Files](#5-embedded-constants-vs-external-files)
+Related decision: [#4 Embedded Constants vs External Files](#4-embedded-constants-vs-external-files)
 
 ---
 
@@ -450,7 +429,45 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 
 ---
 
+## Open Architectural Questions
+
+### Native DLL vs LLVM IR Storage
+
+**Status:** Under Evaluation
+
+**Question:** Should EPContext store native machine code (DLL) or LLVM Intermediate Representation (IR)?
+
+**Context:**
+- Both approaches achieve the goal of ahead-of-time compilation
+- Trade-offs exist between performance, portability, and deployment complexity
+- Decision impacts runtime dependencies, startup time, and cross-platform support
+
+**Current Implementation:**
+- System architecture diagrams show both possibilities
+- Runtime can potentially support either format
+
+**For detailed comparison:** See [NATIVE-VS-IR-COMPARISON.md](NATIVE-VS-IR-COMPARISON.md)
+
+**Key Trade-offs:**
+
+| Aspect | Native DLL | LLVM IR |
+|--------|-----------|---------|
+| **Startup time** | Fast (load from memory) | Slower (JIT compile) |
+| **Runtime deps** | Minimal (MemoryModule) | Large (LLVM libraries) |
+| **Portability** | GPU arch-specific | Cross-architecture |
+| **Storage size** | Larger | Smaller |
+
+**Decision Criteria:**
+- Primary goal: Eliminate JIT overhead → favors Native DLL
+- Primary goal: Cross-platform portability → favors LLVM IR
+- Support both: Hybrid approach possible but adds complexity
+
+---
+
 ## References
+
+### Architectural Decisions
+- [NATIVE-VS-IR-COMPARISON.md](NATIVE-VS-IR-COMPARISON.md) - Detailed comparison of Native DLL vs LLVM IR storage
 
 ### Specifications
 - [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - Complete C interface specification
@@ -479,5 +496,6 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 ---
 
 **Document History:**
+- v2.1 (2026-02-11): Moved Native DLL vs LLVM IR decision to "Open Questions", created separate comparison document
 - v2.0 (2026-02-11): Restructured to focus on architectural decisions, removed implementation details
 - v1.0 (2026-02-09): Initial architecture document
