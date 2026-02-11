@@ -63,48 +63,52 @@ Ahead-of-time (AOT) compilation to native GPU code stored in ONNX Runtime's [EPC
 
 ## System Architecture
 
-### Two-Stage Flow
+### Conceptual Overview
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│               COMPILE-TIME (Level-1 Pass)                    │
-├─────────────────────────────────────────────────────────────┤
-│  Dependencies: LLVM, MLIR, onnx-mlir, HIP headers, MIOpen   │
-│                                                              │
-│  ONNX Model                                                 │
-│      ↓                                                       │
-│  ONNX → MLIR (onnx-mlir)                                    │
-│      ↓                                                       │
-│  ONNX dialect → HIP dialect (OnnxToHip Pass)                │
-│      ↓                                                       │
-│  HIP dialect → LLVM dialect (HipToLLVM Pass)                │
-│      ↓                                                       │
-│  Generate C interface (GenerateInterfacePass)               │
-│      ↓                                                       │
-│  LLVM IR → Native DLL                                       │
-│      ↓                                                       │
-│  Embed DLL in EPContext → ONNX model with EPContext         │
-└─────────────────────────────────────────────────────────────┘
-                     ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  RUNTIME (Custom Op)                         │
-├─────────────────────────────────────────────────────────────┤
-│  Dependencies: MemoryModule, HIP runtime, MIOpen            │
-│  NO LLVM/MLIR at runtime                                    │
-│                                                              │
-│  Load EPContext → Extract DLL bytes → Load DLL from memory  │
-│      ↓                                                       │
-│  Resolve entry points (inference_init/compute/cleanup)      │
-│      ↓                                                       │
-│  Execute GPU inference → Return results                     │
-└─────────────────────────────────────────────────────────────┘
-```
+The system separates compilation from execution into two distinct stages:
 
-### Component Dependencies
+**Compile-time (Level-1 Pass):**
+- Heavy dependencies: LLVM, MLIR, onnx-mlir, GPU vendor SDKs
+- Transforms ONNX model through multiple [MLIR dialect levels](mlir/LOWERING-PIPELINE.md)
+- Produces native DLL with embedded weights
+- Stores DLL in [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html)
+- **Runs once:** At model conversion or first load
 
-- **Level-1 Pass** produces native DLL, depends on [MLIR](https://mlir.llvm.org/) infrastructure
-- **Custom Op** consumes DLL from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html), zero MLIR dependencies
-- **Interface contract:** C ABI with 3 functions (see [Design Decision #4](#4-stateful-interface-initcomputecleanup))
+**Runtime (Custom Op):**
+- Minimal dependencies: MemoryModule, HIP runtime, MIOpen
+- **Zero MLIR/LLVM dependencies** (eliminates large runtime overhead)
+- Loads pre-compiled DLL from [EPContext](https://onnxruntime.ai/docs/execution-providers/EP-Context-Design.html) memory
+- Executes via 3-function interface: init/compute/cleanup
+- **Runs repeatedly:** Every inference session
+
+### Architectural Rationale
+
+**Why two stages?**
+- Eliminate JIT compilation overhead (primary goal)
+- Remove heavyweight dependencies from deployment
+- Enable aggressive compile-time optimizations
+- Support WebNN no-disk-access requirements
+
+**Why separate compilation artifacts?**
+- Compilation tools (LLVM/MLIR) not needed at inference time
+- Smaller deployment footprint
+- Faster startup (load vs compile)
+
+### Interface Contract
+
+The compiled DLL exports exactly 3 C functions:
+- `int inference_init(void** out_state)` - Allocate GPU resources once
+- `int inference_compute(void* state, span_t* inputs, span_t* outputs)` - Execute inference
+- `int inference_cleanup(void* state)` - Free GPU resources
+
+See [Design Decision #4](#4-stateful-interface-initcomputecleanup) for rationale.
+
+### Implementation Details
+
+For compilation pipeline details:
+- **Overview:** [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) - High-level compilation flow
+- **Transformations:** [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Detailed pass-by-pass transformations
+- **Interface specification:** [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - Complete C interface design
 
 ---
 
