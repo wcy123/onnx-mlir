@@ -52,7 +52,7 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 
 **Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip`
 
-**Real Output** (saved to `output/demo_stage1_onnx_to_hip.mlir`):
+**Real Output** (saved to `../output/demo_stage1_onnx_to_hip.mlir`):
 
 ```mlir
 module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64: 4>, hipdnn.output_count = 1 : i64, hipdnn.output_ranks = array<i64: 4>} {
@@ -125,7 +125,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64:
 
 **Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip --convert-hip-to-llvm`
 
-**Real Output** (saved to `output/demo_stage2_hip_to_llvm.mlir`):
+**Real Output** (saved to `../output/demo_stage2_hip_to_llvm.mlir`):
 
 Key transformations:
 1. **Metadata preserved**: `module attributes {hipdnn.input_count = 1 : i64, hipdnn.input_ranks = array<i64: 4>, ...}`
@@ -348,7 +348,7 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt
 
 **Command**: `hip-opt demo_two_layer_conv.mlir --convert-onnx-to-hip --generate-interface`
 
-**Real Output** (saved to `output/demo_stage3_with_interface.mlir`, 105 lines):
+**Real Output** (saved to `../output/demo_stage3_with_interface.mlir`, 105 lines):
 
 This pass generates three C-compatible interface functions that wrap the internal MLIR code. Full output:
 
@@ -534,6 +534,6 @@ Expected: 4 attributes (input_count=1, input_ranks=[4], output_count=1, output_r
 5. ResNet50 support
 
 **Output Files** (verified real compiler output):
-- `output/demo_stage1_onnx_to_hip.mlir` (60 lines)
-- `output/demo_stage2_hip_to_llvm.mlir` (260 lines)
-- `output/demo_stage3_with_interface.mlir` (105 lines)
+- `../output/demo_stage1_onnx_to_hip.mlir` (60 lines)
+- `../output/demo_stage2_hip_to_llvm.mlir` (260 lines)
+- `../output/demo_stage3_with_interface.mlir` (105 lines)
