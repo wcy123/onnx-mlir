@@ -52,8 +52,8 @@ export OUTPUT_PATH=inference
 **Purpose:** Provides C implementations of GPU operations called by generated LLVM IR.
 
 **Key Files:**
-- `hipdnn_runtime.h` - API declarations
-- `hipdnn_runtime.cpp` - HIP/MIOpen/hipBLASLt wrappers
+- `hip_ep_runtime.h` - API declarations
+- `hip_ep_runtime.cpp` - HIP/MIOpen/hipBLASLt wrappers
 - `CMakeLists.txt` - Build configuration
 
 **Key Functions:**
@@ -298,8 +298,8 @@ void process(IPass &self, Graph &graph) {
 ```
 lib/
 ├── Runtime/              # GPU runtime library
-│   ├── hipdnn_runtime.h
-│   ├── hipdnn_runtime.cpp
+│   ├── hip_ep_runtime.h
+│   ├── hip_ep_runtime.cpp
 │   └── CMakeLists.txt
 ├── Backend/              # LLVM Backend + DLL Linker
 │   ├── LLVMBackend.h

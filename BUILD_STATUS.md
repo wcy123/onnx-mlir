@@ -5,7 +5,7 @@
 All 9 implementation steps from the plan have been completed successfully:
 
 ### ✅ Step 1: Runtime Library
-- **Files Created:** `lib/Runtime/hipdnn_runtime.{h,cpp}`, `CMakeLists.txt`
+- **Files Created:** `lib/Runtime/hip_ep_runtime.{h,cpp}`, `CMakeLists.txt`
 - **Lines of Code:** 480 LOC
 - **Status:** Implementation complete
 - **Build Status:** Compiles with mock mode (no ROCm required)

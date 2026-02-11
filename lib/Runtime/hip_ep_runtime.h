@@ -1,5 +1,5 @@
-#ifndef HIPDNN_RUNTIME_H
-#define HIPDNN_RUNTIME_H
+#ifndef HIP_EP_RUNTIME_H
+#define HIP_EP_RUNTIME_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -74,4 +74,4 @@ int hip_stream_synchronize_wrapper(void* stream);
 }
 #endif
 
-#endif // HIPDNN_RUNTIME_H
+#endif // HIP_EP_RUNTIME_H

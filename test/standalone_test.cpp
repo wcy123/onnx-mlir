@@ -8,7 +8,7 @@
 #include <vector>
 
 // Test that headers compile correctly
-#include "../lib/Runtime/hipdnn_runtime.h"
+#include "../lib/Runtime/hip_ep_runtime.h"
 #include "../lib/Backend/LLVMBackend.h"
 #include "../lib/Backend/DLLLinker.h"
 
@@ -17,7 +17,7 @@ int main() {
 
     // Test 1: Runtime library (mock mode)
     std::cout << "Test 1: Runtime Library Headers\n";
-    std::cout << "  ✓ hipdnn_runtime.h compiled successfully\n";
+    std::cout << "  ✓ hip_ep_runtime.h compiled successfully\n";
     std::cout << "  ✓ Function declarations verified\n\n";
 
     // Test 2: LLVM Backend

@@ -14,8 +14,8 @@ Successfully implemented a comprehensive MLIR to DLL generation pipeline that co
 ### Files Created (17 new files)
 
 #### Runtime Library (3 files)
-1. `lib/Runtime/hipdnn_runtime.h` - Runtime API declarations (85 LOC)
-2. `lib/Runtime/hipdnn_runtime.cpp` - HIP/MIOpen/hipBLASLt wrappers (350 LOC)
+1. `lib/Runtime/hip_ep_runtime.h` - Runtime API declarations (85 LOC)
+2. `lib/Runtime/hip_ep_runtime.cpp` - HIP/MIOpen/hipBLASLt wrappers (350 LOC)
 3. `lib/Runtime/CMakeLists.txt` - Build configuration (45 LOC)
 
 #### Backend Infrastructure (5 files)

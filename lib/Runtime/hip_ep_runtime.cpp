@@ -1,4 +1,4 @@
-#include "hipdnn_runtime.h"
+#include "hip_ep_runtime.h"
 
 #ifndef BUILD_MOCK_RUNTIME
 #include <hip/hip_runtime.h>

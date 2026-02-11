@@ -193,8 +193,8 @@ To complete full integration build:
 ## Code Coverage
 
 ### Files Tested
-- ✅ `lib/Runtime/hipdnn_runtime.h` - API declarations
-- ✅ `lib/Runtime/hipdnn_runtime.cpp` - Mock implementations
+- ✅ `lib/Runtime/hip_ep_runtime.h` - API declarations
+- ✅ `lib/Runtime/hip_ep_runtime.cpp` - Mock implementations
 - ✅ `lib/Backend/LLVMBackend.h` - Class structure (concepts)
 - ✅ `lib/Backend/DLLLinker.h` - Class structure (concepts)
 
