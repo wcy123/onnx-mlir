@@ -37,6 +37,16 @@ This design ensures consistent in-place semantics at all levels: operations writ
 | **Workspace** | Session | Compiled code (shared scratch space) | MIOpen: 8MB |
 | **Input/Output** | Per-call | Caller (CustomOp) | Model input: 600KB |
 
+**TODO - Input/Output GPU Buffer Allocation:**
+- **Current design:** Allocate per-call in `inference_compute()` (see doc/mlir/passes/GenerateInterfacePass.md)
+  - Simple implementation, no state needed
+  - Cost: ~35ms/GB allocation overhead per inference
+- **Alternative (Phase 2):** Pre-allocate in `inference_init()` with maximum expected size
+  - One-time allocation overhead
+  - Requires fixed maximum batch size
+  - May waste memory if actual batch << max batch
+- **Decision needed:** Choose strategy based on deployment scenario (fixed vs variable batch sizes)
+
 ---
 
 ## Three-Phase Optimization Strategy

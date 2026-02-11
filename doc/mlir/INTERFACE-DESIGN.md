@@ -134,13 +134,12 @@ int inference_compute(void* state, span_t* inputs, span_t* outputs);
 **Responsibilities:**
 1. Validate input/output counts and tensor ranks
 2. Load runtime dimensions from `tensor_t.shape` pointers (dynamic shapes!)
-3. Allocate temporary GPU buffers for inputs and outputs
-4. Copy input data from CPU to GPU (H2D transfer)
-5. Build memref descriptors with runtime dimensions
-6. Call `@main` to perform computation
-7. Copy output data from GPU back to CPU (D2H transfer)
-8. Synchronize GPU stream to ensure completion
-9. Free temporary GPU buffers
+3. Copy input data from CPU to GPU (H2D transfer)
+4. Call `@main` to perform computation
+5. Copy output data from GPU back to CPU (D2H transfer)
+6. Synchronize GPU stream to ensure completion
+
+**Note:** GPU buffer allocation strategy is an implementation detail - see [../MEMORY-MANAGEMENT.md](../MEMORY-MANAGEMENT.md) for optimization strategies (inline allocation, allocation hoisting, memory pooling).
 
 **Parameters:**
 - `state` (input): Context pointer from `inference_init`
