@@ -29,8 +29,81 @@
     }                                                                          \
   } while (0)
 
-// MIOpen convolution forward implementation
+// =============================================================================
+// MIOpen Convolution Forward Wrapper
+// =============================================================================
+//
+// DESIGN DECISIONS:
+//
+// 1. GENERIC WRAPPER (Not Specialized)
+//    Why use one wrapper for all convolution configurations instead of
+//    specialized wrappers per kernel size (1x1, 3x3, 7x7)?
+//
+//    - MIOpen handles specialization internally via algorithm selection
+//    - miopenFindConvolutionForwardAlgorithm() automatically selects optimal
+//      kernel (Winograd for 3×3, GEMM for 1×1, FFT for certain configs)
+//    - Industry standard: PyTorch, TensorFlow use generic wrappers
+//    - No performance benefit from wrapper-level specialization
+//    - Avoids complexity explosion (would need 50+ specialized wrappers)
+//
+//    Sources:
+//    - https://rocm.docs.amd.com/projects/MIOpen/en/develop/doxygen/html/group__convolutions.html
+//    - https://docs.nvidia.com/deeplearning/performance/dl-performance-convolutional/
+//
+// 2. NO DESCRIPTOR CACHING
+//    Why don't we cache tensor/convolution descriptors?
+//
+//    - No evidence descriptor creation is expensive (likely just CPU struct alloc)
+//    - PyTorch/TensorFlow don't cache descriptors - they cache algorithm selection
+//    - PyTorch achieves 30-40% speedup from algorithm caching alone (not descriptors)
+//    - For dynamic shapes, descriptors change frequently anyway
+//    - Descriptor overhead is negligible vs algorithm finding
+//
+//    Source:
+//    - https://docs.pytorch.org/docs/stable/notes/cuda.html
+//
+// 3. PERFORMANCE OPTIMIZATION OPPORTUNITIES (TODOs below):
+//    ✅ Cache algorithm finding results (HIGH PRIORITY - documented as expensive)
+//    ✅ Pool workspace memory (eliminate malloc/free from hot path)
+//    ❌ Cache descriptors (NOT recommended - negligible benefit, added complexity)
+//
+// =============================================================================
 
+// TODO: Cache miopenFindConvolutionForwardAlgorithm() results
+//
+// RATIONALE: Algorithm finding is expensive (benchmarks multiple algorithms on GPU).
+// MIOpen documentation explicitly states: "miopenFindConvolution*() is expensive in
+// terms of run time and required workspace, so it's highly recommended to reserve the
+// required algorithm and workspace to reuse them later."
+//
+// PyTorch achieves 30-40% speedup by caching algorithm selection via
+// torch.backends.cudnn.benchmark = True.
+//
+// IMPLEMENTATION: Store in RuntimeState as AlgorithmCache keyed by:
+//   (input_shape, weights_shape, output_shape, pad_h, pad_w, stride_h, stride_w,
+//    dilation_h, dilation_w)
+//
+// For dynamic shapes: Cache hit rate depends on shape variation. If shapes change
+// frequently, cache effectiveness is reduced (PyTorch docs warn about this).
+//
+// Sources:
+// - https://rocm.docs.amd.com/projects/MIOpen/en/latest/how-to/find-and-immediate.html
+// - https://docs.pytorch.org/docs/stable/notes/cuda.html
+
+// TODO: Pool workspace memory instead of malloc/free every call
+//
+// RATIONALE: GPU memory allocation (hipMalloc) is expensive - involves kernel launch,
+// synchronization, and memory manager overhead. Current code allocates and frees
+// workspace on every inference call (lines 95, 107).
+//
+// IMPLEMENTATION: Add WorkspacePool to RuntimeState that:
+//   - Pre-allocates workspace of maximum required size
+//   - Reuses across multiple calls
+//   - Grows dynamically if larger workspace needed
+//
+// BENEFIT: Eliminates malloc/free from hot path.
+
+// MIOpen convolution forward implementation
 int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
                              const int64_t *input_shape, const void *weights,
                              const int64_t *weights_shape, void *output,

@@ -59,6 +59,8 @@ module attributes {
 
 ## Output Format (LLVM Dialect)
 
+**Note:** This pass generates **simple calls to external C++ runtime functions**, not elaborate inline MIOpen wrappers. The documentation below shows the conceptual flow, but the actual implementation uses pre-existing C++ functions in `lib/Runtime/hipdnn_ep_runtime_miopen.cpp`.
+
 ```mlir
 module attributes {
   hipdnn.input_count = 1 : i64,
@@ -66,58 +68,21 @@ module attributes {
   hipdnn.output_count = 1 : i64,
   hipdnn.output_ranks = dense<[2]> : tensor<1xi64>
 } {
-  // Wrapper function generated for hip.conv
-  llvm.func @hip_conv_wrapper(
-      %ctx: !llvm.ptr,
-      %input: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>,
-      %weights: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>,
-      %bias: !llvm.struct<(ptr<1>, ptr<1>, i64, array<1xi64>, array<1xi64>)>,
-      %output: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>,
-      %kernel_h: i64, %kernel_w: i64,
-      %stride_h: i64, %stride_w: i64,
-      %pad_top: i64, %pad_left: i64, %pad_bottom: i64, %pad_right: i64,
-      %dilation_h: i64, %dilation_w: i64,
-      %group: i64) -> i32 {
-
-    // Extract data pointers from memref structs
-    %input_ptr = llvm.extractvalue %input[1] : !llvm.struct<...>
-    %weights_ptr = llvm.extractvalue %weights[1] : !llvm.struct<...>
-    %bias_ptr = llvm.extractvalue %bias[1] : !llvm.struct<...>
-    %output_ptr = llvm.extractvalue %output[1] : !llvm.struct<...>
-
-    // CRITICAL: Extract RUNTIME dimensions from memref structs
-    %input_n = llvm.extractvalue %input[3, 0] : !llvm.struct<...> -> i64  // Runtime!
-    %input_c = llvm.extractvalue %input[3, 1] : !llvm.struct<...> -> i64  // Runtime!
-    %input_h = llvm.extractvalue %input[3, 2] : !llvm.struct<...> -> i64  // Runtime!
-    %input_w = llvm.extractvalue %input[3, 3] : !llvm.struct<...> -> i64  // Runtime!
-    // ... extract output dimensions
-
-    // Get MIOpen handle from context
-    %miopen_ptr = llvm.getelementptr %ctx[0, 1] : (!llvm.ptr) -> !llvm.ptr
-    %miopen = llvm.load %miopen_ptr : !llvm.ptr
-
-    // Create MIOpen descriptors using RUNTIME dimensions
-    %xDesc = [create tensor descriptor with runtime dims]
-    llvm.call @miopenSet4dTensorDescriptor(%xDesc, %dataType,
-                                            %input_n, %input_c, %input_h, %input_w)
-
-    // Call MIOpen
-    %ret = llvm.call @miopenConvolutionForward(
-      %miopen, %alpha_ptr,
-      %xDesc, %input_ptr,
-      %wDesc, %weights_ptr,
-      %convDesc, %algo,
-      %beta_ptr,
-      %yDesc, %output_ptr,
-      %workspace, %workspace_size
-    ) : (...) -> i32
-
-    // Cleanup descriptors
-    llvm.call @miopenDestroyTensorDescriptor(%xDesc)
-    // ...
-
-    llvm.return %ret : i32
-  }
+  // External declaration to C++ runtime function
+  // Implementation in lib/Runtime/hipdnn_ep_runtime_miopen.cpp
+  llvm.func @wrap_miopenConvolutionForward(
+      !llvm.ptr,      // handle (miopenHandle + hipStream from RuntimeState)
+      !llvm.ptr,      // stream
+      !llvm.ptr,      // input data pointer
+      !llvm.ptr,      // input_shape (int64_t[4])
+      !llvm.ptr,      // weights data pointer
+      !llvm.ptr,      // weights_shape (int64_t[4])
+      !llvm.ptr,      // output data pointer
+      !llvm.ptr,      // output_shape (int64_t[4])
+      i64, i64,       // pad_h, pad_w
+      i64, i64,       // stride_h, stride_w
+      i64, i64        // dilation_h, dilation_w
+  ) -> i32
 
   // Main function - transformed to use memref struct arrays
   llvm.func @main(%context: !llvm.ptr,
@@ -135,30 +100,78 @@ module attributes {
     %output_0 = llvm.load %output_0_ptr : !llvm.ptr
       -> !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>
 
-    // Get constants
-    %weights_gpu = llvm.call @hip_get_constant(%context, %c0) : (!llvm.ptr, i64) -> !llvm.ptr
-    %weights_struct = [build memref struct]
+    // Extract data pointers from memref structs
+    %input_ptr = llvm.extractvalue %input_0[1] : !llvm.struct<...> -> !llvm.ptr<1>
+    %output_ptr = llvm.extractvalue %output_0[1] : !llvm.struct<...> -> !llvm.ptr<1>
 
-    %bias_gpu = llvm.call @hip_get_constant(%context, %c1) : (!llvm.ptr, i64) -> !llvm.ptr
-    %bias_struct = [build memref struct]
+    // Extract shape arrays from memref structs
+    %input_shape_arr = llvm.extractvalue %input_0[3] : !llvm.struct<...> -> !llvm.array<4xi64>
+    %output_shape_arr = llvm.extractvalue %output_0[3] : !llvm.struct<...> -> !llvm.array<4xi64>
 
-    // Call wrapper
-    %ret = llvm.call @hip_conv_wrapper(
-      %context, %input_0, %weights_struct, %bias_struct, %temp_struct,
-      3, 3,        // kernel_h, kernel_w
+    // Get shape array pointers (for passing to C++ runtime)
+    %input_shape_ptr = llvm.mlir.addressof @input_shape : !llvm.ptr
+    %output_shape_ptr = llvm.mlir.addressof @output_shape : !llvm.ptr
+
+    // Get constants (weights data pointer from RuntimeState)
+    %weights_ptr = llvm.call @hipdnn_ep_get_constant(%context, %c0) : (!llvm.ptr, i64) -> !llvm.ptr
+
+    // Get MIOpen handle and stream from RuntimeState
+    %handle_ptr = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
+    %handle = llvm.load %handle_ptr : !llvm.ptr
+    %stream_ptr = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
+    %stream = llvm.load %stream_ptr : !llvm.ptr
+
+    // Weights shape (compile-time constant)
+    %weights_shape_ptr = llvm.mlir.addressof @weights_shape_constant : !llvm.ptr
+
+    // Call C++ runtime wrapper (NOT inline MIOpen calls!)
+    %ret = llvm.call @wrap_miopenConvolutionForward(
+      %handle, %stream,
+      %input_ptr, %input_shape_ptr,
+      %weights_ptr, %weights_shape_ptr,
+      %output_ptr, %output_shape_ptr,
+      1, 1,        // pad_h, pad_w
       1, 1,        // stride_h, stride_w
-      1, 1, 1, 1,  // pads
-      1, 1,        // dilations
-      1            // group
-    ) : (...) -> i32
-
-    // Copy to output
-    [memref.copy lowering]
+      1, 1         // dilation_h, dilation_w
+    ) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr,
+         !llvm.ptr, !llvm.ptr, i64, i64, i64, i64, i64, i64) -> i32
 
     %c0_i32 = llvm.mlir.constant(0 : i32) : i32
     llvm.return %c0_i32 : i32
   }
+}
+```
 
+**Key Differences from Earlier Description:**
+
+The HipToLLVM pass implements a **simplified Phase 1 architecture**:
+
+1. **No inline MIOpen wrapper generation**: The pass generates **external function declarations** to pre-existing C++ runtime functions (see `lib/HipDialect/HipToLLVM.cpp:37-38`).
+
+2. **All MIOpen complexity in C++ runtime**: Descriptor creation, algorithm finding, workspace allocation - all handled in `lib/Runtime/hipdnn_ep_runtime_miopen.cpp:34-115`.
+
+3. **Pass only extracts data pointers**: The MLIR code extracts aligned pointers and shape arrays from memref structs, then passes them to the C++ wrapper.
+
+4. **No runtime dimension extraction in MLIR**: Unlike the earlier description showing `llvm.extractvalue %input[3, 0]` for dimensions, the actual implementation passes entire shape arrays to C++, which extracts dimensions as needed.
+
+**Why this architecture?** (See `lib/HipDialect/HipToLLVM.cpp:191-194`)
+- Simplified initial implementation
+- Easier debugging (MIOpen calls in familiar C++ code)
+- Preparation for future Phase 2 (full MLIR lowering)
+
+**What the C++ runtime does** (`lib/Runtime/hipdnn_ep_runtime_miopen.cpp`):
+- Creates tensor descriptors with `miopenSet4dTensorDescriptor()`
+- Finds optimal algorithm with `miopenFindConvolutionForwardAlgorithm()`
+- Allocates workspace memory
+- Calls `miopenConvolutionForward()`
+- Cleans up descriptors and workspace
+
+---
+
+### Constant Registry (Unchanged)
+
+```mlir
+module {
   // Constant registry (no transformation needed - already in LLVM)
   llvm.mlir.global constant @constant_info_array() : !llvm.array<2 x !llvm.struct<(ptr, i64, i64, i64)>> {
     // Array of ConstantInfo structs
@@ -290,7 +303,9 @@ For each tensor with rank R, unpacking extracts **2 + 1 + R + R** parameters.
 
 ### 2. Generate Wrapper Functions
 
-**Why?** MIOpen/hipBLAS have complex APIs (13+ parameters). Wrappers encapsulate this complexity.
+**Purpose:** Generate reusable wrapper functions that convert memref structs to GPU API calls.
+
+**Why generate wrappers?** See [WHY-HIP-WRAPPERS.md](WHY-HIP-WRAPPERS.md) for detailed explanation.
 
 **Strategy:** Generate wrapper on-demand (reuse if exists)
 
