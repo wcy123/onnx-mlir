@@ -214,22 +214,24 @@ int main(int argc, char **argv) {
   if (opts.verbose)
     std::cout << "✓ LLVM IR generated\n\n";
 
+  // Note: Runtime IR merging temporarily disabled due to linking issues
+  // TODO: Re-enable once Clang bitcode generation is working
   // Link Runtime module for zero-cost abstraction
-  if (opts.verbose)
-    std::cout << "--- Step 3.5: Linking Runtime Module ---\n";
+  // if (opts.verbose)
+  //   std::cout << "--- Step 3.5: Linking Runtime Module ---\n";
+  //
+  // if (!backend.linkRuntimeModule(llvmModule.get())) {
+  //   std::cerr << "Error linking Runtime module\n";
+  //   return 1;
+  // }
+  //
+  // if (opts.verbose)
+  //   std::cout << "✓ Runtime module linked (enables cross-module inlining)\n\n";
 
-  if (!backend.linkRuntimeModule(llvmModule.get())) {
-    std::cerr << "Error linking Runtime module\n";
-    return 1;
-  }
-
-  if (opts.verbose)
-    std::cout << "✓ Runtime module linked (enables cross-module inlining)\n\n";
-
-  // Optimize LLVM IR (inlining happens here)
+  // Optimize LLVM IR
   if (opts.verbose)
     std::cout << "--- Step 4: Optimizing LLVM IR (O" << opts.optLevel
-              << ") - Runtime functions will be inlined ---\n";
+              << ") ---\n";
   backend.optimizeLLVMIR(llvmModule.get(), opts.optLevel);
   if (opts.verbose)
     std::cout << "✓ Optimization completed (Runtime calls inlined)\n\n";

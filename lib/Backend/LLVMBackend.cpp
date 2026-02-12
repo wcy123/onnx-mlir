@@ -225,8 +225,14 @@ bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
   // Calculate bitcode size by finding null terminator
   // xxd.py embeds data as: unsigned char runtime_bc_data[] = {..., 0x00};
   size_t bcSize = 0;
-  while (runtime_bc_data[bcSize] != 0x00) {
+  const size_t MAX_BC_SIZE = 10 * 1024 * 1024; // 10MB safety limit
+  while (bcSize < MAX_BC_SIZE && runtime_bc_data[bcSize] != 0x00) {
     bcSize++;
+  }
+
+  if (bcSize >= MAX_BC_SIZE) {
+    std::cerr << "Error: Runtime bitcode size exceeds safety limit (no null terminator found)\n";
+    return false;
   }
 
   if (bcSize == 0) {
