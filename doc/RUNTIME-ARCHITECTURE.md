@@ -49,7 +49,7 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 │  │  - @inference_init/compute/cleanup wrappers        │          │
 │  │  - Calls to @hipdnn_ep_get_stream, etc.            │          │
 │  │  - llvm.mlir.global for embedded constants         │          │
-│  │  - @initialize_constants helper                    │          │
+│  │  - @get_constant_registry for metadata             │          │
 │  └────────────────────────────────────────────────────┘          │
 │         ↓                                                         │
 │  ┌────────────────────────────────────────────────────┐          │
@@ -176,10 +176,10 @@ The Runtime is a static library that manages GPU execution state for compiled ON
 ### Three-Function Lifecycle
 
 **`inference_init(void** out_state)`** - Create GPU resources once
-- Calls `get_constant_count()` to determine number of constants
-- Calls `hipdnn_ep_state_init(&state, num_constants)` internally
-- Allocates RuntimeState with constant array
+- Calls `get_constant_registry()` to get constant metadata
+- Allocates RuntimeState with constant array sized from registry
 - Creates HIP stream, MIOpen handle, hipBLAS handle
+- Uploads constants to GPU (loop: hipMalloc + hipMemcpy using registry)
 - Returns opaque state pointer via out_state
 
 **`inference_compute(void* state, span_t* inputs, span_t* outputs)`** - Execute inference (reuses resources)
@@ -518,13 +518,14 @@ llvm.call @wrap_miopenConvolutionForward(
 
 ```mlir
 llvm.func @inference_init(%out_state: !llvm.ptr) -> i32 {
-  // Count constants at compile time
-  %num_constants = llvm.call @get_constant_count() : () -> i64
+  // Get constant metadata
+  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
 
-  // Initialize runtime state
-  %result = llvm.call @hipdnn_ep_state_init(%out_state, %num_constants)
-    : (!llvm.ptr, i64) -> i32
-  llvm.return %result : i32
+  // Allocate state, create GPU handles, upload constants using registry
+  // (Inlined: malloc state, hipStreamCreate, miopenCreate,
+  //  loop through registry: hipMalloc + hipMemcpy each constant)
+
+  llvm.return %success : i32
 }
 
 llvm.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {

@@ -82,7 +82,7 @@ hip-opt.exe demo_two_layer_conv.mlir \
 **What you'll see:**
 - 4 LLVM global constants discovered
 - `hip.conv` operations with GPU memory types
-- Helper functions: `initialize_constants()`, `release_constants()`
+- Constant registry: `ConstantInfo` array + `get_constant_registry()` function
 
 ---
 
@@ -549,8 +549,8 @@ struct ONNXConvOpLoweringPattern :
 - [ ] GPU resource management (hipStreamCreate, miopenCreate)
 - [ ] Build memref descriptors from tensor_t runtime dimensions
 - [ ] Call @main from inference_compute after descriptor building
-- [ ] Call initialize_constants from inference_init
-- [ ] Call release_constants from inference_cleanup
+- [ ] Upload constants using registry in inference_init (hipMalloc + hipMemcpy loop)
+- [ ] Free GPU constants in inference_cleanup (hipFree loop)
 - [ ] HipDnnRuntime.lib implementation (miopenConvolutionForward wrapper)
 
 ---
@@ -560,7 +560,8 @@ struct ONNXConvOpLoweringPattern :
 1. **Complete runtime library implementation** (HipDnnRuntime.lib)
    - GPU resource initialization (hipStreamCreate, miopenCreate)
    - Descriptor building from tensor_t
-   - Call @main, initialize_constants, release_constants
+   - Constant upload using registry (hipMalloc + hipMemcpy loops)
+   - Call @main for computation
 
 2. ~~**LLVM IR → DLL compilation**~~ ✅ **COMPLETED** via mlir-hip-compiler
 
@@ -641,7 +642,7 @@ Should show:
 - Module attributes: `hipdnn.input_count`, `hipdnn.input_ranks`
 - 4 `llvm.mlir.global` constants
 - `func.func @main` with `!hip.context` parameter
-- Helper functions: `initialize_constants`, `release_constants`
+- Constant registry: `@constant_info_array`, `@constant_registry`, `@get_constant_registry`
 
 ---
 
