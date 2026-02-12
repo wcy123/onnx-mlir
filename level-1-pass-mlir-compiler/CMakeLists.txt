@@ -29,6 +29,7 @@ target_link_libraries(${LIB_NAME} PUBLIC
 
 	# Backend libraries (LLVM Backend + DLL Linker)
 	LLVMBackend
+	DLLLinker
 
 	# Runtime library
 	HipDnnEpRuntime

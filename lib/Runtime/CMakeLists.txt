@@ -217,11 +217,22 @@ add_custom_command(
     # Output: runtime_ir_data.cpp containing:
     #           extern "C" const unsigned char runtime_bc_data[] = { 0x42, 0x43, ... };
     #           extern "C" const size_t runtime_bc_data_size = 12345;
+
+    # Step 1: Generate C array with xxd.py
     COMMAND ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/3rd-party/morphizen/tools/xxd.py
             --var runtime_bc_data                                    # Variable name
-            --output ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp # Output C++ file
+            --output ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp # Temp output
             ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc                  # Input bitcode
+
+    # Step 2: Post-process to export symbol (static const -> extern "C" const)
+    # xxd.py generates: static const unsigned char runtime_bc_data[]
+    # We need:          extern "C" const unsigned char runtime_bc_data[]
+    # This ensures the symbol is exported from HipDnnEpRuntime.lib for linking
+    COMMAND ${CMAKE_COMMAND} -E echo "Post-processing runtime_ir_data.cpp to export symbol..."
+    COMMAND ${Python3_EXECUTABLE} -c
+            "import sys; data = open('${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp', 'r').read(); open('${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp', 'w').write(data.replace('static const unsigned char', 'extern \"C\" const unsigned char'))"
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp
 
     # Regenerate if bitcode changes
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc
