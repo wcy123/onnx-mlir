@@ -52,6 +52,18 @@ The GenerateInterfacePass generates the three C interface functions that are exp
 
 ---
 
+## Why This Pass Exists
+
+This pass serves as an **adapter layer** between two incompatible representations:
+- **MLIR world**: Statically-typed memref structs with compile-time rank information
+- **C API world**: Dynamic span_t/tensor_t structures with runtime rank information
+
+The pass cannot be eliminated and moved to runtime because MLIR's type system requires compile-time knowledge of tensor ranks to generate memref struct types (`{ptr, ptr, i64, [N x i64], [N x i64]}`). Moving this to runtime would require hardcoding MLIR's internal memref layout in C++ code, creating fragile coupling and losing type safety.
+
+**For detailed analysis of alternatives and trade-offs**, see [../../WHY-GENERATEINTERFACEPASS.md](../../WHY-GENERATEINTERFACEPASS.md).
+
+---
+
 ## Stable Contract Summary
 
 This pass depends on a simple contract from prior passes. **Any future pass that satisfies this contract can work with GenerateInterfacePass.**
