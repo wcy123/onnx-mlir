@@ -786,7 +786,7 @@ mlir-hip-compiler input.mlir --from-onnx-mlir -o output.dll
 **Design Documents:**
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture, EPContext
 - [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - Lowering pipeline
-- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - State lifecycle
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, static library design
 - [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - 6-phase design
 - [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) - C-ABI specification
 

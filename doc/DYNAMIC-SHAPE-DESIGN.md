@@ -599,4 +599,4 @@ llvm.func @inference_compute(...) {
 **Related Documents:**
 - [ARCHITECTURE.md](ARCHITECTURE.md) - C interface design
 - [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - Wrapper functions, two-layer architecture
-- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - State struct layout
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state struct layout

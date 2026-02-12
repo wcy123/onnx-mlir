@@ -9,7 +9,7 @@ Licensed under the MIT License.
 
 **Status**: Design in Progress
 **Date**: 2026-02-10
-**Related**: ARCHITECTURE.md, MLIR-COMPILATION-DESIGN.md, STATE-AND-CONTEXT.md
+**Related**: ARCHITECTURE.md, MLIR-COMPILATION-DESIGN.md, RUNTIME-ARCHITECTURE.md
 
 ---
 
@@ -50,7 +50,7 @@ In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
 - Matches industry standard execution provider patterns (TensorRT, QNN, VitisAI)
 - Clean separation of initialization vs execution concerns
 
-**Architecture** (see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for full design):
+**Architecture** (see [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for full design):
 ```c
 // Internal state structure (OPAQUE - not accessible to generated code)
 struct RuntimeState {
@@ -499,7 +499,7 @@ func.func @release_constants(%ctx: !hip.context) -> i32 {
 
 ### A.5: Runtime Interface
 
-For state structure design and lifecycle, see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md).
+For state structure design and lifecycle, see [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md).
 
 ```c
 // Internal state structure (opaque to C interface)

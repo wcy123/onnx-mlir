@@ -559,7 +559,7 @@ mlir-hip-compiler input.mlir -o output.dll --from-onnx-mlir -v
 **Architecture & Design Documents** (✅ = self-reviewed):
 - ✅ [ARCHITECTURE.md](ARCHITECTURE.md) - Complete system architecture, EPContext integration (v2.3)
 - [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - MLIR module structure, lowering pipeline
-- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - State lifecycle, naming conventions
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, naming conventions, static library design
 - [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Full constant handling design (6 phases)
 - [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) - C-ABI interface specification
 

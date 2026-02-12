@@ -95,7 +95,7 @@ int inference_cleanup(void* state);
 
 ### Parameter Details
 
-**About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for details.
+**About the `state` parameter:** An opaque pointer (`void*`) representing the execution context. Internally contains GPU handles (stream, MIOpen, hipBLAS) and pre-uploaded constant pointers. Allocated once in `init`, used throughout execution, freed in `cleanup`. See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for details.
 
 **About `span_t` and tensor interface:**
 
@@ -137,7 +137,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 | [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) | C interface and GenerateInterfacePass prerequisites |
 | [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) | HIP context, types, and wrapper functions |
 | [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md) | Constant handling (globals, upload, retrieval) |
-| [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) | Runtime state/context structure |
+| [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) | Runtime state/context structure, static library design |
 | [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) | Dynamic shape support |
 
 ---
@@ -145,5 +145,5 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 ## Related Documents
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture
-- [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) - Runtime state structure and lifecycle
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state structure and lifecycle
 - [DEMO.md](DEMO.md) - End-to-end demo walkthrough
