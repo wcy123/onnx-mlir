@@ -54,7 +54,7 @@ set(BACKEND_LIBS
     LLVMBackend
     DLLLinker
     HipDialect
-    HipDnnRuntime  # Required for runtime_bc_data symbol
+    HipDnnEpRuntime  # Required for runtime_bc_data symbol
 )
 
 # Create executable

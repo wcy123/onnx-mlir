@@ -31,7 +31,7 @@ target_link_libraries(${LIB_NAME} PUBLIC
 	LLVMBackend
 
 	# Runtime library
-	HipDnnRuntime
+	HipDnnEpRuntime
 )
 target_include_directories(${LIB_NAME} PRIVATE
 	include
