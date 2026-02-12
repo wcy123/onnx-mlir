@@ -18,7 +18,7 @@ The OnnxToHip pass transforms ONNX operations into HIP dialect operations. This 
 1. Extract constants to `llvm.mlir.global`
 2. Convert ONNX operations to HIP operations
 3. Change @main signature (add context, output arg, i32 return)
-4. Generate constant management helper functions
+4. Generate constant registry (ConstantInfo array + accessor function)
 5. Add module I/O metadata attributes
 
 ---
@@ -103,33 +103,19 @@ module attributes {
     return %c0_i32 : i32
   }
 
-  // Helper functions generated
-  llvm.func @get_constant_count() -> i64 {
-    %c2 = llvm.mlir.constant(2 : i64) : i64  // 2 constants in this model
-    llvm.return %c2 : i64
+  // Constant registry - metadata for runtime
+  llvm.mlir.global constant @constant_info_array() : !llvm.array<2 x !llvm.struct<(ptr, i64, i64, i64)>> {
+    // ConstantInfo for constant_0: cpu_data=@constant_0, size_bytes=6912, elem_size=4, num_elems=1728
+    // ConstantInfo for constant_1: cpu_data=@constant_1, size_bytes=256, elem_size=4, num_elems=64
   }
 
-  func.func @initialize_constants(%ctx: !hip.context) -> i32 {
-    // Upload constant_0
-    %addr_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
-    %size_0 = llvm.mlir.constant(6912 : i64) : i64  // 1728 × 4 bytes
-    %gpu_ptr_0 = [allocate and copy to GPU]
-    [store in ctx.gpu_constants[0]]
-
-    // Upload constant_1
-    %addr_1 = llvm.mlir.addressof @constant_1 : !llvm.ptr
-    %size_1 = llvm.mlir.constant(256 : i64) : i64  // 64 × 4 bytes
-    %gpu_ptr_1 = [allocate and copy to GPU]
-    [store in ctx.gpu_constants[1]]
-
-    %c0 = arith.constant 0 : i32
-    return %c0 : i32
+  llvm.mlir.global constant @constant_registry() : !llvm.struct<(ptr, i64)> {
+    // constants=@constant_info_array, count=2
   }
 
-  func.func @release_constants(%ctx: !hip.context) -> i32 {
-    // Free GPU memory for all constants
-    %c0 = arith.constant 0 : i32
-    return %c0 : i32
+  llvm.func @get_constant_registry() -> !llvm.ptr {
+    %registry_ptr = llvm.mlir.addressof @constant_registry : !llvm.ptr
+    llvm.return %registry_ptr : !llvm.ptr
   }
 }
 ```
@@ -230,24 +216,27 @@ hip.conv(%ctx, %input, %weights, %bias, %temp) {kernel_shape = [3, 3], ...}
 - HIP ops use in-place semantics (output as last argument)
 - HIP ops don't return values (modify output in-place)
 
-### 5. Generate Constant Helpers
+### 5. Generate Constant Registry
 
-**Three functions generated:**
+**Generated structures and function:**
 
-1. **get_constant_count()**
-   - Returns number of constants (compile-time constant)
-   - Used by inference_init to allocate gpu_constants array
+1. **ConstantInfo array** (`@constant_info_array`)
+   - Static array of metadata for each constant
+   - Fields: `cpu_data` (pointer), `size_bytes`, `element_size`, `num_elements`
 
-2. **initialize_constants(ctx)**
-   - Uploads all constants to GPU
-   - Stores GPU pointers in ctx.gpu_constants array
-   - Called by inference_init
+2. **ConstantRegistry struct** (`@constant_registry`)
+   - Wraps array with count
+   - Fields: `constants` (pointer to array), `count`
 
-3. **release_constants(ctx)**
-   - Frees all GPU constant memory
-   - Called by inference_cleanup
+3. **get_constant_registry()** function
+   - Returns pointer to ConstantRegistry
+   - Runtime uses this to get metadata for uploading/freeing constants
 
-See [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) for details.
+**Ownership:**
+- DLL owns: Constant data, metadata structures (static lifetime)
+- Runtime owns: GPU memory allocation, upload strategy, cleanup strategy
+
+See [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) for details.
 
 ---
 
@@ -280,8 +269,8 @@ class OnnxToHipPass : public PassWrapper<OnnxToHipPass, OperationPass<ModuleOp>>
     if (failed(applyPartialConversion(module, target, std::move(patterns))))
       signalPassFailure();
 
-    // 4. Generate constant helper functions
-    generateConstantHelpers(module);
+    // 4. Generate constant registry
+    generateConstantRegistry(module);
   }
 };
 
@@ -331,8 +320,8 @@ struct ConvOpConversion : public OpConversionPattern<ONNXConvOp> {
 
 This pass satisfies prerequisites for [GenerateInterfacePass.md](GenerateInterfacePass.md):
 
-✅ **Prerequisite 2:** Adds module metadata (hipdnn.input_count, hipdnn.input_ranks, etc.) - see [GenerateInterfacePass.md - Prerequisite 2](GenerateInterfacePass.md#prerequisite-2-module-metadata-attributes)
-✅ **Prerequisite 3:** Generates constant management helpers (get_constant_count, initialize_constants, release_constants) - see [GenerateInterfacePass.md - Prerequisite 3](GenerateInterfacePass.md#prerequisite-3-constant-management-functions)
+✅ **Prerequisite 2:** Generates get_constant_registry() function returning constant metadata - see [GenerateInterfacePass.md - Prerequisite 2](GenerateInterfacePass.md#prerequisite-2-get_constant_registry-function)
+✅ **Prerequisite 3:** Adds module metadata (hipdnn.input_count, hipdnn.input_ranks, etc.) - see [GenerateInterfacePass.md - Prerequisite 3](GenerateInterfacePass.md#prerequisite-3-module-metadata-attributes)
 ✅ Generates @main with signature: `(context, input, output) -> i32`
 ✅ Uses memref types (ready for struct-by-value in later passes)
 
@@ -345,6 +334,6 @@ For complete interface design, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.
 ## Related Documents
 
 - [HipToLLVM.md](HipToLLVM.md) - Next pass in pipeline
-- [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) - Constant helper details
+- [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) - Constant helper details
 - [../HIP-DIALECT-DESIGN.md](../HIP-DIALECT-DESIGN.md) - HIP dialect overview
 - [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) - Prerequisites this pass must satisfy
