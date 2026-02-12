@@ -302,9 +302,18 @@ int main(int argc, char **argv) {
 
   // Try to find runtime library
   std::vector<std::string> searchPaths = {
+      "../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug",
+      "../../build/onnx-hipdnn-ep.2/lib/Runtime/Release",
+      "../../lib/Runtime/build/Debug",
       "../../lib/Runtime/build/Release",
-      "../../test/runtime/build_standalone/Release", "../../build/Release",
-      "../build/Release", "./Release"};
+      "../../test/runtime/build_standalone/Debug",
+      "../../test/runtime/build_standalone/Release",
+      "../../build/Debug",
+      "../../build/Release",
+      "../build/Debug",
+      "../build/Release",
+      "./Debug",
+      "./Release"};
 
   for (const auto &path : searchPaths) {
     std::string libPath = path + std::string("/HipDnnRuntime.lib");

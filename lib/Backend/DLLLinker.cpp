@@ -93,7 +93,12 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
 
   // Add libraries
   for (const auto &lib : libraries) {
-    argStrings.push_back(lib + ".lib");
+    // Check if library path already has .lib extension
+    if (lib.size() >= 4 && lib.substr(lib.size() - 4) == ".lib") {
+      argStrings.push_back(lib);
+    } else {
+      argStrings.push_back(lib + ".lib");
+    }
   }
 
   // Add default libraries and flags
