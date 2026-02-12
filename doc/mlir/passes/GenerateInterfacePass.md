@@ -2,9 +2,36 @@
 Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
 Licensed under the MIT License.
 -->
+
+**Date:** 2026-02-12
+**Status:** Draft
+**Branch:** `mlir-integration`
+**Related:** [HipToLLVM.md](HipToLLVM.md), [OnnxToHip.md](OnnxToHip.md), [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md)
+
+---
+
+## Table of Contents
+
+- [GenerateInterfacePass](#generateinterfacepass)
+- [Overview](#overview)
+- [Stable Contract Summary](#stable-contract-summary)
+- [Prerequisites](#prerequisites)
+  - [A. Verified Prerequisites](#a-verified-prerequisites)
+  - [B. Design Contracts](#b-design-contracts)
+  - [Prerequisites Summary Table](#prerequisites-summary-table)
+- [Detailed MLIR Implementations](#detailed-mlir-implementations)
+  - [Function 1: inference_init](#function-1-inference_init)
+  - [Function 2: inference_compute](#function-2-inference_compute)
+  - [Function 3: inference_cleanup](#function-3-inference_cleanup)
+- [Verifying C-ABI Compliance](#verifying-c-abi-compliance)
+- [Dynamic Shape Support](#dynamic-shape-support)
+- [Implementation Strategy](#implementation-strategy)
+- [Related Documents](#related-documents)
+
+---
+
 # GenerateInterfacePass
 
-**Location:** To be implemented
 **Input:** LLVM dialect module with @main + constant helpers
 **Output:** LLVM dialect module + C interface wrappers
 
@@ -22,6 +49,32 @@ The GenerateInterfacePass generates the three C interface functions that are exp
 **This document describes:** Implementation details - how to generate the MLIR code
 
 **For design rationale:** See [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) for WHAT and WHY
+
+---
+
+## Stable Contract Summary
+
+This pass depends on a simple contract from prior passes. **Any future pass that satisfies this contract can work with GenerateInterfacePass.**
+
+### Required Functions:
+
+1. **@main function** (from HipToLLVM)
+   - Signature: `llvm.func @main(%ctx: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32`
+   - Behavior: Processes arrays of input/output memref structs, returns status code
+
+2. **get_constant_registry function** (from OnnxToHip)
+   - Signature: `llvm.func @get_constant_registry() -> !llvm.ptr`
+   - Returns: Pointer to ConstantRegistry struct with model weights metadata
+
+### Required Module Attributes:
+
+3. **I/O Metadata** (from OnnxToHip)
+   - `hipdnn.input_count: i64` - Number of model inputs
+   - `hipdnn.input_ranks: dense<[...]>` - Rank of each input tensor
+   - `hipdnn.output_count: i64` - Number of model outputs
+   - `hipdnn.output_ranks: dense<[...]>` - Rank of each output tensor
+
+**Extensibility:** Future passes can replace OnnxToHip/HipToLLVM as long as they produce these functions and attributes.
 
 ---
 
@@ -218,11 +271,9 @@ The code verifies this function exists with correct signature, but its internal 
 
 **Reference:** [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) - Opaque Handle Design
 
-**CRITICAL**: RuntimeState is **OPAQUE** to generated code. Generated code NEVER accesses fields directly.
-
-**RuntimeState structure (INTERNAL - not accessible to generated code):**
+**RuntimeState structure:**
 ```c
-// C struct (INTERNAL to runtime - not exposed to generated code)
+// C struct - layout known only to inference_init and inference_cleanup
 struct RuntimeState {
     hipStream_t stream;              // GPU stream for async operations
     miopenHandle_t miopenHandle;     // MIOpen library handle
@@ -233,39 +284,19 @@ struct RuntimeState {
 
 **MLIR representation:**
 ```mlir
-// RuntimeState is OPAQUE !llvm.ptr - NO struct layout exposed
-// Generated code sees: !llvm.ptr (opaque pointer)
+// RuntimeState is opaque !llvm.ptr
+!llvm.ptr
 ```
 
-**Key Points:**
-- ✅ **Opaque design:** Generated code cannot access fields directly
-- ✅ **Accessor functions only:** Use `runtime_get_stream`, `hip_get_constant`, etc.
-- ✅ **NO GEP operations:** Never use `llvm.getelementptr` on RuntimeState
-- ✅ **ABI stability:** Runtime can evolve struct layout without breaking generated code
-- ✅ **All handles created before constant upload:**
-  - Stream created first
-  - MIOpen/hipBLAS handles created and associated with stream
-  - Then runtime uploads constants using GPU handles
+**Design:**
+- **Constructor/destructor** (`inference_init`, `inference_cleanup`): Access fields directly via GEP
+- **Regular computation code** (@main, wrappers): Use accessor functions (`runtime_get_stream`, `hip_get_constant`)
+- **Benefit**: Runtime can change struct layout without breaking computation code (only constructor/destructor need updates)
 
-**Allowed operations:**
-```mlir
-// ✅ CORRECT: Use accessor function
-%stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
-
-// ✅ CORRECT: Use constant accessor
-%index_0 = llvm.mlir.constant(0 : i64) : i64
-%constant_ptr = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
-```
-
-**Forbidden operations:**
-```mlir
-// ❌ FORBIDDEN: Never use GEP on RuntimeState
-%stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
-%stream = llvm.load %stream_ptr : !llvm.ptr
-
-// ❌ FORBIDDEN: Never access internals directly
-%gpu_constants_ptr = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-```
+**Initialization order:**
+1. Stream created first
+2. MIOpen/hipBLAS handles created and associated with stream
+3. Constants uploaded to GPU using handles
 
 ### Error Handling Contract
 
@@ -395,6 +426,9 @@ int inference_init(void** out_state);
 **For design and rationale:** See [../INTERFACE-DESIGN.md - inference_init](../INTERFACE-DESIGN.md#inference_init)
 
 **MLIR Implementation:**
+
+**NOTE:** This function is a CONSTRUCTOR for RuntimeState. It directly accesses RuntimeState fields via GEP operations to initialize them. This is an EXCEPTION to the opaque handle design - regular computation code (@main, wrappers) MUST use accessor functions instead.
+
 ```mlir
 llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
     attributes {
@@ -766,6 +800,9 @@ int inference_cleanup(void* state);
 **For design and rationale:** See [../INTERFACE-DESIGN.md - inference_cleanup](../INTERFACE-DESIGN.md#inference_cleanup)
 
 **MLIR Implementation:**
+
+**NOTE:** This function is a DESTRUCTOR for RuntimeState. It directly accesses RuntimeState fields via GEP operations to read and cleanup resources. This is an EXCEPTION to the opaque handle design - regular computation code (@main, wrappers) MUST use accessor functions instead.
+
 ```mlir
 llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
     attributes {
