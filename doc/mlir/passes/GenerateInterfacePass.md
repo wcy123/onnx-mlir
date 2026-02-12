@@ -84,67 +84,42 @@ llvm.func @main(%context: !llvm.ptr,
 
 **See also:** [HipToLLVM.md](HipToLLVM.md) for implementation details
 
-### Prerequisite 2: get_constant_count Function
+### Prerequisite 2: get_constant_registry Function
 
-**Required signature:**
+**Required signature (LLVM dialect):**
 ```mlir
-llvm.func @get_constant_count() -> i64
+llvm.func @get_constant_registry() -> !llvm.ptr
+```
+
+**Returns:** Pointer to static `ConstantRegistry` struct containing:
+```c
+struct ConstantInfo {
+    const void* cpu_data;      // CPU pointer to constant in DLL .data section
+    size_t size_bytes;         // Size in bytes
+    size_t element_size;       // Element size (4 for float32, 2 for float16, etc.)
+    size_t num_elements;       // Number of elements
+};
+
+struct ConstantRegistry {
+    const ConstantInfo* constants;  // Array of constant descriptors
+    size_t count;                   // Number of constants
+};
 ```
 
 **What the code checks:**
-1. `@get_constant_count` exists as `llvm.func`
+1. `@get_constant_registry` exists as `llvm.func`
 2. Has no parameters
-3. Returns `i64`
+3. Returns `!llvm.ptr`
 
 **Satisfied by:** OnnxToHip pass
 
-**Error messages:**
-```
-[GenerateInterface] get_constant_count (llvm.func) not found
-[GenerateInterface] get_constant_count has wrong signature. Expected: () -> i64
-```
-
-### Prerequisite 3: initialize_constants Function
-
-**Required signature:**
-```mlir
-llvm.func @initialize_constants(%context: !llvm.ptr) -> i32
-```
-
-**What the code checks:**
-1. `@initialize_constants` exists as `llvm.func`
-2. Has exactly 1 parameter of type `!llvm.ptr`
-3. Returns `i32`
-
-**Satisfied by:** OnnxToHip pass
+**Usage:** Runtime calls this in `inference_init` to get metadata about all constants, then uploads them to GPU using its own strategy (batch upload, pinned memory, etc.). Runtime owns complete GPU memory lifecycle.
 
 **Error messages:**
 ```
-[GenerateInterface] initialize_constants (llvm.func) not found
-[GenerateInterface] initialize_constants has wrong signature. Expected: (ptr) -> i32
+[GenerateInterface] get_constant_registry (llvm.func) not found
+[GenerateInterface] get_constant_registry has wrong signature. Expected: () -> ptr
 ```
-
-### Prerequisite 4: release_constants Function
-
-**Required signature:**
-```mlir
-llvm.func @release_constants(%context: !llvm.ptr) -> i32
-```
-
-**What the code checks:**
-1. `@release_constants` exists as `llvm.func`
-2. Has exactly 1 parameter of type `!llvm.ptr`
-3. Returns `i32`
-
-**Satisfied by:** OnnxToHip pass
-
-**Error messages:**
-```
-[GenerateInterface] release_constants (llvm.func) not found
-[GenerateInterface] release_constants has wrong signature. Expected: (ptr) -> i32
-```
-
-### Prerequisite 5: Module Metadata Attributes
 
 **Required attributes:**
 ```mlir
@@ -220,44 +195,24 @@ llvm.func @main(%context: !llvm.ptr,
 
 **See also:** [HipToLLVM.md](HipToLLVM.md) for call chain walkthrough and LLVM optimization details.
 
-### Constant Management Function Contracts
+### Constant Registry Contract
 
-The code verifies these functions exist with correct signatures, but their internal behavior (documented below) is NOT verified.
+**get_constant_registry() Contract:**
 
-#### initialize_constants() Contract
-
-**Preconditions (what initialize_constants expects):**
-1. Context struct already allocated (by inference_init)
-2. GPU handles already created:
-   - `context.stream` (hipStream_t) created and valid
-   - `context.miopenHandle` (miopenHandle_t) created and set to use stream
-   - `context.hipblasHandle` (hipblasLtHandle_t) created
-3. `context.gpu_constants` pointer already allocated:
-   - Array size = `get_constant_count() × sizeof(void*)`
-   - Array is uninitialized (initialize_constants fills it)
+The code verifies this function exists with correct signature, but its internal behavior (documented below) is NOT verified.
 
 **Postconditions:**
-1. All constants uploaded to GPU memory
-2. `context.gpu_constants[i]` points to GPU memory for constant i
-3. GPU memory allocated with `hipMalloc` on `context.stream`
-4. Returns 0 on success, non-zero on error
+1. Returns pointer to static `ConstantRegistry` struct (valid for DLL lifetime)
+2. Registry contains metadata for all constants in the model
+3. `cpu_data` pointers point to LLVM globals in DLL .data section (valid for DLL lifetime)
+4. Runtime uses this metadata to allocate/upload/free GPU memory
 
-**Side effects:** Allocates GPU memory, modifies context.gpu_constants array
+**Runtime ownership:**
+- **DLL owns:** Constant data in .data section, ConstantRegistry struct (static lifetime)
+- **Runtime owns:** GPU memory allocation, upload strategy, cleanup strategy
+- **Separation:** DLL provides metadata, runtime controls GPU memory lifecycle
 
-#### release_constants() Contract
-
-**Preconditions:**
-1. `initialize_constants` was called successfully
-2. `context.gpu_constants` array contains valid GPU pointers
-
-**Postconditions:**
-1. All GPU memory freed (via hipFree)
-2. `context.gpu_constants` array is in undefined state (caller should free array itself)
-3. Returns 0 on success, non-zero on error
-
-**Side effects:** Frees GPU memory
-
-**See also:** [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) for complete constant handling details.
+**See also:** [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) for complete constant handling details.
 
 ### RuntimeState Contract (Opaque Handle Design)
 
@@ -287,10 +242,10 @@ struct RuntimeState {
 - ✅ **Accessor functions only:** Use `runtime_get_stream`, `hip_get_constant`, etc.
 - ✅ **NO GEP operations:** Never use `llvm.getelementptr` on RuntimeState
 - ✅ **ABI stability:** Runtime can evolve struct layout without breaking generated code
-- ✅ **All handles created before initialize_constants:**
+- ✅ **All handles created before constant upload:**
   - Stream created first
   - MIOpen/hipBLAS handles created and associated with stream
-  - Then initialize_constants can safely use runtime functions
+  - Then runtime uploads constants using GPU handles
 
 **Allowed operations:**
 ```mlir
@@ -412,17 +367,15 @@ typedef struct {
 |---|--------------|--------------|------------|
 | 0 | Idempotency | (generated code) | Functions don't exist yet |
 | 1 | @main function | HipToLLVM | Signature: `(ptr, ptr, ptr) -> i32` |
-| 2 | get_constant_count | OnnxToHip | Signature: `() -> i64` |
-| 3 | initialize_constants | OnnxToHip | Signature: `(ptr) -> i32` |
-| 4 | release_constants | OnnxToHip | Signature: `(ptr) -> i32` |
-| 5 | Module metadata | OnnxToHip | 4 attributes exist |
+| 2 | get_constant_registry | OnnxToHip | Signature: `() -> ptr` |
+| 3 | Module metadata | OnnxToHip | 4 attributes exist |
 
 **Design Contracts (NOT enforced by code):**
 
 | Contract | Critical For | Documented In |
 |----------|--------------|---------------|
 | @main behavioral contract | Correct memref handling | HipToLLVM.md |
-| Constant function contracts | GPU memory management | CONSTANT-MANAGEMENT.md |
+| Constant registry contract | GPU memory management | ../../CONSTANT-HANDLING-DESIGN.md |
 | RuntimeState opaque design | ABI stability | RUNTIME-ARCHITECTURE.md |
 | Error handling policy | Robust error paths | INTERFACE-DESIGN.md |
 | Tensor interface (span_t/tensor_t) | C-ABI compatibility | INTERFACE-DESIGN.md |
@@ -481,18 +434,30 @@ llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
   %hipblas_field = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %hipblas, %hipblas_field : !llvm.ptr
 
-  // 5. Allocate gpu_constants array
-  %count = llvm.call @get_constant_count() : () -> i64
+  // 5. Get constant registry and allocate gpu_constants array
+  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
+  %count_ptr = llvm.getelementptr %registry_ptr[0, 1] : (!llvm.ptr) -> !llvm.ptr
+  %count = llvm.load %count_ptr : !llvm.ptr -> i64
   %ptr_size = llvm.mlir.constant(8 : i64) : i64
   %array_size = llvm.mul %count, %ptr_size : i64
   %gpu_constants = llvm.call @malloc(%array_size) : (i64) -> !llvm.ptr
   %gpu_constants_field = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
   llvm.store %gpu_constants, %gpu_constants_field : !llvm.ptr
 
-  // 6. Initialize constants
-  %init_ret = llvm.call @initialize_constants(%context) : (!llvm.ptr) -> i32
-  %init_failed = llvm.icmp "ne" %init_ret, %c0 : i32
-  llvm.cond_br %init_failed, ^error_init, ^success
+  // 6. Upload constants to GPU (runtime owns strategy)
+  %constants_array_ptr_ptr = llvm.getelementptr %registry_ptr[0, 0] : (!llvm.ptr) -> !llvm.ptr
+  %constants_array_ptr = llvm.load %constants_array_ptr_ptr : !llvm.ptr -> !llvm.ptr
+
+  // Loop through all constants and upload
+  // (In actual implementation, this would be an unrolled loop or scf.for)
+  // For each i in 0..count:
+  //   info = constants_array_ptr[i]
+  //   hipMalloc(&gpu_constants[i], info.size_bytes)
+  //   hipMemcpy(gpu_constants[i], info.cpu_data, info.size_bytes, H2D)
+
+  %upload_success = <constant upload loop> : i32
+  %upload_failed = llvm.icmp "ne" %upload_success, %c0 : i32
+  llvm.cond_br %upload_failed, ^error_init, ^success
 
 ^success:
   llvm.store %context, %out_state : !llvm.ptr
@@ -822,17 +787,28 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
 
   // Check if synchronization succeeded
   %sync_failed = llvm.icmp "ne" %sync_ret, %c0_i32 : i32
-  llvm.cond_br %sync_failed, ^error_sync, ^release_constants
+  llvm.cond_br %sync_failed, ^error_sync, ^free_gpu_constants
 
-^release_constants:
+^free_gpu_constants:
   // ============================================================================
   // Step 2: Free GPU constant memory (weights, biases)
   // ============================================================================
-  %release_ret = llvm.call @release_constants(%state) : (!llvm.ptr) -> i32
+  // Get constant count and gpu_constants array
+  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
+  %count_ptr = llvm.getelementptr %registry_ptr[0, 1] : (!llvm.ptr) -> !llvm.ptr
+  %count = llvm.load %count_ptr : !llvm.ptr -> i64
 
-  // Check if constant release succeeded
-  %release_failed = llvm.icmp "ne" %release_ret, %c0_i32 : i32
-  llvm.cond_br %release_failed, ^error_release, ^destroy_handles
+  %gpu_constants_ptr_load = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
+  %gpu_constants_load = llvm.load %gpu_constants_ptr_load : !llvm.ptr
+
+  // Loop through all constants and free GPU memory
+  // (In actual implementation, this would be an unrolled loop or scf.for)
+  // For each i in 0..count:
+  //   hipFree(gpu_constants[i])
+
+  %free_success = <constant free loop> : i32
+  %free_failed = llvm.icmp "ne" %free_success, %c0_i32 : i32
+  llvm.cond_br %free_failed, ^error_release, ^destroy_handles
 
 ^destroy_handles:
   // ============================================================================
@@ -925,7 +901,7 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
   llvm.return %c12_i32 : i32
 
 ^error_release:
-  // release_constants failed - still destroy handles and free memory
+  // Constant free loop failed - still destroy handles and free memory
   // Note: GPU memory for constants may be leaked, but we free handles
   %hipblas_ptr_er = llvm.getelementptr %state[0, 2] : (!llvm.ptr) -> !llvm.ptr
   %hipblas_er = llvm.load %hipblas_ptr_er : !llvm.ptr
@@ -947,8 +923,8 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
 
 ^error_sync:
   // Stream synchronization failed - this is serious, but still try cleanup
-  // Continue with release_constants despite sync failure
-  %release_ret_sync = llvm.call @release_constants(%state) : (!llvm.ptr) -> i32
+  // Try to free GPU constants despite sync failure (best effort)
+  // (GPU constant free loop would go here - omitted for brevity)
 
   %hipblas_ptr_sync = llvm.getelementptr %state[0, 2] : (!llvm.ptr) -> !llvm.ptr
   %hipblas_sync = llvm.load %hipblas_ptr_sync : !llvm.ptr
@@ -1084,10 +1060,8 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
     // Check module metadata exists
     if (!module->getAttr("hipdnn.input_count")) return false;
 
-    // Check constant helpers exist
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count")) return false;
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants")) return false;
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants")) return false;
+    // Check constant registry function exists
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry")) return false;
 
     return true;
   }
@@ -1109,5 +1083,5 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
 **Supporting:**
 - [../MODULE-STRUCTURE.md](../MODULE-STRUCTURE.md) - MLIR module organization
 - [../LOWERING-PIPELINE.md](../LOWERING-PIPELINE.md) - Complete lowering flow
-- [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) - Constant handling details
+- [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) - Constant handling details
 - [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md) - Runtime state structure
