@@ -65,21 +65,18 @@ cmd /c "call \"\"C:\\msvsn2022\\VC\\Auxiliary\\Build\\vcvars64.bat\"\" && cd /d 
 
 ## Git Workflow
 
-**Remotes**: `origin` (main repository, read-only) | `fork` (your fork, push here)
+**Remotes**:
+- `origin` / `fork` = `https://github.com/wcy123/onnx-hipdnn-ep.git` (your fork, push here)
+- `upstream` = `https://github.com/ROCm/onnx-hipdnn-ep.git` (main repository, read-only)
 
-**CRITICAL**: Always push to `fork`, never `origin`
-
-**Push Policy**: After creating commits, ALWAYS push to fork immediately unless the user says otherwise.
-
-**Auto-PR Policy**: After successfully pushing to fork, IMMEDIATELY check if a PR exists for the branch. If not, create a draft PR automatically with `gh pr create --draft`.
+**Push Policy**: After creating commits, push to origin/fork when ready.
 
 **Required Steps**:
-1. Sync: `git checkout main && git pull origin main`
+1. Sync: `git checkout main && git pull upstream main`
 2. Branch: `git checkout -b feature/<name>` (BEFORE changes)
-3. Commit: After file changes, BEFORE testing
-4. First Push: `git push -u fork <branch>` (sets upstream tracking)
-5. Subsequent Pushes: `git push fork <branch>`
-6. PR: `gh pr create --draft` (IMMEDIATELY after first push, auto-create if no PR exists)
+3. Commit: After file changes
+4. Push: `git push origin <branch>` (or `git push fork <branch>`, they're the same)
+5. Create PR manually when ready
 
 **CRITICAL - Before Marking PR Ready**:
 Before marking PR ready for review, MUST run pre-commit to fix formatting issues:
@@ -95,13 +92,9 @@ If pre-commit makes changes (formatting, linting), commit and push them BEFORE m
 - **For new features/other work**: `<type>: <description>` (no issue number)
   - Example: `feat: add new optimization pass`
 
-**PR Operations** (fork-based workflow):
-- ❌ `gh pr view` (fails - branch not in origin)
+**PR Operations**:
 - ✅ `gh pr view <number>` (most reliable)
-- ✅ `gh pr view <owner>:<branch>` (e.g., `gh pr view your-username:feature/name`)
 - ✅ `gh pr list` (to find PR number first)
-
-**Why `gh pr view` fails**: PRs are cross-repository (fork → origin). `gh pr view` searches for the branch in the current repo (origin), but the branch only exists in the fork.
 
 **Commit Rules**:
 - ❌ NO AI mentions (Co-Authored-By: Claude, etc.)
@@ -116,7 +109,7 @@ If pre-commit makes changes (formatting, linting), commit and push them BEFORE m
 
 1. Build dir: `../../build/$(basename $PWD)`, NOT `./build`
 2. Install prefix: `../../local`
-3. Git push: `fork`, NEVER `origin`
+3. Git push: `origin` or `fork` (they're the same)
 4. Never work on `main` branch
 5. Run `scripts/setup-dev-env.*` before contributing
 6. Launch bash from MSVC Developer Command Prompt (Windows)
