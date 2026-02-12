@@ -36,9 +36,7 @@ The compiled DLL has **two layers of functions**:
 
 **Layer 2: Internal MLIR Functions (Private)**
 - `@main(context, inputs, outputs) -> i32` - Actual computation
-- `initialize_constants(context) -> i32` - Upload constants to GPU
-- `release_constants(context) -> i32` - Free GPU constant memory
-- `get_constant_count() -> i64` - Metadata helper
+- `get_constant_registry() -> ptr` - Returns constant metadata for runtime
 
 ### 2.2 Call Chain (Conceptual)
 
@@ -103,10 +101,11 @@ int inference_init(void** out_state);
 2. Create GPU stream (hipStream_t)
 3. Create MIOpen handle and associate with stream
 4. Create hipBLAS handle
-5. Allocate array for GPU constant pointers
-6. Upload model weights/constants to GPU via `initialize_constants`
+5. Get constant registry (`get_constant_registry()`)
+6. Allocate array for GPU constant pointers
+7. Upload model weights/constants to GPU (loop: hipMalloc + hipMemcpy)
 
-**Note:** For detailed constant management design (extraction, upload, retrieval, cleanup), see [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md).
+**Note:** For detailed constant management design (extraction, upload, retrieval, cleanup), see [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md).
 
 **Parameters:**
 - `out_state` (output): Pointer to receive allocated context pointer
@@ -200,7 +199,7 @@ int inference_cleanup(void* state);
 
 **Responsibilities:**
 1. Synchronize GPU stream (wait for pending operations)
-2. Free GPU constant memory via `release_constants`
+2. Free GPU constant memory (loop: hipFree for each constant)
 3. Destroy GPU handles (hipBLAS, MIOpen, stream) in reverse creation order
 4. Free constant pointer array
 5. Free execution context struct
@@ -418,4 +417,4 @@ span_t input_span = {
 **Supporting details:**
 - [mlir/MODULE-STRUCTURE.md](mlir/MODULE-STRUCTURE.md) - MLIR module organization
 - [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Complete lowering flow
-- [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md) - Constant handling
+- [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) - Constant handling

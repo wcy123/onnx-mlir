@@ -95,11 +95,11 @@ module attributes {
   hipdnn.output_count = 2 : i64,             // M outputs
   hipdnn.output_ranks = dense<[2, 1]> : tensor<2xi64>  // ranks for each output
 } {
-  llvm.mlir.global constant @constant_0 ...   // NEW: extracted constants
+  llvm.mlir.global constant @constant_0 ...      // NEW: extracted constants
+  llvm.mlir.global constant @constant_info_array ...  // NEW: constant metadata
+  llvm.mlir.global constant @constant_registry ...    // NEW: registry struct
   func.func @main(...) { ... }
-  llvm.func @get_constant_count() -> i64      // NEW: helpers
-  func.func @initialize_constants(...) -> i32
-  func.func @release_constants(...) -> i32
+  llvm.func @get_constant_registry() -> ptr    // NEW: metadata accessor
 }
 ```
 
@@ -226,21 +226,23 @@ Stage 1 (ONNX-MLIR):    onnx.Constant dense<[...]> : tensor<...>
                         └─ ONNX constant operations in @main
                               ↓
 Stage 2 (OnnxToHip):    llvm.mlir.global constant @constant_0(...)
-                        └─ Extracted to module-level globals
+                        llvm.mlir.global constant @constant_registry(...)
+                        └─ Extracted to globals + registry metadata
                               ↓
 Stage 3 (HipToLLVM):    llvm.mlir.addressof @constant_0
-                        └─ Referenced in initialize_constants
+                        └─ Referenced in ConstantInfo array
                               ↓
 Stage 4 (Compilation):  DLL .data section (embedded in binary)
                               ↓
-Runtime (init):         hipMalloc + hipMemcpy → GPU memory
+Runtime (init):         get_constant_registry() → metadata
+                        hipMalloc + hipMemcpy → GPU memory
                         └─ Uploaded once during inference_init
                               ↓
 Runtime (compute):      hip_get_constant(ctx, index) → GPU pointer
                         └─ Retrieved and used in @main
 ```
 
-**See:** [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) for detailed lifecycle documentation.
+**See:** [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) for detailed lifecycle documentation.
 
 ---
 
@@ -365,7 +367,7 @@ These documents explain cross-cutting concerns and architectural decisions:
 - **[MODULE-STRUCTURE.md](MODULE-STRUCTURE.md)** - Final MLIR module organization after all passes
 - **[INTERFACE-DESIGN.md](INTERFACE-DESIGN.md)** - C interface design and prerequisites
 - **[HIP-DIALECT-DESIGN.md](HIP-DIALECT-DESIGN.md)** - HIP dialect types, operations, and wrappers
-- **[CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md)** - Constant extraction, upload, and lifecycle
+- **[../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md)** - Constant extraction, upload, and lifecycle
 - **[../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md)** - Comprehensive dynamic shape strategy
 
 ---
@@ -381,7 +383,7 @@ These documents explain cross-cutting concerns and architectural decisions:
 - Cross-reference design documents for prerequisites
 
 **For understanding a specific concern:**
-- Constants → [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md)
+- Constants → [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md)
 - Dynamic shapes → [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md)
 - Module structure → [MODULE-STRUCTURE.md](MODULE-STRUCTURE.md)
 - HIP dialect → [HIP-DIALECT-DESIGN.md](HIP-DIALECT-DESIGN.md)

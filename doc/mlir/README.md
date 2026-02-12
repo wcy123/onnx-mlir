@@ -21,7 +21,7 @@ This directory contains detailed design documents for the MLIR-based compilation
 | [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) | Transformation stages | - ONNX → HIP → LLVM stages<br>- Pass-by-pass IR examples<br>- Dynamic shape handling at each stage |
 | [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) | C interface and prerequisites | - Two-layer architecture<br>- GenerateInterfacePass prerequisites<br>- Error handling strategy |
 | [HIP-DIALECT-DESIGN.md](HIP-DIALECT-DESIGN.md) | HIP dialect and wrappers | - !hip.context type design<br>- Wrapper function generation<br>- Dynamic shapes in wrappers |
-| [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) | Constant handling | - Compile-time extraction to globals<br>- Runtime GPU upload<br>- Retrieval and cleanup |
+| [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) | Constant handling | - Compile-time extraction to globals<br>- Runtime GPU upload<br>- Retrieval and cleanup |
 
 ### Related Documents (in parent directory)
 
@@ -40,8 +40,8 @@ This directory contains detailed design documents for the MLIR-based compilation
 
 **OnnxToHip Pass:**
 - See: [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Stage 2
-- Generates: @main, constant helpers (initialize_constants, release_constants, get_constant_count)
-- Key: Extract constants to llvm.mlir.global
+- Generates: @main, constant registry (ConstantInfo array, get_constant_registry)
+- Key: Extract constants to llvm.mlir.global + metadata structures
 
 **HipToLLVM Pass:**
 - See: [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Stage 3
@@ -57,12 +57,13 @@ This directory contains detailed design documents for the MLIR-based compilation
 ### For Understanding Data Flow
 
 **Constant lifecycle:**
-1. ONNX proto → llvm.mlir.global (compile-time)
-2. Global → GPU memory via initialize_constants (runtime init)
-3. GPU pointer retrieval via hip_get_constant (runtime compute)
-4. GPU memory freed via release_constants (runtime cleanup)
+1. ONNX proto → llvm.mlir.global + ConstantRegistry (compile-time)
+2. Runtime gets metadata via get_constant_registry() (runtime init)
+3. Runtime uploads: Global → GPU memory (hipMalloc + hipMemcpy)
+4. GPU pointer retrieval via hip_get_constant (runtime compute)
+5. GPU memory freed by runtime (hipFree loop in cleanup)
 
-See [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) for details.
+See [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) for details.
 
 **Dynamic shape flow:**
 1. User: tensor_t.shape = [batch, channels, height, width]
