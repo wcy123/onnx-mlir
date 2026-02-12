@@ -328,50 +328,57 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32 {
 
 **See also:** [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) for complete constant handling details.
 
-### Prerequisite 4: Context Struct Layout
+### Prerequisite 4: RuntimeState Contract
 
 **Satisfied by:** Convention established in [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md)
 
-**Required layout:**
+**CRITICAL**: RuntimeState is **OPAQUE** to generated code. Generated code NEVER accesses fields directly.
+
+**RuntimeState structure (INTERNAL - not accessible to generated code):**
 ```c
-// C struct (for reference - not in MLIR)
-struct HipExecutionContext {
-    hipStream_t stream;              // field 0: GPU stream for async operations
-    miopenHandle_t miopenHandle;     // field 1: MIOpen library handle
-    hipblasLtHandle_t hipblasHandle; // field 2: hipBLAS library handle
-    void** gpu_constants;            // field 3: POINTER to dynamically allocated array
+// C struct (INTERNAL to runtime - not exposed to generated code)
+struct RuntimeState {
+    hipStream_t stream;              // GPU stream for async operations
+    miopenHandle_t miopenHandle;     // MIOpen library handle
+    hipblasLtHandle_t hipblasHandle; // hipBLAS library handle
+    void** gpu_constants;            // POINTER to dynamically allocated array
 };
 ```
 
-**MLIR type representation:**
+**MLIR representation:**
 ```mlir
-// Context is opaque !llvm.ptr at LLVM level
-// Access fields via getelementptr:
-%stream_ptr = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-%miopen_ptr = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-%hipblas_ptr = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
-%gpu_constants_ptr_ptr = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
+// RuntimeState is OPAQUE !llvm.ptr - NO struct layout exposed
+// Generated code sees: !llvm.ptr (opaque pointer)
 ```
 
 **Key Points:**
-- ✅ **Terminology:** Use "context" internally, "state" externally (C interface)
-- ✅ **gpu_constants is a POINTER:** Not a fixed-size array
-  - Allocated dynamically: `malloc(get_constant_count() × sizeof(void*))`
-  - Freed by inference_cleanup after calling release_constants
+- ✅ **Opaque design:** Generated code cannot access fields directly
+- ✅ **Accessor functions only:** Use `runtime_get_stream`, `hip_get_constant`, etc.
+- ✅ **NO GEP operations:** Never use `llvm.getelementptr` on RuntimeState
+- ✅ **ABI stability:** Runtime can evolve struct layout without breaking generated code
 - ✅ **All handles created before initialize_constants:**
   - Stream created first
   - MIOpen/hipBLAS handles created and associated with stream
-  - Then initialize_constants can safely use handles
+  - Then initialize_constants can safely use runtime functions
 
-**Field access example:**
+**Allowed operations:**
 ```mlir
-// Get stream from context
-%stream_ptr = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-%stream = llvm.load %stream_ptr : !llvm.ptr -> !llvm.ptr
+// ✅ CORRECT: Use accessor function
+%stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
 
-// Get gpu_constants array pointer
-%gpu_constants_ptr_ptr = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
-%gpu_constants = llvm.load %gpu_constants_ptr_ptr : !llvm.ptr -> !llvm.ptr
+// ✅ CORRECT: Use constant accessor
+%index_0 = llvm.mlir.constant(0 : i64) : i64
+%constant_ptr = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
+```
+
+**Forbidden operations:**
+```mlir
+// ❌ FORBIDDEN: Never use GEP on RuntimeState
+%stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
+%stream = llvm.load %stream_ptr : !llvm.ptr
+
+// ❌ FORBIDDEN: Never access internals directly
+%gpu_constants_ptr = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
 ```
 
 ### Prerequisite 5: Error Handling Strategy
@@ -790,9 +797,8 @@ llvm.func @inference_compute(%state: !llvm.ptr,
   %input_cpu_ptr_ptr = llvm.getelementptr %input_0_ptr[0, 0] : (!llvm.ptr) -> !llvm.ptr
   %input_cpu_ptr = llvm.load %input_cpu_ptr_ptr : !llvm.ptr -> !llvm.ptr
 
-  // Get stream from context for asynchronous transfer
-  %stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream = llvm.load %stream_ptr : !llvm.ptr -> !llvm.ptr
+  // Get stream from state via accessor (OPAQUE - no GEP)
+  %stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
 
   // hipMemcpyAsync(dst=GPU, src=CPU, size, hipMemcpyHostToDevice, stream)
   %hipMemcpyHostToDevice = llvm.mlir.constant(1 : i32) : i32

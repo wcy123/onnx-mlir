@@ -52,8 +52,8 @@ In ONNX-MLIR, these appear as `onnx.Constant` operations within function bodies.
 
 **Architecture** (see [STATE-AND-CONTEXT.md](STATE-AND-CONTEXT.md) for full design):
 ```c
-// Internal state structure (opaque to C interface)
-struct HipExecutionState {
+// Internal state structure (OPAQUE - not accessible to generated code)
+struct RuntimeState {
     hipStream_t stream;
     miopenHandle_t miopenHandle;
     hipblasLtHandle_t hipblasHandle;
@@ -61,7 +61,7 @@ struct HipExecutionState {
 };
 ```
 
-**In MLIR**: Functions receive `%ctx: !hip.context` parameter to access pre-uploaded constants.
+**In MLIR**: Functions receive `%ctx: !hip.context` parameter and access constants via opaque runtime functions (NOT field access).
 
 ### Decision 2: Embed Constants in Compiled DLL
 
@@ -258,7 +258,7 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<...> {
 func.func @main(%ctx: !hip.context,
                 %input: memref<1x3x224x224xf32, 1>,
                 %output: memref<...>) -> i32 {
-  // Get pre-uploaded constant from state
+  // Get pre-uploaded constant from state via OPAQUE runtime function
   %w = hip.get_constant(%ctx, 0) : (!hip.context, i64) -> memref<...>
 
   // Use constant in computation
@@ -267,9 +267,31 @@ func.func @main(%ctx: !hip.context,
   %success = llvm.mlir.constant(0 : i32) : i32
   return %success : i32
 }
+
+// AFTER (LLVM dialect - lowered from HIP):
+llvm.func @main(%state: !llvm.ptr,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<...>) -> i32 {
+  // Get pre-uploaded constant via runtime function (OPAQUE - no GEP)
+  %index_0 = llvm.mlir.constant(0 : i64) : i64
+  %weight_gpu = llvm.call @hip_get_constant(%state, %index_0)
+    : (!llvm.ptr, i64) -> !llvm.ptr
+
+  // Build memref struct with GPU pointer
+  %w = [build memref with weight_gpu as data pointer]
+
+  // Use constant in computation
+  llvm.call @hip_conv_wrapper(%state, %input, %w, %output) {...}
+
+  %success = llvm.mlir.constant(0 : i32) : i32
+  llvm.return %success : i32
+}
 ```
 
-**Key insight**: No constant arguments—function signature stays clean regardless of model size.
+**Key insights**:
+1. No constant arguments - function signature stays clean regardless of model size
+2. RuntimeState is OPAQUE - accessed only via `hip_get_constant`, never via GEP
+3. Clean separation between runtime (owns state layout) and generated code (calls functions)
 
 ---
 
@@ -316,12 +338,26 @@ func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -
 }
 
 func.func @subgraph_if_then(%ctx: !hip.context, %arg0: memref<...>, %output: memref<...>) -> i32 {
-  // Load constants from state by global index
+  // Load constants from state by global index (OPAQUE access)
   %w0 = hip.get_constant(%ctx, 0)  // Was passed as argument in ONNX
   %w1 = hip.get_constant(%ctx, 1)  // Was local constant in ONNX
 
   hip.conv(%ctx, %arg0, %w0, %w1, %output) {...}
   return %c0_i32 : i32
+}
+
+// After lowering to LLVM (showing opaque access):
+llvm.func @subgraph_if_then(%state: !llvm.ptr, %arg0: memref<...>, %output: memref<...>) -> i32 {
+  // Get constants via runtime functions (OPAQUE - no GEP)
+  %index_0 = llvm.mlir.constant(0 : i64) : i64
+  %w0_gpu = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
+
+  %index_1 = llvm.mlir.constant(1 : i64) : i64
+  %w1_gpu = llvm.call @hip_get_constant(%state, %index_1) : (!llvm.ptr, i64) -> !llvm.ptr
+
+  // Build memrefs and call wrapper
+  llvm.call @hip_conv_wrapper(%state, %arg0, %w0_gpu, %w1_gpu, %output) {...}
+  llvm.return %c0_i32 : i32
 }
 ```
 

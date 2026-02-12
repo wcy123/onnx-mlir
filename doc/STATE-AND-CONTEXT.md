@@ -140,15 +140,17 @@ func.func @inference_compute(%state: !llvm.ptr, ...) -> i32 {  // ✅ Lowered to
 
 ---
 
-## State Structure
+## RuntimeState Contract
 
-### Conceptual Layout
+### Opaque Design Principle
 
-The opaque `void* state` pointer points to this concrete structure:
+**CRITICAL**: RuntimeState is **OPAQUE** to generated code. Generated code NEVER accesses fields directly.
+
+**The opaque `void* state` pointer points to this concrete structure (INTERNAL ONLY):**
 
 ```c
-// INTERNAL IMPLEMENTATION (not exposed in C interface)
-struct HipExecutionState {
+// INTERNAL IMPLEMENTATION (not exposed to ANYONE - even generated code)
+struct RuntimeState {
     // Field 0: GPU stream for asynchronous execution
     hipStream_t stream;
 
@@ -164,6 +166,7 @@ struct HipExecutionState {
     // SELF-CONTAINED DESIGN: This struct is private to the compiled DLL.
     // Can freely add/remove fields for any ROCm library without breaking anything:
     // - C interface only sees opaque void*
+    // - Generated code only calls accessor functions
     // - No external code depends on struct layout
     // - Each compiled model is independent
     //
@@ -195,34 +198,75 @@ struct HipExecutionState {
 
 **In LLVM dialect:**
 ```mlir
-!llvm.struct<(
-  ptr,              // hip_stream
-  ptr,              // miopen_handle
-  ptr,              // hipblas_handle
-  array<N x ptr>    // gpu_constants (N = constant count)
-)>
+!llvm.ptr  // Opaque pointer - NO struct layout exposed to generated code
 ```
 
-### Field Access Pattern
+### Allowed Operations on RuntimeState
 
-**Accessing GPU handles:**
+**Generated code can ONLY:**
+1. **Initialize/cleanup runtime state**: `runtime_state_init`, `runtime_state_cleanup`
+2. **Get GPU stream**: `runtime_get_stream(%state) -> !llvm.ptr`
+3. **Upload constants**: `hip_upload_constant(%state, index, cpu_data, size)`
+4. **Get constants**: `hip_get_constant(%state, index) -> !llvm.ptr`
+5. **Release constants**: `hip_release_constant(%state, index)`
+
+**Generated code CANNOT:**
+- Use `llvm.getelementptr` on RuntimeState
+- Access fields directly
+- Make assumptions about struct layout
+- Cast to concrete struct type
+
+### Access Pattern (Correct)
+
+**Getting GPU stream:**
 ```mlir
-// Get miopenHandle (field 1)
-%miopen_ptr = llvm.getelementptr %state[0, 1] : (!llvm.ptr) -> !llvm.ptr
-%miopen = llvm.load %miopen_ptr : !llvm.ptr
+// ✅ CORRECT: Use accessor function
+%stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
+```
 
-// Get hipStream (field 0)
+**Getting constants:**
+```mlir
+// ✅ CORRECT: Use accessor function
+%index_0 = llvm.mlir.constant(0 : i64) : i64
+%weight_0_gpu = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
+```
+
+### Access Pattern (FORBIDDEN)
+
+**Direct field access:**
+```mlir
+// ❌ FORBIDDEN: Never use GEP on RuntimeState
 %stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
 %stream = llvm.load %stream_ptr : !llvm.ptr
+
+// ❌ FORBIDDEN: Never access constants array directly
+%gpu_constants_ptr = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
+%gpu_constants = llvm.load %gpu_constants_ptr : !llvm.ptr
 ```
 
-**Accessing constant GPU pointers:**
-```mlir
-// Get first constant (gpu_constants[0])
-%weights_array = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-%weight_0_ptr = llvm.getelementptr %weights_array[0] : (!llvm.ptr) -> !llvm.ptr
-%weight_0_gpu = llvm.load %weight_0_ptr : !llvm.ptr
-```
+### Design Rationale: Why Opaque?
+
+**Problem**: If generated code uses GEP to access RuntimeState fields:
+- Adding a new field (e.g., rocFFT handle) changes field offsets
+- All previously compiled DLLs break (field 3 is now field 4)
+- Cannot evolve runtime without recompiling all models
+
+**Solution**: Opaque RuntimeState with accessor functions:
+- Runtime owns struct layout (defined in runtime implementation, not generated code)
+- Generated code calls `hip_get_constant(state, index)` - no field offsets
+- Runtime can add fields without breaking generated code
+- Clean separation: generated code doesn't know or care about internals
+
+**Benefits**:
+1. **ABI Stability**: Runtime can evolve without breaking compiled models
+2. **Flexibility**: Add handles (rocFFT, rocRAND, etc.) without regenerating DLLs
+3. **Optimization**: Runtime can optimize layout (alignment, cache locality) independently
+4. **Simplicity**: Generated code is simpler (function calls vs complex GEP chains)
+5. **Testability**: Can mock runtime functions for testing
+
+**Trade-offs**:
+- Function call overhead (negligible - optimized to single load instruction)
+- Runtime must provide accessor implementations
 
 ---
 
@@ -274,21 +318,21 @@ int ret = inference_compute(state, inputs, outputs);  // Uses pre-initialized st
 **MLIR implementation:**
 ```mlir
 func.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {
-  // 1. Extract handles from state
-  %miopen = ... // Load from state[0, 1]
-  %stream = ... // Load from state[0, 0]
+  // 1. Get stream via accessor (OPAQUE - no GEP)
+  %stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
 
-  // 2. Extract pre-uploaded constants
-  %weights_gpu = ... // Load from state[0, 3, 0]
+  // 2. Get pre-uploaded constants via accessor (OPAQUE - no GEP)
+  %index_0 = llvm.mlir.constant(0 : i64) : i64
+  %weights_gpu = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
 
-  // 3. Execute operations using handles and weights
-  llvm.call @miopenConvolutionForward(%miopen, %stream, %weights_gpu, ...)
+  // 3. Execute operations using stream and weights
+  llvm.call @miopenConvolutionForward(%stream, %weights_gpu, ...)
 
   return %c0_i32 : i32
 }
 ```
 
-**Key point**: State is read-only during compute (no allocation/deallocation)
+**Key point**: State is **opaque** - accessed only via runtime functions, never via GEP
 
 ### 3. Destruction (inference_cleanup)
 
@@ -414,13 +458,19 @@ The state structure contains pointers to pre-uploaded constants (weights, biases
 
 **Example**:
 ```mlir
-// In inference_init:
+// In initialize_constants (called from inference_init):
 %weight_cpu = llvm.mlir.addressof @constant_0 : !llvm.ptr
-%weight_gpu = ... // hipMalloc + hipMemcpy
-llvm.store %weight_gpu, %state[0, 3, 0]  // Store in state
+%size = llvm.mlir.constant(6912 : i64) : i64
+%index_0 = llvm.mlir.constant(0 : i64) : i64
+// Upload via runtime function (opaque - no GEP)
+llvm.call @hip_upload_constant(%state, %index_0, %weight_cpu, %size)
+  : (!llvm.ptr, i64, !llvm.ptr, i64) -> i32
 
 // In inference_compute:
-%weight_gpu = llvm.load %state[0, 3, 0]  // Load from state
+%index_0 = llvm.mlir.constant(0 : i64) : i64
+// Get via runtime function (opaque - no GEP)
+%weight_gpu = llvm.call @hip_get_constant(%state, %index_0)
+  : (!llvm.ptr, i64) -> !llvm.ptr
 llvm.call @miopenConvolutionForward(..., %weight_gpu, ...)
 ```
 

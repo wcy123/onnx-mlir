@@ -15,9 +15,20 @@ extern "C" {
 // Opaque handle for runtime state
 typedef struct RuntimeState RuntimeState;
 
-// Runtime state management functions
-// These provide high-level initialization and cleanup that can be called
-// directly from generated interface functions, reducing MLIR pass complexity
+//==============================================================================
+// RuntimeState: Opaque Execution State
+//==============================================================================
+//
+// RuntimeState encapsulates GPU execution resources (stream, library handles,
+// model constants). Generated code treats it as opaque void*, runtime library
+// owns the internal structure.
+//
+// Design rationale: Opaque pointer pattern allows runtime to evolve internal
+// layout without breaking generated code.
+//
+// Lifecycle: init -> use -> cleanup (must call in this order)
+// Thread safety: Not thread-safe (one inference per state at a time)
+//==============================================================================
 
 // Initialize runtime state (creates stream, MIOpen handle, hipBLAS handle)
 // Returns allocated RuntimeState pointer via out_state
@@ -35,7 +46,14 @@ int runtime_state_init(RuntimeState **out_state);
 // Returns 0 always (best-effort)
 int runtime_state_cleanup(RuntimeState *state);
 
-// Inference data structures for runtime helpers
+// Get GPU stream from state (for passing to HIP operations)
+// Returns: hipStream_t cast to void* (NULL on error)
+// Ownership: Caller does NOT own stream (destroyed in cleanup)
+void *runtime_get_stream(RuntimeState *state);
+
+//==============================================================================
+// Inference API Types (for generated interface)
+//==============================================================================
 
 // Represents a tensor with host data and shape information
 typedef struct {
@@ -50,46 +68,28 @@ typedef struct {
   size_t count;   // Number of tensors
 } span_t;
 
-// Prepared inference data (returned by runtime_prepare_inference)
-typedef struct {
-  void **input_gpu_buffers;  // Array of GPU buffer pointers for inputs
-  void **output_gpu_buffers; // Array of GPU buffer pointers for outputs
-  int64_t *input_sizes;      // Array of input buffer sizes in bytes
-  int64_t *output_sizes;     // Array of output buffer sizes in bytes
-  size_t input_count;
-  size_t output_count;
-} InferenceData;
+//==============================================================================
+// Constant Management
+//==============================================================================
 
-// Prepare inference: allocate GPU buffers, H2D copy for inputs
-// Returns allocated InferenceData structure with GPU buffers
-// Return codes:
-//   0 = success
-//   1 = invalid parameters
-//   2 = memory allocation failed
-//   3 = GPU allocation failed
-//   4 = H2D copy failed
-int runtime_prepare_inference(RuntimeState *state, span_t *inputs,
-                              span_t *outputs, InferenceData **out_data);
-
-// Cleanup inference: D2H copy for outputs, free GPU buffers
-// Best-effort cleanup - continues even if operations fail
-// Returns 0 always
-int runtime_cleanup_inference(RuntimeState *state, InferenceData *data,
-                              span_t *outputs);
-
-// Constant management functions
-// Called by initialize_constants during inference_init
-// Uploads constant data from DLL .data section to GPU memory
+// Upload constant to GPU and store at index
+// Precondition: index assigned at compile-time (0, 1, 2, ...)
+// Returns: 0=success, non-zero=error
 int hip_upload_constant(RuntimeState *state, int64_t index, const void *data,
                         int64_t size);
 
-// Retrieves GPU pointer for a constant by index
-// Returns NULL on error
+// Get GPU pointer for constant at index
+// Returns: GPU pointer (NULL if not uploaded or error)
+// Ownership: Caller does NOT own pointer (freed in release_constant)
 void *hip_get_constant(RuntimeState *state, int64_t index);
 
-// Releases GPU memory for a constant
-// Called by release_constants during inference_cleanup
+// Release GPU memory for constant at index
+// Returns: 0=success, non-zero=error
 int hip_release_constant(RuntimeState *state, int64_t index);
+
+//==============================================================================
+// Library Operations (MIOpen, hipBLAS)
+//==============================================================================
 
 // MIOpen convolution forward operation
 // Full wrapper with descriptor creation, algorithm finding, workspace
@@ -119,6 +119,10 @@ int hipblasLtGemmWrapper(void *handle, // hipBLASLt handle
                          const void *B,     // Matrix B GPU pointer
                          const void *beta,  // Scalar beta
                          void *C);          // Matrix C GPU pointer (in/out)
+
+//==============================================================================
+// Low-Level HIP Wrappers
+//==============================================================================
 
 // HIP memory allocation wrapper with error handling
 int hip_malloc_wrapper(void **ptr, int64_t size);
