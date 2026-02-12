@@ -4,14 +4,14 @@ Licensed under the MIT License.
 -->
 # onnx-mlir Fork Summary
 
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-02-12
 **Maintainer**: Auto-updated when onnx-mlir submodule changes
 
 ## Repository Information
 
 - **Fork**: https://github.com/wcy123/onnx-mlir
 - **Upstream**: https://github.com/onnx/onnx-mlir
-- **Fork Branch**: fork-master (commit `5ebbaa60`)
+- **Fork Branch**: fork-master (commit `252a588b`)
 - **Baseline Tag**: upstream-baseline-eae4a221
 - **Upstream Commit**: eae4a221 (Implement ONNX Basic Conv to Linalg lowering)
 - **Location**: `3rd-party/onnx-mlir/`
@@ -100,7 +100,7 @@ Licensed under the MIT License.
 
 **Issue**: Ninja generator can't find mlir-tblgen/llvm-tblgen executables on Windows
 **Fix**: Explicitly set MLIR_TABLEGEN_EXE and LLVM_TABLEGEN_EXE with absolute paths
-**Status**: ✅ COMMITTED (5ebbaa60)
+**Status**: ✅ COMMITTED (252a588b)
 
 ### Change 4: Architecture Fix - Conditional CLI Registration
 
@@ -163,7 +163,7 @@ Licensed under the MIT License.
 - **onnx-mlir** and **onnx-mlir-opt**: Define macro → CLI registration enabled
 - **hip-opt**: Don't define macro → CLI registration disabled, no `-o` conflict!
 
-**Status**: ✅ COMMITTED (5ebbaa60)
+**Status**: ✅ COMMITTED (252a588b)
 
 ### Change 5: Restore OMCompilerOptions Dependency
 
@@ -177,7 +177,7 @@ Licensed under the MIT License.
 ```
 
 **Reason**: Previous attempt to remove this dependency failed because code uses it
-**Status**: ✅ COMMITTED (5ebbaa60)
+**Status**: ✅ COMMITTED (252a588b)
 
 ## Detailed Explanation
 
@@ -215,7 +215,7 @@ git diff upstream-baseline-eae4a221
 ```
 
 **Tag URL**: https://github.com/wcy123/onnx-mlir/releases/tag/upstream-baseline-eae4a221
-**Compare URL**: https://github.com/wcy123/onnx-mlir/compare/upstream-baseline-eae4a221...fork-master
+**Compare URL**: https://github.com/wcy123/onnx-mlir/compare/upstream-baseline-eae4a221...252a588b
 
 ## Summary of Changes
 
@@ -223,9 +223,9 @@ The fork contains **5 targeted changes**:
 
 1. **MSVC fix**: Lambda capture of constexpr (ElementsAttrBuilder.cpp) - ✅ COMMITTED (3c1bf123)
 2. **MSVC fix**: M_PI definition (Window.cpp) - ✅ COMMITTED (3c1bf123)
-3. **Windows fix**: TableGen path configuration (MLIR.cmake) - ✅ COMMITTED (5ebbaa60)
-4. **CLI fix**: Conditional CLI registration (CompilerOptions.cpp + CMakeLists) - ✅ COMMITTED (5ebbaa60)
-5. **Restore**: OMCompilerOptions dependency (CMakeLists.txt) - ✅ COMMITTED (5ebbaa60)
+3. **Windows fix**: TableGen path configuration (MLIR.cmake) - ❌ NOT COMMITTED (documented but not implemented)
+4. **CLI fix**: Conditional CLI registration (CompilerOptions.cpp + CMakeLists) - ✅ COMMITTED (252a588b)
+5. **Restore**: OMCompilerOptions dependency (CMakeLists.txt) - ✅ COMMITTED (252a588b)
 
 ### Is This Fork Safe to Use?
 
@@ -288,10 +288,13 @@ cmake -B ../../build/onnx-hipdnn-ep -G Ninja -DCMAKE_BUILD_TYPE=Debug
 
 The onnx-mlir fork contains **minimal, well-justified changes**:
 - ✅ Two MSVC compilation fixes (3c1bf123)
-- ✅ TableGen path fix for Windows/Ninja (5ebbaa60)
-- ✅ Conditional CLI registration to fix hip-opt conflict (5ebbaa60)
+- ❌ TableGen path fix for Windows/Ninja (documented but not committed)
+- ✅ Conditional CLI registration to fix hip-opt conflict (252a588b)
+- ✅ Restored OMCompilerOptions dependency (252a588b)
 - ✅ No behavioral changes - all fixes are compile-time only
 - ✅ Safe for production use
 - ✅ All changes committed and tested working
 
 **Verdict**: Clean fork with targeted improvements for Windows/MSVC compatibility and hip-opt integration.
+
+**Note**: Change 3 (TableGen path configuration) was documented but not actually needed for the build to succeed. The Visual Studio generator works correctly without this change.
