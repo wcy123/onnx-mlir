@@ -230,17 +230,28 @@ else()
 endif()
 
 # ============================================================================
-# STEP 8: Install Rules
+# STEP 8: Install Rules - NOT NEEDED (Static Linking)
 # ============================================================================
 
-install(TARGETS HipDnnRuntime
-    ARCHIVE DESTINATION lib    # .a or .lib files
-    LIBRARY DESTINATION lib    # .so or .dylib files (if shared build)
-)
-
-install(FILES hipdnn_ep_runtime.h
-    DESTINATION include
-)
+# NOTE: Install rules are intentionally omitted for HipDnnRuntime
+#
+# Why install is NOT needed:
+#   1. HipDnnRuntime.a is STATICALLY linked into the EP DLL at build time
+#   2. The embedded bitcode is accessed from EP DLL's own memory (not external file)
+#   3. External consumers only need:
+#      - EP DLL (onnxruntime_morphizen_ep.dll) - contains Runtime + bitcode
+#      - Model DLLs (generated, also contain inlined Runtime code)
+#   4. No one needs to link against HipDnnRuntime.a separately
+#
+# If install is needed (for custom tooling or testing):
+#   Uncomment the following:
+#
+# install(TARGETS HipDnnRuntime
+#     ARCHIVE DESTINATION lib
+# )
+# install(FILES hipdnn_ep_runtime.h
+#     DESTINATION include
+# )
 
 # ============================================================================
 # SUMMARY OF BUILD ARTIFACTS
