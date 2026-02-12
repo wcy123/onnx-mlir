@@ -51,10 +51,10 @@ struct RuntimeState {
 
 // Constant management implementation
 
-int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *data,
-                        int64_t size) {
+int hipdnn_ep_constant_upload(RuntimeState *state, int64_t index,
+                               const void *data, int64_t size) {
   if (!state || !data || size <= 0) {
-    fprintf(stderr, "Invalid arguments to hipdnn_ep_upload_constant\n");
+    fprintf(stderr, "Invalid arguments to hipdnn_ep_constant_upload\n");
     return -1;
   }
 
@@ -85,7 +85,7 @@ int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *da
   return 0;
 }
 
-void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
+void *hipdnn_ep_constant_get(RuntimeState *state, int64_t index) {
   if (!state) {
     fprintf(stderr, "Invalid runtime state\n");
     return nullptr;
@@ -101,7 +101,7 @@ void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
   return state->gpu_constants[index];
 }
 
-int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
+int hipdnn_ep_constant_release(RuntimeState *state, int64_t index) {
   if (!state) {
     fprintf(stderr, "Invalid runtime state\n");
     return -1;

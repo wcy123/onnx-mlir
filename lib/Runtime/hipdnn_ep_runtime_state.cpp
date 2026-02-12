@@ -24,7 +24,10 @@ typedef int hipblasStatus_t;
 extern "C" hipError_t hipStreamCreate(hipStream_t *stream);
 extern "C" hipError_t hipStreamDestroy(hipStream_t stream);
 extern "C" hipError_t hipStreamSynchronize(hipStream_t stream);
+hipError_t hipMalloc(void **ptr, size_t size);
 hipError_t hipFree(void *ptr);
+hipError_t hipMemcpy(void *dst, const void *src, size_t size, int kind);
+#define hipMemcpyHostToDevice 0
 extern "C" miopenStatus_t miopenCreate(miopenHandle_t *handle);
 extern "C" miopenStatus_t miopenDestroy(miopenHandle_t handle);
 extern "C" miopenStatus_t miopenSetStream(miopenHandle_t handle, hipStream_t stream);
@@ -48,7 +51,7 @@ struct RuntimeState {
 
 // Runtime state management implementation
 
-int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants) {
+int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *registry) {
   if (!out_state) {
     fprintf(stderr, "Invalid output parameter to hipdnn_ep_state_init\n");
     return 1;
@@ -66,11 +69,11 @@ int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants) {
   state->miopen_handle = nullptr;
   state->hipblas_handle = nullptr;
   state->gpu_constants = nullptr;
-  state->num_constants = num_constants;
+  state->num_constants = registry ? registry->count : 0;
 
   // Allocate constants array (initialized to NULL)
-  if (num_constants > 0) {
-    state->gpu_constants = (void **)calloc(num_constants, sizeof(void *));
+  if (state->num_constants > 0) {
+    state->gpu_constants = (void **)calloc(state->num_constants, sizeof(void *));
     if (!state->gpu_constants) {
       fprintf(stderr, "Failed to allocate constants array\n");
       free(state);
@@ -114,6 +117,52 @@ int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants) {
     free(state->gpu_constants);
     free(state);
     return 5; // hipBLAS creation failed
+  }
+
+  // Upload all constants to GPU using metadata from registry
+  if (registry && registry->count > 0) {
+    for (size_t i = 0; i < registry->count; i++) {
+      const ConstantInfo *info = &registry->constants[i];
+
+      // Allocate GPU memory for this constant
+      void *gpu_ptr = nullptr;
+      if (hipMalloc(&gpu_ptr, info->size_bytes) != hipSuccess) {
+        fprintf(stderr, "Failed to allocate GPU memory for constant %zu\n", i);
+        // Cleanup already uploaded constants
+        for (size_t j = 0; j < i; j++) {
+          if (state->gpu_constants[j]) {
+            hipFree(state->gpu_constants[j]);
+          }
+        }
+        hipblasLtDestroy(state->hipblas_handle);
+        miopenDestroy(state->miopen_handle);
+        hipStreamDestroy(state->stream);
+        free(state->gpu_constants);
+        free(state);
+        return 6; // Constant upload failed
+      }
+
+      // Copy constant data from CPU to GPU
+      if (hipMemcpy(gpu_ptr, info->cpu_data, info->size_bytes, hipMemcpyHostToDevice) != hipSuccess) {
+        fprintf(stderr, "Failed to copy constant %zu to GPU\n", i);
+        hipFree(gpu_ptr);
+        // Cleanup already uploaded constants
+        for (size_t j = 0; j < i; j++) {
+          if (state->gpu_constants[j]) {
+            hipFree(state->gpu_constants[j]);
+          }
+        }
+        hipblasLtDestroy(state->hipblas_handle);
+        miopenDestroy(state->miopen_handle);
+        hipStreamDestroy(state->stream);
+        free(state->gpu_constants);
+        free(state);
+        return 6; // Constant upload failed
+      }
+
+      // Store GPU pointer in state
+      state->gpu_constants[i] = gpu_ptr;
+    }
   }
 
   // Success - return initialized state
@@ -166,7 +215,7 @@ int hipdnn_ep_state_cleanup(RuntimeState *state) {
   return 0; // Best-effort cleanup always returns success
 }
 
-void *hipdnn_ep_get_stream(RuntimeState *state) {
+void *hipdnn_ep_state_get_stream(RuntimeState *state) {
   return state ? static_cast<void *>(state->stream) : nullptr;
 }
 
@@ -181,7 +230,7 @@ extern "C" {
 // Legacy wrapper: runtime_state_init -> hipdnn_ep_state_init
 int runtime_state_init(void **out_state) {
   // Legacy interface assumes 0 constants (old test MLIR doesn't use constants)
-  return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state), 0);
+  return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state), nullptr);
 }
 
 // Legacy wrapper: runtime_state_cleanup -> hipdnn_ep_state_cleanup

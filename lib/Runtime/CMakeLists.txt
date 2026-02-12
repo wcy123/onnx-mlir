@@ -143,6 +143,7 @@ endmacro()
 # Core modules (always compiled)
 compile_to_bitcode(hipdnn_ep_runtime_state.cpp runtime_state.bc)
 compile_to_bitcode(hipdnn_ep_runtime_constants.cpp runtime_constants.bc)
+compile_to_bitcode(hipdnn_ep_runtime_tensor.cpp runtime_tensor.bc)
 
 # Conditional modules based on BUILD_MOCK_RUNTIME
 if(NOT BUILD_MOCK_RUNTIME)
@@ -154,6 +155,7 @@ if(NOT BUILD_MOCK_RUNTIME)
     set(RUNTIME_BC_MODULES
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_state.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_constants.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_tensor.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_hip.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_miopen.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_hipblas.bc
@@ -165,6 +167,7 @@ else()
     set(RUNTIME_BC_MODULES
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_state.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_constants.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_tensor.bc
         ${CMAKE_CURRENT_BINARY_DIR}/runtime_mock.bc
     )
 endif()

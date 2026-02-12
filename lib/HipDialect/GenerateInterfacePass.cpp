@@ -185,8 +185,8 @@ private:
 
     // Declare high-level runtime state management functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init")) {
-      // int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants)
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, i64Type});
+      // int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *registry)
+      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType});
       auto func =
           builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_init", funcType);
       func.setLinkage(LLVM::Linkage::External);
@@ -238,12 +238,12 @@ private:
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    // Declare hipdnn_ep_get_stream accessor
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_stream")) {
-      // void* hipdnn_ep_get_stream(RuntimeState* state)
+    // Declare hipdnn_ep_state_get_stream accessor
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_get_stream")) {
+      // void* hipdnn_ep_state_get_stream(RuntimeState* state)
       auto funcType = LLVM::LLVMFunctionType::get(ptrType, {ptrType});
       auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_get_stream", funcType);
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_get_stream", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
   }
@@ -289,51 +289,21 @@ private:
       return failure();
     }
 
-    // 2. Check get_constant_count: () -> i64
-    auto getCountFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count");
-    if (!getCountFunc) {
-      llvm::errs() << "[GenerateInterface] get_constant_count (llvm.func) not found\n";
+    // 2. Check get_constant_registry: () -> ptr
+    auto getRegistryFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
+    if (!getRegistryFunc) {
+      llvm::errs() << "[GenerateInterface] get_constant_registry (llvm.func) not found\n";
       return failure();
     }
-    auto getCountType = getCountFunc.getFunctionType();
-    if (getCountType.getNumParams() != 0 ||
-        getCountType.getReturnType() != i64Type) {
-      llvm::errs() << "[GenerateInterface] get_constant_count has wrong signature.\n"
-                   << "Expected: () -> i64\n";
-      return failure();
-    }
-
-    // 3. Check initialize_constants: (ptr) -> i32
-    auto initFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants");
-    if (!initFunc) {
-      llvm::errs() << "[GenerateInterface] initialize_constants (llvm.func) not found\n";
-      return failure();
-    }
-    auto initType = initFunc.getFunctionType();
-    if (initType.getNumParams() != 1 ||
-        initType.getParamType(0) != ptrType ||
-        initType.getReturnType() != i32Type) {
-      llvm::errs() << "[GenerateInterface] initialize_constants has wrong signature.\n"
-                   << "Expected: (ptr) -> i32\n";
+    auto getRegistryType = getRegistryFunc.getFunctionType();
+    if (getRegistryType.getNumParams() != 0 ||
+        getRegistryType.getReturnType() != ptrType) {
+      llvm::errs() << "[GenerateInterface] get_constant_registry has wrong signature.\n"
+                   << "Expected: () -> ptr\n";
       return failure();
     }
 
-    // 4. Check release_constants: (ptr) -> i32
-    auto releaseFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants");
-    if (!releaseFunc) {
-      llvm::errs() << "[GenerateInterface] release_constants (llvm.func) not found\n";
-      return failure();
-    }
-    auto releaseType = releaseFunc.getFunctionType();
-    if (releaseType.getNumParams() != 1 ||
-        releaseType.getParamType(0) != ptrType ||
-        releaseType.getReturnType() != i32Type) {
-      llvm::errs() << "[GenerateInterface] release_constants has wrong signature.\n"
-                   << "Expected: (ptr) -> i32\n";
-      return failure();
-    }
-
-    // 5. Check all 4 metadata attributes exist
+    // 3. Check all 4 metadata attributes exist
     if (!module->getAttr("hipdnn.input_count")) {
       llvm::errs() << "[GenerateInterface] hipdnn.input_count attribute missing\n";
       return failure();
@@ -387,16 +357,16 @@ private:
 
     Value outStatePtr = entryBlock->getArgument(0);
 
-    // Count constants by calling get_constant_count()
-    auto getCountFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count");
-    Value numConstants = builder.create<LLVM::CallOp>(
-        loc, getCountFunc, ValueRange{}).getResult();
+    // Get constant registry by calling get_constant_registry()
+    auto getRegistryFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
+    Value registryPtr = builder.create<LLVM::CallOp>(
+        loc, getRegistryFunc, ValueRange{}).getResult();
 
-    // Call hipdnn_ep_state_init(out_state, num_constants)
+    // Call hipdnn_ep_state_init(out_state, registry_ptr)
     auto runtimeInitFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init");
     auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc,
-                                             ValueRange{outStatePtr, numConstants});
+                                             ValueRange{outStatePtr, registryPtr});
 
     // Return the result from hipdnn_ep_state_init
     builder.create<LLVM::ReturnOp>(loc, call.getResult());
@@ -407,7 +377,7 @@ private:
   /// outputs);
   ///
   /// Phase 1: Parse span_t and tensor_t structures to extract input/output metadata
-  /// - Get stream using hipdnn_ep_get_stream()
+  /// - Get stream using hipdnn_ep_state_get_stream()
   /// - Parse inputsSpanPtr to extract tensor array
   /// - Get first input tensor and extract data, shape, rank
   /// - Parse outputsSpanPtr to extract tensor array
@@ -457,7 +427,7 @@ private:
         loc, i64Type, builder.getI64IntegerAttr(2));
 
     // Get stream from runtime state
-    auto getStreamFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_stream");
+    auto getStreamFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_get_stream");
     Value stream = builder.create<LLVM::CallOp>(
         loc, getStreamFunc, ValueRange{state}).getResult();
 
