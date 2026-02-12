@@ -109,6 +109,7 @@ bool allowUnregisteredDialects;                        // onnx-mlir-opt only
 bool useLinalgPath;    // onnx-mlir only
 std::string linalgOps; // common for both onnx-mlir and onnx-mlir-opt
 
+#ifdef ONNX_MLIR_ENABLE_CLI_REGISTRATION
 // Category for common options shared between onnx-mlir and onnx-mlir-opt.
 llvm::cl::OptionCategory OnnxMlirCommonOptions("common options",
     "These are options shared between onnx-mlir and onnx-mlir-opt.");
@@ -870,6 +871,8 @@ static llvm::cl::opt<bool, true> allowUnregisteredDialectsOpt(
     llvm::cl::desc("Allow operation with no registered dialects."),
     llvm::cl::location(allowUnregisteredDialects), llvm::cl::init(false),
     llvm::cl::cat(OnnxMlirOptOptions));
+
+#endif // ONNX_MLIR_ENABLE_CLI_REGISTRATION
 
 // Configuration states associated with certain options.
 // For example, when maccel is specified, NNPA can register

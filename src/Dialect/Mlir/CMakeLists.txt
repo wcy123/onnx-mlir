@@ -12,7 +12,7 @@ add_onnx_mlir_library(OMMlirDialects
   OMSpecializedKernelOpInterface
 
   LINK_LIBS PUBLIC
-  # OMCompilerOptions  # REMOVED: Core dialect utilities should not depend on CLI options
+  OMCompilerOptions
   MLIRMathDialect
   MLIRAffineDialect
   MLIRSCFDialect

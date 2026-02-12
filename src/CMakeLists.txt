@@ -38,6 +38,9 @@ add_subdirectory(Compiler)
 add_onnx_mlir_executable(onnx-mlir
   onnx-mlir.cpp
 
+  DEFINE PRIVATE
+  ONNX_MLIR_ENABLE_CLI_REGISTRATION
+
   LINK_LIBS PRIVATE
   OMCompilerOptions
   OMCompilerUtils
