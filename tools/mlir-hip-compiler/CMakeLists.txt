@@ -31,7 +31,7 @@ separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 
 # Get LLVM and MLIR libraries
-llvm_map_components_to_libnames(llvm_libs support core irreader)
+llvm_map_components_to_libnames(llvm_libs support core irreader option windowsmanifest windowsdriver lto libdriver)
 
 # MLIR libraries
 set(MLIR_LIBS

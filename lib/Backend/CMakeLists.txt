@@ -68,13 +68,6 @@ target_link_libraries(LLVMBackend
         LLVMX86AsmParser
         LLVMX86Desc
         LLVMX86Info
-
-        # LLD linker libraries for DLL generation (optional - only for Native mode)
-        # NOTE: LLD must be built with LLVM (-DLLVM_ENABLE_PROJECTS="mlir;lld")
-        # Uncomment these lines if LLD libraries are available:
-        # lldCOFF      # Windows PE/COFF linker
-        # lldELF       # Linux ELF linker
-        # lldCommon    # Common LLD utilities
 )
 
 # Compiler flags
@@ -83,7 +76,7 @@ target_compile_features(LLVMBackend PRIVATE cxx_std_17)
 # LLVM/MLIR require these definitions
 target_compile_definitions(LLVMBackend PRIVATE
     ${LLVM_DEFINITIONS}
-    # HAVE_LLD=1  # Uncomment if LLD libraries are linked above
+    $<$<BOOL:${HAVE_LLD}>:HAVE_LLD=1>
 )
 
 if(MSVC)
@@ -100,22 +93,37 @@ target_include_directories(DLLLinker
         ${LLVM_INCLUDE_DIRS}
 )
 
+# Find LLD libraries (must be built with LLVM)
+find_library(LLD_COFF_LIB NAMES lldCOFF PATHS ${LLVM_LIBRARY_DIRS} NO_DEFAULT_PATH)
+find_library(LLD_ELF_LIB NAMES lldELF PATHS ${LLVM_LIBRARY_DIRS} NO_DEFAULT_PATH)
+find_library(LLD_COMMON_LIB NAMES lldCommon PATHS ${LLVM_LIBRARY_DIRS} NO_DEFAULT_PATH)
+
+if(LLD_COFF_LIB AND LLD_ELF_LIB AND LLD_COMMON_LIB)
+    message(STATUS "LLD libraries found - enabling DLL linking support")
+    message(STATUS "  lldCOFF: ${LLD_COFF_LIB}")
+    message(STATUS "  lldELF: ${LLD_ELF_LIB}")
+    message(STATUS "  lldCommon: ${LLD_COMMON_LIB}")
+    set(HAVE_LLD ON)
+else()
+    message(WARNING "LLD libraries not found - DLL linking will not be available")
+    message(WARNING "  Rebuild LLVM with: -DLLVM_ENABLE_PROJECTS=\"mlir;lld\"")
+    set(HAVE_LLD OFF)
+endif()
+
 target_link_libraries(DLLLinker
     PUBLIC
         LLVMSupport
 
-        # LLD linker libraries for DLL generation (optional)
-        # NOTE: LLD must be built with LLVM (-DLLVM_ENABLE_PROJECTS="mlir;lld")
-        # Uncomment these lines if LLD libraries are available:
-        # lldCOFF      # Windows PE/COFF linker
-        # lldELF       # Linux ELF linker
-        # lldCommon    # Common LLD utilities
+        # LLD linker libraries for DLL generation (if available)
+        $<$<BOOL:${LLD_COFF_LIB}>:${LLD_COFF_LIB}>
+        $<$<BOOL:${LLD_ELF_LIB}>:${LLD_ELF_LIB}>
+        $<$<BOOL:${LLD_COMMON_LIB}>:${LLD_COMMON_LIB}>
 )
 
 target_compile_features(DLLLinker PRIVATE cxx_std_17)
 target_compile_definitions(DLLLinker PRIVATE
     ${LLVM_DEFINITIONS}
-    # HAVE_LLD=1  # Uncomment if LLD libraries are linked above
+    $<$<BOOL:${HAVE_LLD}>:HAVE_LLD=1>
 )
 
 if(MSVC)

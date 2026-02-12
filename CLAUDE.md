@@ -118,3 +118,42 @@ If pre-commit makes changes (formatting, linting), commit and push them BEFORE m
 
 **Required**: LLVM/MLIR, ONNX Runtime, HIP Runtime, MIOpen
 **Optional**: GTest
+
+### Building LLVM/MLIR with LLD Support
+
+**CRITICAL**: LLVM must be built with matching runtime library and LLD support for DLL compilation.
+
+**Configuration** (from llvm-project directory):
+```bash
+cmake -S llvm -B ../../build/llvm-project \
+  -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+  -DCMAKE_INSTALL_PREFIX=/c/Develop/m/local \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DLLVM_TARGETS_TO_BUILD="host" \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_ENABLE_RTTI=OFF \
+  -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded\$<\$<CONFIG:Debug>:Debug>"
+```
+
+**Build**:
+```bash
+# Try parallel build first (much faster)
+cmake --build ../../build/llvm-project --config Debug
+
+# If link errors occur (C1041 PDB conflicts), use --parallel 1 for linking phase only
+# Then resume parallel build for remaining targets
+cmake --build ../../build/llvm-project --config Debug --parallel 1  # if needed
+cmake --build ../../build/llvm-project --config Debug              # resume parallel
+```
+
+**Install**:
+```bash
+cmake --install ../../build/llvm-project --config Debug
+```
+
+**Critical Settings**:
+- `LLVM_ENABLE_PROJECTS="mlir;lld"` - Required for DLL linking (lldCOFF, lldELF, lldCommon)
+- `CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"` - Must match project's /MTd runtime
+- `BUILD_SHARED_LIBS=OFF` - Static libraries only
+- Parallel build preferred; only use `--parallel 1` if C1041 PDB file conflicts occur during linking

@@ -21,7 +21,6 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -57,45 +56,73 @@ static bool fileExists(const std::string &path) {
   return !EC && llvm::sys::fs::exists(status);
 }
 
-// Command line options
-static cl::opt<std::string>
-    inputFilename(cl::Positional, cl::desc("<input .mlir file>"), cl::Required);
+// Command line options (manual parsing to avoid conflicts with LLD's CommandLine usage)
+struct Options {
+  std::string inputFilename;
+  std::string outputFilename = "output.dll";
+  std::string outputMode = "dll";
+  int optLevel = 2;
+  bool verbose = false;
+  bool keepIntermediates = false;
+  bool fromOnnxMlir = false;
 
-static cl::opt<std::string> outputFilename("o", cl::desc("Output DLL filename"),
-                                           cl::value_desc("filename"),
-                                           cl::init("output.dll"));
+  bool parse(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+      std::string arg = argv[i];
+      if (arg == "-o" && i + 1 < argc) {
+        outputFilename = argv[++i];
+      } else if (arg == "--mode" && i + 1 < argc) {
+        outputMode = argv[++i];
+      } else if (arg == "-O" && i + 1 < argc) {
+        optLevel = std::stoi(argv[++i]);
+      } else if (arg == "-v" || arg == "--verbose") {
+        verbose = true;
+      } else if (arg == "--keep") {
+        keepIntermediates = true;
+      } else if (arg == "--from-onnx-mlir") {
+        fromOnnxMlir = true;
+      } else if (arg == "-h" || arg == "--help") {
+        return false; // Trigger help
+      } else if (arg[0] != '-') {
+        inputFilename = arg;
+      } else {
+        std::cerr << "Unknown option: " << arg << "\n";
+        return false;
+      }
+    }
+    return !inputFilename.empty();
+  }
 
-static cl::opt<std::string>
-    outputMode("mode", cl::desc("Output mode: ir, object, or dll"),
-               cl::value_desc("mode"), cl::init("dll"));
-
-static cl::opt<int> optLevel("O", cl::desc("Optimization level (0-3)"),
-                             cl::value_desc("level"), cl::init(2));
-
-static cl::opt<bool> verbose("v", cl::desc("Verbose output"), cl::init(false));
-
-static cl::opt<bool>
-    keepIntermediates("keep", cl::desc("Keep intermediate files (.ll, .obj)"),
-                      cl::init(false));
-
-static cl::opt<bool> fromOnnxMlir(
-    "from-onnx-mlir",
-    cl::desc(
-        "Input is MLIR with ONNX dialect (run ONNX→HIP→LLVM→Interface passes)"),
-    cl::init(false));
+  void printHelp() const {
+    std::cout << "MLIR to HIP DLL Compiler\n\n"
+              << "Usage: mlir-hip-compiler [options] <input.mlir>\n\n"
+              << "Options:\n"
+              << "  -o <file>          Output DLL filename (default: output.dll)\n"
+              << "  --mode <mode>      Output mode: ir, object, dll (default: dll)\n"
+              << "  -O <level>         Optimization level 0-3 (default: 2)\n"
+              << "  -v, --verbose      Enable verbose output\n"
+              << "  --keep             Keep intermediate files (.ll, .obj)\n"
+              << "  --from-onnx-mlir   Process ONNX MLIR dialect\n"
+              << "  -h, --help         Show this help\n";
+  }
+};
 
 int main(int argc, char **argv) {
+  // Parse command line options BEFORE InitLLVM to avoid CommandLine conflicts with LLD
+  Options opts;
+  if (!opts.parse(argc, argv)) {
+    opts.printHelp();
+    return 1;
+  }
+
   InitLLVM X(argc, argv);
 
-  // Parse command line options
-  cl::ParseCommandLineOptions(argc, argv, "MLIR to HIP DLL Compiler\n");
-
-  if (verbose) {
+  if (opts.verbose) {
     std::cout << "=== MLIR to HIP DLL Compiler ===\n";
-    std::cout << "Input: " << inputFilename << "\n";
-    std::cout << "Output: " << outputFilename << "\n";
-    std::cout << "Mode: " << outputMode << "\n";
-    std::cout << "Optimization: O" << optLevel << "\n\n";
+    std::cout << "Input: " << opts.inputFilename << "\n";
+    std::cout << "Output: " << opts.outputFilename << "\n";
+    std::cout << "Mode: " << opts.outputMode << "\n";
+    std::cout << "Optimization: O" << opts.optLevel << "\n\n";
   }
 
   // Initialize MLIR context and register dialects
@@ -107,7 +134,7 @@ int main(int argc, char **argv) {
   context.loadDialect<mlir::func::FuncDialect>();
 
   // If processing ONNX-MLIR, register additional dialects
-  if (fromOnnxMlir) {
+  if (opts.fromOnnxMlir) {
     context.loadDialect<mlir::arith::ArithDialect>();
     context.loadDialect<mlir::memref::MemRefDialect>();
     context.loadDialect<mlir::hip::HipDialect>();
@@ -117,11 +144,11 @@ int main(int argc, char **argv) {
   mlir::registerLLVMDialectTranslation(context);
 
   // Parse input MLIR file
-  if (verbose)
+  if (opts.verbose)
     std::cout << "--- Step 1: Parsing MLIR ---\n";
 
   std::string errorMessage;
-  auto file = mlir::openInputFile(inputFilename, &errorMessage);
+  auto file = mlir::openInputFile(opts.inputFilename, &errorMessage);
   if (!file) {
     std::cerr << "Error opening input file: " << errorMessage << "\n";
     return 1;
@@ -137,26 +164,26 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verbose)
+  if (opts.verbose)
     std::cout << "✓ MLIR parsed successfully\n\n";
 
   // Run MLIR transformation passes
-  if (verbose)
+  if (opts.verbose)
     std::cout << "--- Step 2: Running MLIR Passes ---\n";
 
   mlir::PassManager pm(&context);
 
   // Add our custom passes if processing ONNX-MLIR
-  if (fromOnnxMlir) {
+  if (opts.fromOnnxMlir) {
     pm.addPass(mlir::hip::createConvertOnnxToHipPass());
     pm.addPass(mlir::hip::createConvertHipToLLVMPass());
     pm.addPass(mlir::hip::createGenerateInterfacePass());
 
-    if (verbose) {
+    if (opts.verbose) {
       std::cout << "Running ONNX→HIP→LLVM→Interface passes\n";
     }
   } else {
-    if (verbose) {
+    if (opts.verbose) {
       std::cout
           << "Skipping passes - assuming input is already in LLVM dialect\n";
     }
@@ -167,11 +194,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verbose)
+  if (opts.verbose)
     std::cout << "✓ MLIR passes completed\n\n";
 
   // Translate MLIR to LLVM IR
-  if (verbose)
+  if (opts.verbose)
     std::cout << "--- Step 3: Translating to LLVM IR ---\n";
 
   hipdnn::LLVMBackend backend;
@@ -184,18 +211,18 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verbose)
+  if (opts.verbose)
     std::cout << "✓ LLVM IR generated\n\n";
 
   // Optimize LLVM IR
-  if (verbose)
-    std::cout << "--- Step 4: Optimizing LLVM IR (O" << optLevel << ") ---\n";
-  backend.optimizeLLVMIR(llvmModule.get(), optLevel);
-  if (verbose)
+  if (opts.verbose)
+    std::cout << "--- Step 4: Optimizing LLVM IR (O" << opts.optLevel << ") ---\n";
+  backend.optimizeLLVMIR(llvmModule.get(), opts.optLevel);
+  if (opts.verbose)
     std::cout << "✓ Optimization completed\n\n";
 
   // Emit LLVM IR to file (if requested or keeping intermediates)
-  std::string llFilename = outputFilename;
+  std::string llFilename = opts.outputFilename;
   if (llFilename.size() >= 4 &&
       llFilename.substr(llFilename.size() - 4) == ".dll") {
     llFilename = llFilename.substr(0, llFilename.size() - 4) + ".ll";
@@ -203,8 +230,8 @@ int main(int argc, char **argv) {
     llFilename += ".ll";
   }
 
-  if (outputMode == "ir" || keepIntermediates) {
-    if (verbose)
+  if (opts.outputMode == "ir" || opts.keepIntermediates) {
+    if (opts.verbose)
       std::cout << "--- Step 5: Emitting LLVM IR ---\n";
 
     if (!backend.emitLLVMIR(llvmModule.get(), llFilename)) {
@@ -212,17 +239,17 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (verbose)
+    if (opts.verbose)
       std::cout << "✓ LLVM IR written to: " << llFilename << "\n\n";
 
-    if (outputMode == "ir") {
+    if (opts.outputMode == "ir") {
       std::cout << "Output: " << llFilename << "\n";
       return 0;
     }
   }
 
   // Compile to object file
-  std::string objFilename = outputFilename;
+  std::string objFilename = opts.outputFilename;
   if (objFilename.size() >= 4 &&
       objFilename.substr(objFilename.size() - 4) == ".dll") {
     objFilename = objFilename.substr(0, objFilename.size() - 4) + ".obj";
@@ -230,7 +257,7 @@ int main(int argc, char **argv) {
     objFilename += ".obj";
   }
 
-  if (verbose)
+  if (opts.verbose)
     std::cout << "--- Step 6: Compiling to Object File ---\n";
 
   if (!backend.compileToObjectFile(llvmModule.get(), objFilename)) {
@@ -238,16 +265,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verbose)
+  if (opts.verbose)
     std::cout << "✓ Object file created: " << objFilename << "\n\n";
 
-  if (outputMode == "object") {
+  if (opts.outputMode == "object") {
     std::cout << "Output: " << objFilename << "\n";
     return 0;
   }
 
   // Link to DLL
-  if (verbose)
+  if (opts.verbose)
     std::cout << "--- Step 7: Linking to DLL ---\n";
 
   hipdnn::DLLLinker linker;
@@ -270,32 +297,32 @@ int main(int argc, char **argv) {
     std::string libPath = path + std::string("/HipDnnRuntime.lib");
     if (fileExists(libPath)) {
       libraries.push_back(libPath);
-      if (verbose)
+      if (opts.verbose)
         std::cout << "Found runtime library: " << libPath << "\n";
       break;
     }
   }
 
-  if (libraries.empty() && verbose) {
+  if (libraries.empty() && opts.verbose) {
     std::cout << "Warning: Runtime library not found, DLL may have unresolved "
                  "symbols\n";
   }
 
   std::vector<std::string> libraryPaths; // Empty for now
 
-  if (!linker.linkDLL(objFilename, outputFilename, libraries, libraryPaths,
+  if (!linker.linkDLL(objFilename, opts.outputFilename, libraries, libraryPaths,
                       exports)) {
     std::cerr << "Error linking DLL\n";
     return 1;
   }
 
-  if (verbose)
-    std::cout << "✓ DLL created: " << outputFilename << "\n\n";
+  if (opts.verbose)
+    std::cout << "✓ DLL created: " << opts.outputFilename << "\n\n";
 
   // Verify DLL exports
-  if (verbose) {
+  if (opts.verbose) {
     std::cout << "--- Step 8: Verifying DLL Exports ---\n";
-    if (linker.verifyDLLExports(outputFilename, exports)) {
+    if (linker.verifyDLLExports(opts.outputFilename, exports)) {
       std::cout << "✓ All expected exports present\n\n";
     } else {
       std::cout
@@ -304,28 +331,28 @@ int main(int argc, char **argv) {
   }
 
   // Clean up intermediate files if not keeping
-  if (!keepIntermediates) {
-    if (verbose)
+  if (!opts.keepIntermediates) {
+    if (opts.verbose)
       std::cout << "--- Cleaning up intermediate files ---\n";
 
     if (fileExists(llFilename)) {
       std::error_code EC = llvm::sys::fs::remove(llFilename);
-      if (!EC && verbose)
+      if (!EC && opts.verbose)
         std::cout << "Removed: " << llFilename << "\n";
     }
 
     if (fileExists(objFilename)) {
       std::error_code EC = llvm::sys::fs::remove(objFilename);
-      if (!EC && verbose)
+      if (!EC && opts.verbose)
         std::cout << "Removed: " << objFilename << "\n";
     }
 
-    if (verbose)
+    if (opts.verbose)
       std::cout << "\n";
   }
 
   std::cout << "=== Compilation Successful ===\n";
-  std::cout << "Output: " << outputFilename << "\n";
+  std::cout << "Output: " << opts.outputFilename << "\n";
 
   return 0;
 }

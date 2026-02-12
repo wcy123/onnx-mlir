@@ -4,6 +4,7 @@
  */
 #include "DLLLinker.h"
 
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
 #include <llvm/Support/raw_ostream.h>
@@ -78,8 +79,8 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   }
 
   // Build LLD-LINK command line arguments
+  // Note: LLD's link() API doesn't need argv[0] (program name)
   std::vector<std::string> argStrings;
-  argStrings.push_back("lld-link"); // Program name (required by LLD)
   argStrings.push_back("/DLL");     // Create DLL
   argStrings.push_back("/OUT:" + outputDLL);
   argStrings.push_back("/DEF:" + defFile);
@@ -105,12 +106,27 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
     args.push_back(arg.c_str());
   }
 
+  // Debug: Print LLD command line
+  std::cout << "LLD-LINK command (" << args.size() << " args): ";
+  for (size_t i = 0; i < args.size(); ++i) {
+    std::cout << "[" << i << "]='" << args[i] << "' ";
+  }
+  std::cout << "\n";
+
   // Call LLD linker library
   std::string stdoutStr, stderrStr;
   llvm::raw_string_ostream stdoutOS(stdoutStr);
   llvm::raw_string_ostream stderrOS(stderrStr);
 
-  bool success = lld::coff::link(args, stdoutOS, stderrOS,
+  // Create ArrayRef explicitly
+  llvm::ArrayRef<const char *> argsRef(args);
+  std::cout << "ArrayRef size: " << argsRef.size() << "\n";
+
+  // Reset command line parser state before calling LLD
+  // LLD has its own command line options that might conflict
+  llvm::cl::ResetAllOptionOccurrences();
+
+  bool success = lld::coff::link(argsRef, stdoutOS, stderrOS,
                                  /*exitEarly=*/false,
                                  /*disableOutput=*/false);
 
