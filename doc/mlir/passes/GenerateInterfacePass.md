@@ -285,7 +285,7 @@ The code verifies this function exists with correct signature, but its internal 
 
 **RuntimeState structure:**
 ```c
-// C struct - layout known only to inference_init and inference_cleanup
+// C struct - layout known only to runtime implementation (hipdnn_ep_runtime.cpp)
 struct RuntimeState {
     hipStream_t stream;              // GPU stream for async operations
     miopenHandle_t miopenHandle;     // MIOpen library handle
@@ -301,14 +301,11 @@ struct RuntimeState {
 ```
 
 **Design:**
-- **Constructor/destructor** (`inference_init`, `inference_cleanup`): Access fields directly via GEP
-- **Regular computation code** (@main, wrappers): Use accessor functions (`runtime_get_stream`, `hip_get_constant`)
-- **Benefit**: Runtime can change struct layout without breaking computation code (only constructor/destructor need updates)
-
-**Initialization order:**
-1. Stream created first
-2. MIOpen/hipBLAS handles created and associated with stream
-3. Constants uploaded to GPU using handles
+- **All generated code** (`inference_init`, `inference_compute`, `inference_cleanup`): Treat RuntimeState as opaque `!llvm.ptr`
+- **Generated interface functions**: Delegate to runtime library (`@hipdnn_ep_state_init`, `@hipdnn_ep_state_cleanup`)
+- **Generated computation code** (@main, wrappers): Use accessor functions (`@hipdnn_ep_get_stream`, `@hipdnn_ep_get_constant`)
+- **Runtime library only** (`hipdnn_ep_runtime.cpp`): Knows internal structure and accesses fields directly
+- **Benefit**: Runtime can evolve internal structure without breaking any generated code
 
 ### Tensor Interface Contract (span_t and tensor_t)
 
