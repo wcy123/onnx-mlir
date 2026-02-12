@@ -43,7 +43,7 @@ The Runtime library (`lib/Runtime`) provides:
 
 #### 3. Operation Wrappers (Extensible)
 
-- `wrap_wrap_miopenConvolutionForward()` - Full MIOpen convolution wrapper
+- `wrap_miopenConvolutionForward()` - Full MIOpen convolution wrapper
   - Creates tensor/convolution descriptors
   - Finds optimal algorithm
   - Allocates workspace memory
@@ -74,13 +74,11 @@ The Runtime library (`lib/Runtime`) provides:
 1. **State Must Persist Across Inference Calls**
    - GPU handles (stream, MIOpen, hipBLAS) must outlive individual function calls
    - Constants uploaded once in `init`, reused across multiple `compute` calls
-   - Cannot use stack allocation (destroyed on function return)
-   - Heap allocation required, managed by runtime
 
 2. **Generated Code Needs Clean Abstraction**
    - Generated LLVM IR shouldn't be coupled to internal struct layout
    - Adding new GPU library (rocFFT, rocRAND, etc.) shouldn't break compiled DLLs
-   - Opaque interface allows runtime evolution without recompilation
+   - Opaque interface allows runtime evolution without recompiling models.
 
 3. **Flexibility to Evolve Without Breaking DLLs**
    - Can add fields to RuntimeState (e.g., rocFFT handle) without changing C interface
@@ -90,9 +88,7 @@ The Runtime library (`lib/Runtime`) provides:
 ### Why Not Alternatives?
 
 #### Why Not Inline Everything?
-- **Code bloat**: Descriptor creation code duplicated at every call site
-- **Inflexibility**: Cannot change implementation without regenerating all DLLs
-- **Optimization barrier**: Cannot share descriptors or caches across operations
+- **Inflexibility**: Changing implementation requires updating the code generator
 
 #### Why Not Thread-Local Storage?
 
