@@ -4,6 +4,10 @@ Licensed under the MIT License.
 -->
 # MLIR Lowering Pipeline
 
+**Date:** 2026-02-12
+**Document Type:** Design Document
+**Review Status:** Self-Reviewed
+**Branch:** `mlir-integration`
 **Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
 
 ---

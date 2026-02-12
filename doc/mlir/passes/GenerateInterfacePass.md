@@ -74,21 +74,13 @@ This pass depends on a simple contract from prior passes. **Any future pass that
    - Signature: `llvm.func @main(%ctx: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32`
    - Behavior: Processes arrays of input/output memref structs, returns status code
 
-2. **get_constant_count function** (from OnnxToHip)
-   - Signature: `llvm.func @get_constant_count() -> i64`
-   - Returns: Number of constants in the model
-
-3. **initialize_constants function** (from OnnxToHip)
-   - Signature: `llvm.func @initialize_constants(%state: !llvm.ptr) -> i32`
-   - Behavior: Reserved for future constant initialization strategies
-
-4. **release_constants function** (from OnnxToHip)
-   - Signature: `llvm.func @release_constants(%state: !llvm.ptr) -> i32`
-   - Behavior: Reserved for future constant cleanup strategies
+2. **get_constant_registry function** (from OnnxToHip)
+   - Signature: `llvm.func @get_constant_registry() -> !llvm.ptr`
+   - Returns: Pointer to ConstantRegistry struct with model weights metadata
 
 ### Required Module Attributes:
 
-5. **I/O Metadata** (from OnnxToHip)
+3. **I/O Metadata** (from OnnxToHip)
    - `hipdnn.input_count: i64` - Number of model inputs
    - `hipdnn.input_ranks: dense<[...]>` - Rank of each input tensor
    - `hipdnn.output_count: i64` - Number of model outputs
@@ -157,84 +149,42 @@ llvm.func @main(%context: !llvm.ptr,
 
 **See also:** [HipToLLVM.md](HipToLLVM.md) for implementation details
 
-### Prerequisite 2: get_constant_count Function
+### Prerequisite 2: get_constant_registry Function
 
-**Required signature:**
+**Required signature (LLVM dialect):**
 ```mlir
-llvm.func @get_constant_count() -> i64
+llvm.func @get_constant_registry() -> !llvm.ptr
 ```
 
-**Returns:** Number of constants in the model
+**Returns:** Pointer to static `ConstantRegistry` struct containing:
+```c
+struct ConstantInfo {
+    const void* cpu_data;      // CPU pointer to constant in DLL .data section
+    size_t size_bytes;         // Size in bytes
+    size_t element_size;       // Element size (4 for float32, 2 for float16, etc.)
+    size_t num_elements;       // Number of elements
+};
+
+struct ConstantRegistry {
+    const ConstantInfo* constants;  // Array of constant descriptors
+    size_t count;                   // Number of constants
+};
+```
 
 **What the code checks:**
-1. `@get_constant_count` exists as `llvm.func`
+1. `@get_constant_registry` exists as `llvm.func`
 2. Has no parameters
-3. Returns `i64`
+3. Returns `!llvm.ptr`
 
 **Satisfied by:** OnnxToHip pass
 
-**Usage:** Called in `inference_init` to determine array size for constant pointers
+**Usage:** Runtime calls this in `inference_init` to get metadata about all constants, then uploads them to GPU using its own strategy (batch upload, pinned memory, etc.). Runtime owns complete GPU memory lifecycle.
 
-**Error message:**
+**Error messages:**
 ```
-[GenerateInterface] get_constant_count (llvm.func) not found
+[GenerateInterface] get_constant_registry (llvm.func) not found
+[GenerateInterface] get_constant_registry has wrong signature. Expected: () -> ptr
 ```
-
-### Prerequisite 3: initialize_constants Function
-
-**Required signature:**
-```mlir
-llvm.func @initialize_constants(%state: !llvm.ptr) -> i32
-```
-
-**Parameters:** RuntimeState pointer
-
-**Returns:** 0 on success, non-zero on error
-
-**What the code checks:**
-1. `@initialize_constants` exists as `llvm.func`
-2. Has exactly 1 parameter of type `!llvm.ptr`
-3. Returns `i32`
-
-**Satisfied by:** OnnxToHip pass
-
-**Usage:** Currently declared but not called by generated code
-
-**Note:** Reserved for future constant initialization strategies
-
-**Error message:**
-```
-[GenerateInterface] initialize_constants (llvm.func) not found
-```
-
-### Prerequisite 4: release_constants Function
-
-**Required signature:**
-```mlir
-llvm.func @release_constants(%state: !llvm.ptr) -> i32
-```
-
-**Parameters:** RuntimeState pointer
-
-**Returns:** 0 on success, non-zero on error
-
-**What the code checks:**
-1. `@release_constants` exists as `llvm.func`
-2. Has exactly 1 parameter of type `!llvm.ptr`
-3. Returns `i32`
-
-**Satisfied by:** OnnxToHip pass
-
-**Usage:** Currently declared but not called by generated code
-
-**Note:** Reserved for future constant cleanup strategies
-
-**Error message:**
-```
-[GenerateInterface] release_constants (llvm.func) not found
-```
-
-### Prerequisite 5: Module Attributes
 
 **Required attributes:**
 ```mlir
@@ -263,26 +213,6 @@ module attributes {
 ```
 
 **Why this matters:** When @main signature becomes `(context, inputs, outputs) → i32`, type information is lost. Metadata preserves this for memref struct construction.
-
----
-
-### Generated Wrapper Function Declarations
-
-The pass declares (but does not define) these wrapper functions, which are implemented in the runtime library and merged at link time:
-
-```mlir
-llvm.func @wrap_hipMalloc(!llvm.ptr, i64) -> i32
-llvm.func @wrap_hipFree(!llvm.ptr) -> i32
-llvm.func @wrap_hipMemcpyH2D(!llvm.ptr, !llvm.ptr, i64, !llvm.ptr) -> i32
-llvm.func @wrap_hipMemcpyD2H(!llvm.ptr, !llvm.ptr, i64, !llvm.ptr) -> i32
-llvm.func @wrap_hipStreamSynchronize(!llvm.ptr) -> i32
-llvm.func @hipdnn_ep_get_stream(!llvm.ptr) -> !llvm.ptr
-llvm.func @hipdnn_ep_get_constant(!llvm.ptr, i64) -> !llvm.ptr
-llvm.func @hipdnn_ep_state_init(!llvm.ptr, i64) -> i32
-llvm.func @hipdnn_ep_state_cleanup(!llvm.ptr) -> i32
-```
-
-**Note:** These functions are implemented in the runtime library (`lib/Runtime/hipdnn_ep_runtime.cpp`) and merged via `llvm::Linker` during compilation. LLVM optimization inlines these calls for zero overhead.
 
 ---
 
@@ -330,33 +260,22 @@ llvm.func @main(%context: !llvm.ptr,
 
 **See also:** [HipToLLVM.md](HipToLLVM.md) for call chain walkthrough and LLVM optimization details.
 
-### Constant Handling Contract
+### Constant Registry Contract
 
-**Constant Helper Functions Contract:**
+**get_constant_registry() Contract:**
 
-The code verifies these functions exist with correct signatures, but their internal behavior (documented below) is NOT verified.
+The code verifies this function exists with correct signature, but its internal behavior (documented below) is NOT verified.
 
-**get_constant_count() Contract:**
-1. Returns count of constants in the model
-2. Value used by runtime to allocate gpu_constants pointer array
-3. Must match actual number of constants generated by OnnxToHip pass
-
-**initialize_constants() Contract:**
-1. Takes RuntimeState pointer as parameter
-2. Reserved for future constant initialization strategies
-3. Currently declared but not called by generated interface code
-4. Returns 0 on success, non-zero on error
-
-**release_constants() Contract:**
-1. Takes RuntimeState pointer as parameter
-2. Reserved for future constant cleanup strategies
-3. Currently declared but not called by generated interface code
-4. Returns 0 on success, non-zero on error
+**Postconditions:**
+1. Returns pointer to static `ConstantRegistry` struct (valid for DLL lifetime)
+2. Registry contains metadata for all constants in the model
+3. `cpu_data` pointers point to LLVM globals in DLL .data section (valid for DLL lifetime)
+4. Runtime uses this metadata to allocate/upload/free GPU memory
 
 **Runtime ownership:**
-- **DLL owns:** Constant data in .data section (static lifetime)
+- **DLL owns:** Constant data in .data section, ConstantRegistry struct (static lifetime)
 - **Runtime owns:** GPU memory allocation, upload strategy, cleanup strategy
-- **Separation:** DLL provides count/helpers, runtime controls GPU memory lifecycle
+- **Separation:** DLL provides metadata, runtime controls GPU memory lifecycle
 
 **See also:** [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) for complete constant handling details.
 
@@ -364,22 +283,11 @@ The code verifies these functions exist with correct signatures, but their inter
 
 **Reference:** [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) - Opaque Handle Design
 
-**RuntimeState structure:**
-```c
-// C struct - layout known only to runtime implementation (hipdnn_ep_runtime.cpp)
-struct RuntimeState {
-    hipStream_t stream;              // GPU stream for async operations
-    miopenHandle_t miopenHandle;     // MIOpen library handle
-    hipblasLtHandle_t hipblasHandle; // hipBLAS library handle
-    void** gpu_constants;            // POINTER to dynamically allocated array
-};
-```
-
-**MLIR representation:**
-```mlir
-// RuntimeState is opaque !llvm.ptr
-!llvm.ptr
-```
+**RuntimeState is opaque:**
+- Generated code treats it as `!llvm.ptr` (opaque pointer)
+- Internal structure is known ONLY to runtime implementation (`lib/Runtime/hipdnn_ep_runtime_state.cpp`)
+- Generated code NEVER accesses fields directly - only passes the pointer around
+- Access to internal data via accessor functions: `@hipdnn_ep_get_stream`, `@hipdnn_ep_get_constant`
 
 **Design:**
 - **All generated code** (`inference_init`, `inference_compute`, `inference_cleanup`): Treat RuntimeState as opaque `!llvm.ptr`
@@ -439,10 +347,8 @@ typedef struct {
 |---|--------------|--------------|------------|
 | 0 | Idempotency | (generated code) | Functions don't exist yet |
 | 1 | @main function | HipToLLVM | Signature: `(ptr, ptr, ptr) -> i32` |
-| 2 | get_constant_count | OnnxToHip | Signature: `() -> i64` |
-| 3 | initialize_constants | OnnxToHip | Signature: `(ptr) -> i32` |
-| 4 | release_constants | OnnxToHip | Signature: `(ptr) -> i32` |
-| 5 | Module metadata | OnnxToHip | 4 attributes exist |
+| 2 | get_constant_registry | OnnxToHip | Signature: `() -> ptr` |
+| 3 | Module metadata | OnnxToHip | 4 attributes exist |
 
 **Design Contracts (NOT enforced by code):**
 
@@ -491,18 +397,18 @@ llvm.func @inference_init(%out_state: !llvm.ptr) -> i32
       llvm.emit_c_interface,
       sym_visibility = "public"
     } {
-  // Get constant count from generated code
-  %num_constants = llvm.call @get_constant_count() : () -> i64
+  // Get constant registry from generated code
+  %registry = llvm.call @get_constant_registry() : () -> !llvm.ptr
 
   // Delegate all initialization to runtime library
   // This call handles:
   // - Allocating RuntimeState structure
   // - Creating GPU stream
   // - Creating MIOpen/hipBLAS handles
-  // - Uploading constants to GPU
+  // - Uploading constants to GPU (using registry metadata)
   // - All error handling and cleanup on failure
-  %result = llvm.call @hipdnn_ep_state_init(%out_state, %num_constants)
-    : (!llvm.ptr, i64) -> i32
+  %result = llvm.call @hipdnn_ep_state_init(%out_state, %registry)
+    : (!llvm.ptr, !llvm.ptr) -> i32
 
   llvm.return %result : i32
 }
@@ -527,8 +433,12 @@ int inference_compute(void* state, span_t* inputs, span_t* outputs);
 
 **MLIR Implementation:**
 
+**IMPLEMENTATION NOTE (2026-02-12):** The current implementation has been refactored to use runtime helper functions (`hipdnn_ep_tensor_prepare_input`, `hipdnn_ep_tensor_prepare_output`, `hipdnn_ep_tensor_finalize_output`, `hipdnn_ep_tensor_free_input`) which encapsulate parsing, validation, allocation, and H2D/D2H transfers. This reduces generated code size by ~70% while adding validation and better error handling.
+
+The example below shows the **conceptual flow** of what the helpers do internally. For the actual generated code structure, see `lib/HipDialect/GenerateInterfacePass.cpp:generateInferenceCompute()`.
+
 **NOTE:** This is a simplified example showing the key steps for a single 4D input and single 2D output.
-For multiple inputs/outputs, the pass would generate loops or unrolled code for each tensor.
+For multiple inputs/outputs, the pass generates code for each tensor using the array-of-pointers pattern.
 
 ```mlir
 llvm.func @inference_compute(%state: !llvm.ptr,
@@ -636,9 +546,9 @@ llvm.func @inference_compute(%state: !llvm.ptr,
   %input_cpu_ptr = llvm.load %input_cpu_ptr_ptr : !llvm.ptr -> !llvm.ptr
 
   // Get stream from state via accessor (OPAQUE - no GEP)
-  %stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
+  %stream = llvm.call @hipdnn_ep_state_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
 
-  // Copy from CPU to GPU using wrapper function
+  // wrap_hipMemcpyH2D(dst=GPU, src=CPU, size, stream)
   %memcpy_ret = llvm.call @wrap_hipMemcpyH2D(
     %input_gpu_ptr, %input_cpu_ptr, %input_byte_size, %stream
   ) : (!llvm.ptr, !llvm.ptr, i64, !llvm.ptr) -> i32
@@ -717,7 +627,7 @@ llvm.func @inference_compute(%state: !llvm.ptr,
   %output_cpu_ptr = <extract from output tensor_t>
   %output_byte_size = <calculated from output dimensions>
 
-  // Copy from GPU to CPU using wrapper function
+  // wrap_hipMemcpyD2H(dst=CPU, src=GPU, size, stream)
   %d2h_ret = llvm.call @wrap_hipMemcpyD2H(
     %output_cpu_ptr, %output_gpu_ptr, %output_byte_size, %stream
   ) : (!llvm.ptr, !llvm.ptr, i64, !llvm.ptr) -> i32
@@ -738,8 +648,8 @@ llvm.func @inference_compute(%state: !llvm.ptr,
   // ============================================================================
   // Step 10: Free temporary GPU buffers and return success
   // ============================================================================
-  llvm.call @wrap_hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
-  llvm.call @wrap_hipFree(%output_gpu_ptr) : (!llvm.ptr) -> i32
+  llvm.call @hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
+  llvm.call @hipFree(%output_gpu_ptr) : (!llvm.ptr) -> i32
 
   llvm.return %c0_i32 : i32
 
@@ -749,14 +659,14 @@ llvm.func @inference_compute(%state: !llvm.ptr,
 
 ^error_free_all:
   // Computation or D2H transfer failed - free both buffers
-  llvm.call @wrap_hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
-  llvm.call @wrap_hipFree(%output_gpu_ptr) : (!llvm.ptr) -> i32
+  llvm.call @hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
+  llvm.call @hipFree(%output_gpu_ptr) : (!llvm.ptr) -> i32
   %c8_i32 = llvm.mlir.constant(8 : i32) : i32
   llvm.return %c8_i32 : i32
 
 ^error_free_input:
   // H2D copy failed - free input buffer only
-  llvm.call @wrap_hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
+  llvm.call @hipFree(%input_gpu_ptr) : (!llvm.ptr) -> i32
   %c9_i32 = llvm.mlir.constant(9 : i32) : i32
   llvm.return %c9_i32 : i32
 
@@ -929,10 +839,8 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
     // Check module metadata exists
     if (!module->getAttr("hipdnn.input_count")) return false;
 
-    // Check constant helper functions exist
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count")) return false;
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("initialize_constants")) return false;
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("release_constants")) return false;
+    // Check constant registry function exists
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry")) return false;
 
     return true;
   }

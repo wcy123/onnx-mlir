@@ -204,7 +204,7 @@ This diagram shows the complete pipeline from Runtime development to model infer
 │  │  1. Parse embedded runtime_bc_data → Runtime IR    │          │
 │  │  2. llvm::Linker::linkInModule(Runtime IR)         │          │
 │  │  3. Resolve function declarations:                 │          │
-│  │     - @hipdnn_ep_state_init(ptr, i64) -> i32       │          │
+│  │     - @hipdnn_ep_state_init(ptr, ptr) -> i32       │          │
 │  │     - @hipdnn_ep_get_stream(ptr) -> ptr            │          │
 │  │     - @hipdnn_ep_get_constant(ptr, i64) -> ptr     │          │
 │  │     - @wrap_miopenConvolutionForward(...)          │          │

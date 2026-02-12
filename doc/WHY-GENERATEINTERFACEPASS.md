@@ -54,13 +54,13 @@ Current pattern is a thin wrapper that delegates to runtime:
 
 ```llvm
 define i32 @inference_init(ptr %out_state) {
-    %num_constants = call i64 @get_constant_count()  ; Only model-specific call
-    %result = call i32 @hipdnn_ep_state_init(ptr %out_state, i64 %num_constants)
+    %registry = call ptr @get_constant_registry()  ; Only model-specific call
+    %result = call i32 @hipdnn_ep_state_init(ptr %out_state, ptr %registry)
     ret i32 %result
 }
 ```
 
-**Could easily move to runtime** if we expose `get_constant_count()` as metadata.
+**Could easily move to runtime** if we expose `get_constant_registry()` address as metadata.
 
 ### `inference_cleanup` - Already 100% Generic
 
@@ -159,11 +159,11 @@ Since runtime bitcode is merged into model.dll anyway, we could move `inference_
 **Runtime bitcode would implement:**
 ```cpp
 // In hipdnn_ep_runtime.cpp (compiled to bitcode)
-extern "C" int64_t get_constant_count();  // Provided by generated code
+extern "C" ConstantRegistry* get_constant_registry();  // Provided by generated code
 
 extern "C" int32_t inference_init(void** out_state) {
-    int64_t num_constants = get_constant_count();  // Call into generated code
-    return hipdnn_ep_state_init(out_state, num_constants);
+    ConstantRegistry* registry = get_constant_registry();  // Call into generated code
+    return hipdnn_ep_state_init(out_state, registry);
 }
 
 extern "C" int32_t inference_cleanup(void* state) {
