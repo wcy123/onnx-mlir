@@ -46,11 +46,9 @@ Summary:
 
 ## A. Verified Prerequisites
 
-The following prerequisites are **enforced by code** in `GenerateInterfacePass.cpp:251-355` via the `verifyPrerequisites()` function. The pass will fail with an error message if any of these are missing.
+The following prerequisites are **enforced by code** via the `verifyPrerequisites()` function. The pass will fail with an error message if any of these are missing.
 
 ### Prerequisite 0: Idempotency Check
-
-**Code location:** `GenerateInterfacePass.cpp:258-265`
 
 **What the code checks:** Pass verifies that `inference_init`, `inference_compute`, and `inference_cleanup` don't already exist.
 
@@ -62,8 +60,6 @@ The following prerequisites are **enforced by code** in `GenerateInterfacePass.c
 ```
 
 ### Prerequisite 1: @main Function
-
-**Code location:** `GenerateInterfacePass.cpp:267-290`
 
 **Required signature:**
 ```mlir
@@ -90,8 +86,6 @@ llvm.func @main(%context: !llvm.ptr,
 
 ### Prerequisite 2: get_constant_count Function
 
-**Code location:** `GenerateInterfacePass.cpp:292-304`
-
 **Required signature:**
 ```mlir
 llvm.func @get_constant_count() -> i64
@@ -111,8 +105,6 @@ llvm.func @get_constant_count() -> i64
 ```
 
 ### Prerequisite 3: initialize_constants Function
-
-**Code location:** `GenerateInterfacePass.cpp:306-319`
 
 **Required signature:**
 ```mlir
@@ -134,8 +126,6 @@ llvm.func @initialize_constants(%context: !llvm.ptr) -> i32
 
 ### Prerequisite 4: release_constants Function
 
-**Code location:** `GenerateInterfacePass.cpp:321-334`
-
 **Required signature:**
 ```mlir
 llvm.func @release_constants(%context: !llvm.ptr) -> i32
@@ -155,8 +145,6 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32
 ```
 
 ### Prerequisite 5: Module Metadata Attributes
-
-**Code location:** `GenerateInterfacePass.cpp:336-352`
 
 **Required attributes:**
 ```mlir
