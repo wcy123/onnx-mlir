@@ -4,7 +4,7 @@ Licensed under the MIT License.
 -->
 
 **Date:** 2026-02-12
-**Status:** Draft
+**Status:** Self-Reviewed
 **Branch:** `mlir-integration`
 **Related:** [HipToLLVM.md](HipToLLVM.md), [OnnxToHip.md](OnnxToHip.md), [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md)
 
