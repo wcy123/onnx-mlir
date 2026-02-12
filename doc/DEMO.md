@@ -125,17 +125,19 @@ The `--generate-interface` pass **wraps** @main and uses the constant registry t
 
 5. **Error Code Handling**:
    - `0` = Success
-   - `1-5` = Init errors (allocation, handle creation, constant upload)
-   - `5,8,9` = Compute errors (invalid input, computation failed, memory transfer)
+   - `1-3` = Init errors (allocation, handle creation, constant upload)
+   - `5`, `8-9` = Compute errors (invalid input, computation failed, memory transfer)
    - `10-14` = Cleanup errors (stream/handle destruction, synchronization)
+
+   For complete error code specification, see [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md#error-codes).
 
 **Implementation Note**: The generated LLVM IR is more complex than the simplified examples shown
 below. The actual `inference_compute` includes detailed error handling, dynamic stride calculations,
 and cleanup paths. Examples focus on core data flow for clarity.
 
 **For complete interface specification and design rationale**, see:
-- [doc/mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - C interface specification
-- [doc/RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime integration pipeline
+- [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - C interface specification
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime integration pipeline
 
 ### Stage 4: Compile to Native DLL
 
@@ -565,9 +567,13 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ### Verification Commands
 
 ```bash
-# Count functions
+# Count LLVM functions (varies by model complexity)
 grep "llvm.func @" ../output/my_stage3.mlir | wc -l
-# Expected: 4 (malloc, free, get_constant_registry, @main + interface functions)
+# Typical for simple model: ~10 functions
+#   - 3 interface exports (inference_init, inference_compute, inference_cleanup)
+#   - 1 constant helper (get_constant_registry)
+#   - 1 main + internal computation functions
+#   - Runtime function declarations (hipMalloc, hipMemcpy, miopenConvolutionForward, etc.)
 
 # Check exports
 grep "sym_visibility.*public" ../output/my_stage3.mlir
