@@ -182,16 +182,44 @@ set(RUNTIME_IR_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp)
 # STEP 5: Create Runtime Static Library
 # ============================================================================
 
-# Build static library containing:
-#   1. hipdnn_ep_runtime.cpp - Runtime implementation (normal C++ compilation)
-#   2. runtime_ir_data.cpp - Embedded bitcode as C array
+# CRITICAL: hipdnn_ep_runtime.cpp is NOT compiled to native code here (tricky!)
 #
-# This library is linked into the EP DLL. At model compilation time, the
-# model compiler extracts the embedded bitcode and merges it with generated IR.
+# This library contains only embedded LLVM bitcode data, not native runtime functions.
+#
+# Why native runtime functions are not needed:
+#
+#   The EP DLL never calls runtime functions directly. Runtime functions are only
+#   called by model DLLs, and they get the code through LLVM IR merging, not linking.
+#
+# How runtime code reaches model DLLs:
+#
+#   Build time (once):
+#     hipdnn_ep_runtime.cpp → [Clang -emit-llvm] → runtime.bc
+#                           → [xxd.py embed] → runtime_ir_data.cpp (C array)
+#                           → [compile] → libHipDnnEpRuntime.a (embedded bitcode)
+#
+#   Model compilation (per model):
+#     1. Model compiler reads runtime_bc_data[] from EP DLL memory
+#     2. Parses LLVM bitcode into runtime IR module
+#     3. Merges runtime IR with generated model IR (llvm::Linker)
+#     4. LLVM optimizer inlines runtime functions into model code
+#     5. Result: model.dll contains inlined runtime code (zero overhead)
+#
+# Why hipdnn_ep_runtime.cpp was previously listed here:
+#
+#   It appeared to be needed because "libraries need source files", but this is wrong.
+#   The runtime source is already compiled to bitcode at STEP 3 (line 113).
+#   Compiling it again to native code creates dead code that's never called.
+#
+# What this library actually contains:
+#
+#   - runtime_ir_data.cpp: Embedded LLVM bitcode as C array
+#   - No native runtime functions (they're inlined into each model.dll from bitcode)
+#
+# See: ARCHITECTURE.md Design Decision #7 for the full IR merging explanation
 
 add_library(HipDnnEpRuntime STATIC
-    hipdnn_ep_runtime.cpp    # Runtime implementation (compiled to native code)
-    ${RUNTIME_IR_SOURCES}    # Embedded bitcode (data only, not compiled)
+    ${RUNTIME_IR_SOURCES}    # runtime_ir_data.cpp - Embedded bitcode as C array
 )
 
 target_include_directories(HipDnnEpRuntime
