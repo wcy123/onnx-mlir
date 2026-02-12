@@ -6,7 +6,7 @@ Licensed under the MIT License.
 
 **Date**: 2026-02-12
 **Status**: Design Document
-**Related**: [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md), [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md)
+**Related**: [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md), [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md)
 
 ---
 
@@ -248,9 +248,9 @@ Generated code uses accessor functions instead of direct field access (GEP):
 
 ---
 
-## Compilation Pipeline: LLVM IR Merging
+## LLVM IR Merging Implementation Details
 
-This section details how the Runtime library integrates with compiled models. For the overall system architecture, see [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction).
+This section provides implementation details for the IR merging approach shown in the [Runtime Integration Pipeline](#runtime-integration-pipeline) above. For architectural rationale, see [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction).
 
 ### Build-Time Pipeline
 
@@ -293,6 +293,8 @@ This section details how the Runtime library integrates with compiled models. Fo
 └─────────────────────────────────────────────────────────┘
 ```
 
+This focused diagram shows just the IR merging pipeline. For the complete end-to-end flow including EPContext packaging and inference execution, see [Runtime Integration Pipeline](#runtime-integration-pipeline).
+
 ### Zero-Cost Abstraction
 
 Runtime accessor functions have **zero overhead** in final binary:
@@ -332,6 +334,42 @@ endif()
 ```
 
 **Requirements:** Clang compiler, Python 3, LLVM Linker API
+
+### C++ Implementation
+
+LLVMBackend integration code:
+
+```cpp
+// Link Runtime IR at model compilation
+bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
+    // Parse embedded bitcode
+    auto MemBuf = llvm::MemoryBuffer::getMemBuffer(
+        llvm::StringRef((const char*)runtime_bc_data, bcSize),
+        "runtime.bc", false);
+
+    auto ModuleOrErr = llvm::parseBitcodeFile(
+        MemBuf->getMemBufferRef(), destModule->getContext());
+
+    // Merge Runtime IR with generated IR
+    llvm::Linker linker(*destModule);
+    return !linker.linkInModule(std::move(*ModuleOrErr));
+}
+```
+
+### Verification
+
+Verify Runtime functions are properly inlined:
+
+```bash
+# Compile model and dump optimized IR
+mlir-hip-compiler --opt-level=2 --dump-llvm-ir model.onnx
+
+# Verify Runtime functions are inlined (should NOT appear in final IR)
+grep "hipdnn_ep_get_stream" output.ll  # Should be empty
+grep "hipdnn_ep_get_constant" output.ll  # Should be empty
+```
+
+If accessor functions appear in the final IR, optimization level may be too low or inlining is disabled.
 
 ---
 

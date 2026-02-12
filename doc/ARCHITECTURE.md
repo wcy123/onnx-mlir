@@ -6,8 +6,9 @@ Licensed under the MIT License.
 
 **MLIR-based AOT Compilation with EPContext for AMD ROCm**
 
-**Version:** 2.0
-**Date:** 2026-02-11
+**Date:** 2026-02-12
+**Document Type:** Architecture Design
+**Review Status:** Self-Reviewed
 **Branch:** `mlir-integration`
 
 ---
@@ -274,50 +275,6 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 - **Cross-module optimization:** LLVM optimizer can inline across compilation units
 - **No runtime overhead:** Function call overhead eliminated during optimization
 
-**How it works:**
-1. **Build time (once):** Runtime compiled to LLVM bitcode (.bc) using clang `-emit-llvm`
-2. **Build time (once):** Bitcode embedded as C array in EP DLL using xxd.py
-3. **Model compilation (per model):** Runtime bitcode parsed and merged with MLIR-generated IR
-4. **Optimization:** LLVM PassBuilder inlines Runtime functions at O2+
-5. **Result:** Final DLL contains inlined Runtime code (single load instructions)
-
-**Implementation:**
-
-```cmake
-# CMake: Generate Runtime bitcode
-add_custom_command(
-    OUTPUT runtime.bc
-    COMMAND ${CMAKE_CXX_COMPILER} -c -emit-llvm -O2
-            -std=c++17 hipdnn_ep_runtime.cpp -o runtime.bc
-    DEPENDS hipdnn_ep_runtime.cpp
-)
-
-# CMake: Embed bitcode as C array
-add_custom_command(
-    OUTPUT runtime_ir_data.cpp
-    COMMAND ${Python3_EXECUTABLE} xxd.py --var runtime_bc_data
-            --output runtime_ir_data.cpp runtime.bc
-    DEPENDS runtime.bc
-)
-```
-
-```cpp
-// C++: Link Runtime IR at model compilation
-bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
-    // Parse embedded bitcode
-    auto MemBuf = llvm::MemoryBuffer::getMemBuffer(
-        llvm::StringRef((const char*)runtime_bc_data, bcSize),
-        "runtime.bc", false);
-
-    auto ModuleOrErr = llvm::parseBitcodeFile(
-        MemBuf->getMemBufferRef(), destModule->getContext());
-
-    // Merge Runtime IR with generated IR
-    llvm::Linker linker(*destModule);
-    return !linker.linkInModule(std::move(*ModuleOrErr));
-}
-```
-
 **Trade-offs:**
 
 | Aspect | IR Merging (Chosen) | Direct Linking |
@@ -334,17 +291,7 @@ bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
 - LLVM Linker API (`llvm::Linker::linkInModule()`)
 - LLVM Bitcode APIs (`llvm::parseBitcodeFile()`)
 
-**Verification:**
-```bash
-# Compile model and dump optimized IR
-mlir-hip-compiler --opt-level=2 --dump-llvm-ir model.onnx
-
-# Verify Runtime functions are inlined (should NOT appear)
-grep "hipdnn_ep_get_stream" output.ll  # Should be empty
-grep "hipdnn_ep_get_constant" output.ll  # Should be empty
-```
-
-See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for detailed Runtime design and abstraction rationale.
+See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for implementation details, build configuration, C++ integration code, and verification procedures.
 
 ---
 
@@ -431,7 +378,7 @@ Use [onnx-mlir](https://github.com/wcy123/onnx-mlir) fork for type-safe ONNX dia
 2. **Transform Passes:** [Pattern-based lowering](#3-pattern-based-lowering-vs-manual-transformation) using typed ONNX operations
 3. **Shape Inference:** Reuse onnx-mlir's shape inference for dynamic shapes
 
-See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeline details.
+See [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) for complete pipeline details.
 
 ### Non-Integration
 
@@ -483,7 +430,7 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 ### Specifications
 - [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - Complete C interface specification
 - [HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) - HIP dialect operations and semantics
-- [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - MLIR module structure and lowering
+- [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) - MLIR module structure and lowering
 
 ### Implementation Details
 - [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) - Memory allocation strategy
@@ -505,13 +452,3 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 - [HIP Performance Guidelines](https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/performance_guidelines.html) - Optimization best practices
 - [LLVM Linker API](https://llvm.org/doxygen/classllvm_1_1Linker.html) - LLVM module linking interface
 - [LLVM Bitcode Format](https://llvm.org/docs/BitCodeFormat.html) - LLVM bitcode specification
-
----
-
-**Document History:**
-- v2.4 (2026-02-12): Added Design Decision #7 (LLVM IR Merging), Design Principle #6 (Zero-Cost Abstractions), updated system diagram
-- v2.3 (2026-02-11): Removed "Quality Attributes" section (redundant bureaucracy)
-- v2.2 (2026-02-11): Moved "Memory DLL Loading vs Disk Files" to NATIVE-VS-IR-COMPARISON.md as Native DLL sub-decision
-- v2.1 (2026-02-11): Moved Native DLL vs LLVM IR decision to "Open Questions", created separate comparison document
-- v2.0 (2026-02-11): Restructured to focus on architectural decisions, removed implementation details
-- v1.0 (2026-02-09): Initial architecture document
