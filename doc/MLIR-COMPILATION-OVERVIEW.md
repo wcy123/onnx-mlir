@@ -136,7 +136,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 | [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) | Pass pipeline and transformation stages |
 | [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) | C interface and GenerateInterfacePass prerequisites |
 | [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) | HIP context, types, and wrapper functions |
-| [mlir/CONSTANT-MANAGEMENT.md](mlir/CONSTANT-MANAGEMENT.md) | Constant handling (globals, upload, retrieval) |
+| [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) | Constant handling (globals, upload, retrieval) |
 | [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) | Runtime state/context structure, static library design |
 | [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) | Dynamic shape support |
 
