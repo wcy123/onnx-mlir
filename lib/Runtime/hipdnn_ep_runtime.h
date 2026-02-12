@@ -31,7 +31,9 @@ typedef struct RuntimeState RuntimeState;
 //==============================================================================
 
 // Initialize runtime state (creates stream, MIOpen handle, hipBLAS handle)
-// Returns allocated RuntimeState pointer via out_state
+// Parameters:
+//   out_state: Pointer to receive allocated RuntimeState
+//   num_constants: Number of constants (known at compile time, sequential 0..N-1)
 // Return codes:
 //   0 = success
 //   1 = allocation failed
@@ -39,7 +41,7 @@ typedef struct RuntimeState RuntimeState;
 //   3 = MIOpen creation failed
 //   4 = set stream failed
 //   5 = hipBLAS creation failed
-int hipdnn_ep_state_init(RuntimeState **out_state);
+int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants);
 
 // Cleanup runtime state (destroys handles, frees memory)
 // Best-effort cleanup - continues even if individual operations fail
@@ -73,8 +75,8 @@ typedef struct {
 //==============================================================================
 
 // Upload constant to GPU and store at index
-// Precondition: index assigned at compile-time (0, 1, 2, ...)
-// Returns: 0=success, non-zero=error
+// Precondition: index must be in range [0, num_constants), assigned at compile-time
+// Returns: 0=success, negative=error
 int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *data,
                         int64_t size);
 

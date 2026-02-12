@@ -26,8 +26,6 @@ typedef int hipblasStatus_t;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unordered_map>
-#include <vector>
 
 // Internal runtime state structure
 struct RuntimeState {
@@ -35,8 +33,9 @@ struct RuntimeState {
   miopenHandle_t miopen_handle;
   hipblasLtHandle_t hipblas_handle;
 
-  // Map from constant index to GPU pointer
-  std::unordered_map<int64_t, void *> constants;
+  // Array of GPU pointers for constants (size known at compile time)
+  void **gpu_constants;
+  size_t num_constants;
 };
 
 // Error checking macros
@@ -360,13 +359,13 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
 
 // Runtime state management implementation
 
-int hipdnn_ep_state_init(RuntimeState **out_state) {
+int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants) {
   if (!out_state) {
     fprintf(stderr, "Invalid output parameter to hipdnn_ep_state_init\n");
     return 1;
   }
 
-  // Allocate context struct (32 bytes)
+  // Allocate context struct
   RuntimeState *state = (RuntimeState *)malloc(sizeof(RuntimeState));
   if (!state) {
     fprintf(stderr, "Failed to allocate runtime state\n");
@@ -377,10 +376,23 @@ int hipdnn_ep_state_init(RuntimeState **out_state) {
   state->stream = nullptr;
   state->miopen_handle = nullptr;
   state->hipblas_handle = nullptr;
+  state->gpu_constants = nullptr;
+  state->num_constants = num_constants;
+
+  // Allocate constants array (initialized to NULL)
+  if (num_constants > 0) {
+    state->gpu_constants = (void **)calloc(num_constants, sizeof(void *));
+    if (!state->gpu_constants) {
+      fprintf(stderr, "Failed to allocate constants array\n");
+      free(state);
+      return 1; // Allocation failed
+    }
+  }
 
   // Create HIP stream
   if (hipStreamCreate(&state->stream) != hipSuccess) {
     fprintf(stderr, "Failed to create HIP stream\n");
+    free(state->gpu_constants);
     free(state);
     return 2; // Stream creation failed
   }
@@ -389,6 +401,7 @@ int hipdnn_ep_state_init(RuntimeState **out_state) {
   if (miopenCreate(&state->miopen_handle) != miopenStatusSuccess) {
     fprintf(stderr, "Failed to create MIOpen handle\n");
     hipStreamDestroy(state->stream);
+    free(state->gpu_constants);
     free(state);
     return 3; // MIOpen creation failed
   }
@@ -399,6 +412,7 @@ int hipdnn_ep_state_init(RuntimeState **out_state) {
     fprintf(stderr, "Failed to set MIOpen stream\n");
     miopenDestroy(state->miopen_handle);
     hipStreamDestroy(state->stream);
+    free(state->gpu_constants);
     free(state);
     return 4; // Set stream failed
   }
@@ -408,6 +422,7 @@ int hipdnn_ep_state_init(RuntimeState **out_state) {
     fprintf(stderr, "Failed to create hipBLASLt handle\n");
     miopenDestroy(state->miopen_handle);
     hipStreamDestroy(state->stream);
+    free(state->gpu_constants);
     free(state);
     return 5; // hipBLAS creation failed
   }
@@ -429,6 +444,16 @@ int hipdnn_ep_state_cleanup(RuntimeState *state) {
   // Synchronize stream to ensure all GPU operations complete
   if (state->stream) {
     hipStreamSynchronize(state->stream);
+  }
+
+  // Free all constants (best-effort)
+  if (state->gpu_constants) {
+    for (size_t i = 0; i < state->num_constants; i++) {
+      if (state->gpu_constants[i]) {
+        hipFree(state->gpu_constants[i]);
+      }
+    }
+    free(state->gpu_constants);
   }
 
   // Destroy hipBLASLt handle
@@ -464,8 +489,15 @@ int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *da
     return -1;
   }
 
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
+    return -1;
+  }
+
   // Check if constant already exists (shouldn't happen, but defensive)
-  if (state->constants.find(index) != state->constants.end()) {
+  if (state->gpu_constants[index] != nullptr) {
     fprintf(stderr, "Constant %lld already uploaded\n", (long long)index);
     return -1;
   }
@@ -478,8 +510,8 @@ int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *da
   HIP_CHECK(hipMemcpyAsync(gpu_ptr, data, size, hipMemcpyHostToDevice,
                            state->stream));
 
-  // Store in map
-  state->constants[index] = gpu_ptr;
+  // Store in array
+  state->gpu_constants[index] = gpu_ptr;
 
   return 0;
 }
@@ -490,13 +522,14 @@ void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
     return nullptr;
   }
 
-  auto it = state->constants.find(index);
-  if (it == state->constants.end()) {
-    fprintf(stderr, "Constant %lld not found\n", (long long)index);
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
     return nullptr;
   }
 
-  return it->second;
+  return state->gpu_constants[index];
 }
 
 int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
@@ -505,17 +538,24 @@ int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
     return -1;
   }
 
-  auto it = state->constants.find(index);
-  if (it == state->constants.end()) {
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
+    return -1;
+  }
+
+  // Check if constant exists
+  if (state->gpu_constants[index] == nullptr) {
     fprintf(stderr, "Constant %lld not found\n", (long long)index);
     return -1;
   }
 
   // Free GPU memory
-  HIP_CHECK(hipFree(it->second));
+  HIP_CHECK(hipFree(state->gpu_constants[index]));
 
-  // Remove from map
-  state->constants.erase(it);
+  // Clear array entry
+  state->gpu_constants[index] = nullptr;
 
   return 0;
 }

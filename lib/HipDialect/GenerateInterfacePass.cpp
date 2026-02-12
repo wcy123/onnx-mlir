@@ -185,7 +185,8 @@ private:
 
     // Declare high-level runtime state management functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init")) {
-      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
+      // int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants)
+      auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, i64Type});
       auto func =
           builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_init", funcType);
       func.setLinkage(LLVM::Linkage::External);
@@ -370,6 +371,7 @@ private:
     // Create function type: (ptr) -> i32
     Type ptrType = LLVM::LLVMPointerType::get(builder.getContext(), 0);
     Type i32Type = builder.getI32Type();
+    Type i64Type = builder.getI64Type();
     SmallVector<Type> paramTypes = {ptrType};
     auto funcType = LLVM::LLVMFunctionType::get(i32Type, paramTypes);
 
@@ -385,11 +387,16 @@ private:
 
     Value outStatePtr = entryBlock->getArgument(0);
 
-    // Call hipdnn_ep_state_init(out_state)
+    // Count constants by calling get_constant_count()
+    auto getCountFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_count");
+    Value numConstants = builder.create<LLVM::CallOp>(
+        loc, getCountFunc, ValueRange{}).getResult();
+
+    // Call hipdnn_ep_state_init(out_state, num_constants)
     auto runtimeInitFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init");
     auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc,
-                                             ValueRange{outStatePtr});
+                                             ValueRange{outStatePtr, numConstants});
 
     // Return the result from hipdnn_ep_state_init
     builder.create<LLVM::ReturnOp>(loc, call.getResult());

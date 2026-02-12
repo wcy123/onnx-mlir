@@ -19,7 +19,7 @@ int main() {
   // Test 1: Basic initialization and cleanup
   std::cout << "--- Test 1: Basic Init/Cleanup ---\n";
   RuntimeState *state = nullptr;
-  int result = hipdnn_ep_state_init(&state);
+  int result = hipdnn_ep_state_init(&state, 0); // 0 constants for basic test
   assert(result == 0);
   assert(state != nullptr);
   std::cout << "✓ State initialized successfully\n";
@@ -32,7 +32,7 @@ int main() {
   std::cout << "--- Test 2: Multiple Init/Cleanup Cycles ---\n";
   for (int i = 0; i < 3; i++) {
     RuntimeState *state2 = nullptr;
-    result = hipdnn_ep_state_init(&state2);
+    result = hipdnn_ep_state_init(&state2, 0); // 0 constants
     assert(result == 0);
     assert(state2 != nullptr);
 
@@ -43,7 +43,7 @@ int main() {
 
   // Test 3: Null parameter handling
   std::cout << "--- Test 3: Null Parameter Handling ---\n";
-  result = hipdnn_ep_state_init(nullptr);
+  result = hipdnn_ep_state_init(nullptr, 0);
   assert(result == 1); // Should return allocation failed
   std::cout << "✓ Null parameter handled correctly\n";
 
