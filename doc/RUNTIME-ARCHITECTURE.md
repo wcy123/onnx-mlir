@@ -176,9 +176,11 @@ The Runtime is a static library that manages GPU execution state for compiled ON
 ### Three-Function Lifecycle
 
 **`inference_init(void** out_state)`** - Create GPU resources once
-- Allocates RuntimeState
+- Calls `get_constant_count()` to determine number of constants
+- Calls `hipdnn_ep_state_init(&state, num_constants)` internally
+- Allocates RuntimeState with constant array
 - Creates HIP stream, MIOpen handle, hipBLAS handle
-- Returns opaque state pointer
+- Returns opaque state pointer via out_state
 
 **`inference_compute(void* state, span_t* inputs, span_t* outputs)`** - Execute inference (reuses resources)
 - Parses input/output tensors
