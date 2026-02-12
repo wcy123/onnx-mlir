@@ -1,0 +1,130 @@
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
+#include "hipdnn_ep_runtime.h"
+
+#ifndef BUILD_MOCK_RUNTIME
+#include <hip/hip_runtime.h>
+#else
+// Mock definitions when ROCm is not available
+typedef void *hipStream_t;
+typedef int hipError_t;
+#define hipSuccess 0
+#define hipMemcpyHostToDevice 0
+
+// Forward declarations for mock HIP functions (defined in hipdnn_ep_runtime_mock.cpp)
+hipError_t hipMalloc(void **ptr, size_t size);
+hipError_t hipFree(void *ptr);
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
+                          int kind, hipStream_t stream);
+#endif
+
+#include <cstdio>
+
+// Internal runtime state structure (must match hipdnn_ep_runtime_state.cpp)
+struct RuntimeState {
+  void *stream;
+  void *miopen_handle;
+  void *hipblas_handle;
+  void **gpu_constants;
+  size_t num_constants;
+};
+
+// Error checking macros
+#ifdef BUILD_MOCK_RUNTIME
+#define HIP_CHECK(cmd)                                                         \
+  do {                                                                         \
+    (void)(cmd);                                                               \
+  } while (0)
+#else
+#define HIP_CHECK(cmd)                                                         \
+  do {                                                                         \
+    hipError_t error = (cmd);                                                  \
+    if (error != hipSuccess) {                                                 \
+      fprintf(stderr, "HIP error at %s:%d: %s\n", __FILE__, __LINE__,          \
+              hipGetErrorString(error));                                       \
+      return -1;                                                               \
+    }                                                                          \
+  } while (0)
+#endif
+
+// Constant management implementation
+
+int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *data,
+                        int64_t size) {
+  if (!state || !data || size <= 0) {
+    fprintf(stderr, "Invalid arguments to hipdnn_ep_upload_constant\n");
+    return -1;
+  }
+
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
+    return -1;
+  }
+
+  // Check if constant already exists (shouldn't happen, but defensive)
+  if (state->gpu_constants[index] != nullptr) {
+    fprintf(stderr, "Constant %lld already uploaded\n", (long long)index);
+    return -1;
+  }
+
+  // Allocate GPU memory
+  void *gpu_ptr = nullptr;
+  HIP_CHECK(hipMalloc(&gpu_ptr, size));
+
+  // Copy data from DLL .data section to GPU
+  HIP_CHECK(hipMemcpyAsync(gpu_ptr, data, size, hipMemcpyHostToDevice,
+                           static_cast<hipStream_t>(state->stream)));
+
+  // Store in array
+  state->gpu_constants[index] = gpu_ptr;
+
+  return 0;
+}
+
+void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
+  if (!state) {
+    fprintf(stderr, "Invalid runtime state\n");
+    return nullptr;
+  }
+
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
+    return nullptr;
+  }
+
+  return state->gpu_constants[index];
+}
+
+int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
+  if (!state) {
+    fprintf(stderr, "Invalid runtime state\n");
+    return -1;
+  }
+
+  // Validate index range
+  if (index < 0 || (size_t)index >= state->num_constants) {
+    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
+            (long long)index, state->num_constants);
+    return -1;
+  }
+
+  // Check if constant exists
+  if (state->gpu_constants[index] == nullptr) {
+    fprintf(stderr, "Constant %lld not found\n", (long long)index);
+    return -1;
+  }
+
+  // Free GPU memory
+  HIP_CHECK(hipFree(state->gpu_constants[index]));
+
+  // Clear array entry
+  state->gpu_constants[index] = nullptr;
+
+  return 0;
+}

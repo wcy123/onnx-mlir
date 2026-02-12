@@ -65,6 +65,11 @@ onnx-hipdnn-ep/
 - Visual Studio 2022
 - Python 3 (with onnx package: `pip install onnx`)
 - Git
+- **Clang** (for runtime bitcode compilation)
+  - Required for compiling the HIP runtime to LLVM bitcode
+  - Download from https://releases.llvm.org/ (LLVM 19+ recommended)
+  - Or use system package manager (e.g., `choco install llvm` on Windows)
+  - Must include both `clang` and `llvm-link` tools
 
 ### Build Dependencies
 
@@ -126,15 +131,22 @@ git submodule update --init --recursive
 cd onnx-hipdnn-ep
 
 # Configure with Visual Studio generator
+# Note: If clang/llvm-link are not in PATH, add them via CMAKE_PROGRAM_PATH
 cmake -DBUILD_SHARED_LIBS=OFF \
   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
   -S . -B ../build/onnx-hipdnn-ep \
   -DCMAKE_INSTALL_PREFIX=../local \
-  -DCMAKE_PREFIX_PATH=$PWD/../local
+  -DCMAKE_PREFIX_PATH=$PWD/../local \
+  -DCMAKE_PROGRAM_PATH="C:/LLVM20/bin"  # Optional: specify clang location
 
 # Build
 cmake --build ../build/onnx-hipdnn-ep --config Release
 ```
+
+**Note:** Replace `C:/LLVM20/bin` with your actual LLVM installation path. Common locations:
+- Windows: `C:/LLVM20/bin`, `C:/Program Files/LLVM/bin`
+- Linux: `/usr/bin`, `/usr/local/bin`
+- macOS: `/usr/local/opt/llvm/bin`, `/opt/homebrew/opt/llvm/bin`
 
 
 **Note:** The first build will take a long time (1-3 hours) as LLVM/MLIR is fetched and compiled. Subsequent builds are much faster.

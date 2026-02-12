@@ -4,11 +4,10 @@
  */
 #include "hipdnn_ep_runtime.h"
 
-#ifndef BUILD_MOCK_RUNTIME
-#include <hip/hip_runtime.h>
-#include <hipblaslt/hipblaslt.h>
-#include <miopen/miopen.h>
-#else
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 // Mock definitions when ROCm is not available
 typedef void *hipStream_t;
 typedef void *miopenHandle_t;
@@ -21,71 +20,7 @@ typedef int hipblasStatus_t;
 #define HIPBLAS_STATUS_SUCCESS 0
 #define hipMemcpyHostToDevice 0
 #define hipMemcpyDeviceToHost 0
-#endif
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-
-// Internal runtime state structure
-struct RuntimeState {
-  hipStream_t stream;
-  miopenHandle_t miopen_handle;
-  hipblasLtHandle_t hipblas_handle;
-
-  // Array of GPU pointers for constants (size known at compile time)
-  void **gpu_constants;
-  size_t num_constants;
-};
-
-// Error checking macros
-#ifdef BUILD_MOCK_RUNTIME
-#define HIP_CHECK(cmd)                                                         \
-  do {                                                                         \
-    (void)(cmd);                                                               \
-  } while (0)
-#define MIOPEN_CHECK(cmd)                                                      \
-  do {                                                                         \
-    (void)(cmd);                                                               \
-  } while (0)
-#define HIPBLAS_CHECK(cmd)                                                     \
-  do {                                                                         \
-    (void)(cmd);                                                               \
-  } while (0)
-#define hipGetErrorString(e) "mock_error"
-#else
-#define HIP_CHECK(cmd)                                                         \
-  do {                                                                         \
-    hipError_t error = (cmd);                                                  \
-    if (error != hipSuccess) {                                                 \
-      fprintf(stderr, "HIP error at %s:%d: %s\n", __FILE__, __LINE__,          \
-              hipGetErrorString(error));                                       \
-      return -1;                                                               \
-    }                                                                          \
-  } while (0)
-
-#define MIOPEN_CHECK(cmd)                                                      \
-  do {                                                                         \
-    miopenStatus_t status = (cmd);                                             \
-    if (status != miopenStatusSuccess) {                                       \
-      fprintf(stderr, "MIOpen error at %s:%d: %d\n", __FILE__, __LINE__,       \
-              status);                                                         \
-      return -1;                                                               \
-    }                                                                          \
-  } while (0)
-
-#define HIPBLAS_CHECK(cmd)                                                     \
-  do {                                                                         \
-    hipblasStatus_t status = (cmd);                                            \
-    if (status != HIPBLAS_STATUS_SUCCESS) {                                    \
-      fprintf(stderr, "hipBLAS error at %s:%d: %d\n", __FILE__, __LINE__,      \
-              status);                                                         \
-      return -1;                                                               \
-    }                                                                          \
-  } while (0)
-#endif
-
-#ifdef BUILD_MOCK_RUNTIME
 // Comprehensive mock implementations for all GPU functions
 // Prints all operations for debugging and verification
 
@@ -107,21 +42,21 @@ extern "C" hipError_t hipStreamSynchronize(hipStream_t stream) {
   return hipSuccess;
 }
 
-// Mock HIP memory functions
-static hipError_t hipMalloc(void **ptr, size_t size) {
+// Mock HIP memory functions (non-static for cross-module linking)
+hipError_t hipMalloc(void **ptr, size_t size) {
   *ptr = malloc(size);
   printf("[MOCK] hipMalloc(%zu bytes) -> %p\n", size, *ptr);
   return *ptr ? hipSuccess : -1;
 }
 
-static hipError_t hipFree(void *ptr) {
+hipError_t hipFree(void *ptr) {
   printf("[MOCK] hipFree(%p)\n", ptr);
   free(ptr);
   return hipSuccess;
 }
 
-static hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
-                                 int kind, hipStream_t stream) {
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
+                          int kind, hipStream_t stream) {
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
@@ -355,212 +290,23 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
   return HIPBLAS_STATUS_SUCCESS;
 }
 
-#endif // BUILD_MOCK_RUNTIME
+// Mock error checking macros
+#define HIP_CHECK(cmd)                                                         \
+  do {                                                                         \
+    (void)(cmd);                                                               \
+  } while (0)
+#define MIOPEN_CHECK(cmd)                                                      \
+  do {                                                                         \
+    (void)(cmd);                                                               \
+  } while (0)
+#define HIPBLAS_CHECK(cmd)                                                     \
+  do {                                                                         \
+    (void)(cmd);                                                               \
+  } while (0)
+#define hipGetErrorString(e) "mock_error"
 
-// Runtime state management implementation
+// Mock wrapper implementations (called from generated MLIR code)
 
-int hipdnn_ep_state_init(RuntimeState **out_state, size_t num_constants) {
-  if (!out_state) {
-    fprintf(stderr, "Invalid output parameter to hipdnn_ep_state_init\n");
-    return 1;
-  }
-
-  // Allocate context struct
-  RuntimeState *state = (RuntimeState *)malloc(sizeof(RuntimeState));
-  if (!state) {
-    fprintf(stderr, "Failed to allocate runtime state\n");
-    return 1; // Allocation failed
-  }
-
-  // Initialize all fields to null for safe cleanup
-  state->stream = nullptr;
-  state->miopen_handle = nullptr;
-  state->hipblas_handle = nullptr;
-  state->gpu_constants = nullptr;
-  state->num_constants = num_constants;
-
-  // Allocate constants array (initialized to NULL)
-  if (num_constants > 0) {
-    state->gpu_constants = (void **)calloc(num_constants, sizeof(void *));
-    if (!state->gpu_constants) {
-      fprintf(stderr, "Failed to allocate constants array\n");
-      free(state);
-      return 1; // Allocation failed
-    }
-  }
-
-  // Create HIP stream
-  if (hipStreamCreate(&state->stream) != hipSuccess) {
-    fprintf(stderr, "Failed to create HIP stream\n");
-    free(state->gpu_constants);
-    free(state);
-    return 2; // Stream creation failed
-  }
-
-  // Create MIOpen handle
-  if (miopenCreate(&state->miopen_handle) != miopenStatusSuccess) {
-    fprintf(stderr, "Failed to create MIOpen handle\n");
-    hipStreamDestroy(state->stream);
-    free(state->gpu_constants);
-    free(state);
-    return 3; // MIOpen creation failed
-  }
-
-  // Set stream for MIOpen handle
-  if (miopenSetStream(state->miopen_handle, state->stream) !=
-      miopenStatusSuccess) {
-    fprintf(stderr, "Failed to set MIOpen stream\n");
-    miopenDestroy(state->miopen_handle);
-    hipStreamDestroy(state->stream);
-    free(state->gpu_constants);
-    free(state);
-    return 4; // Set stream failed
-  }
-
-  // Create hipBLASLt handle
-  if (hipblasLtCreate(&state->hipblas_handle) != HIPBLAS_STATUS_SUCCESS) {
-    fprintf(stderr, "Failed to create hipBLASLt handle\n");
-    miopenDestroy(state->miopen_handle);
-    hipStreamDestroy(state->stream);
-    free(state->gpu_constants);
-    free(state);
-    return 5; // hipBLAS creation failed
-  }
-
-  // Success - return initialized state
-  *out_state = state;
-  return 0;
-}
-
-int hipdnn_ep_state_cleanup(RuntimeState *state) {
-  if (!state) {
-    fprintf(stderr, "Invalid runtime state in cleanup\n");
-    return 0; // Best-effort - don't fail
-  }
-
-  // Best-effort cleanup - continue even if operations fail
-  // Cleanup in reverse order of initialization (LIFO)
-
-  // Synchronize stream to ensure all GPU operations complete
-  if (state->stream) {
-    hipStreamSynchronize(state->stream);
-  }
-
-  // Free all constants (best-effort)
-  if (state->gpu_constants) {
-    for (size_t i = 0; i < state->num_constants; i++) {
-      if (state->gpu_constants[i]) {
-        hipFree(state->gpu_constants[i]);
-      }
-    }
-    free(state->gpu_constants);
-  }
-
-  // Destroy hipBLASLt handle
-  if (state->hipblas_handle) {
-    hipblasLtDestroy(state->hipblas_handle);
-  }
-
-  // Destroy MIOpen handle
-  if (state->miopen_handle) {
-    miopenDestroy(state->miopen_handle);
-  }
-
-  // Destroy HIP stream
-  if (state->stream) {
-    hipStreamDestroy(state->stream);
-  }
-
-  // Free the context struct itself
-  free(state);
-
-  return 0; // Best-effort cleanup always returns success
-}
-
-void *hipdnn_ep_get_stream(RuntimeState *state) {
-  return state ? static_cast<void *>(state->stream) : nullptr;
-}
-
-// Constant management implementation
-int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *data,
-                        int64_t size) {
-  if (!state || !data || size <= 0) {
-    fprintf(stderr, "Invalid arguments to hipdnn_ep_upload_constant\n");
-    return -1;
-  }
-
-  // Validate index range
-  if (index < 0 || (size_t)index >= state->num_constants) {
-    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
-            (long long)index, state->num_constants);
-    return -1;
-  }
-
-  // Check if constant already exists (shouldn't happen, but defensive)
-  if (state->gpu_constants[index] != nullptr) {
-    fprintf(stderr, "Constant %lld already uploaded\n", (long long)index);
-    return -1;
-  }
-
-  // Allocate GPU memory
-  void *gpu_ptr = nullptr;
-  HIP_CHECK(hipMalloc(&gpu_ptr, size));
-
-  // Copy data from DLL .data section to GPU
-  HIP_CHECK(hipMemcpyAsync(gpu_ptr, data, size, hipMemcpyHostToDevice,
-                           state->stream));
-
-  // Store in array
-  state->gpu_constants[index] = gpu_ptr;
-
-  return 0;
-}
-
-void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
-  if (!state) {
-    fprintf(stderr, "Invalid runtime state\n");
-    return nullptr;
-  }
-
-  // Validate index range
-  if (index < 0 || (size_t)index >= state->num_constants) {
-    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
-            (long long)index, state->num_constants);
-    return nullptr;
-  }
-
-  return state->gpu_constants[index];
-}
-
-int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
-  if (!state) {
-    fprintf(stderr, "Invalid runtime state\n");
-    return -1;
-  }
-
-  // Validate index range
-  if (index < 0 || (size_t)index >= state->num_constants) {
-    fprintf(stderr, "Constant index %lld out of range [0, %zu)\n",
-            (long long)index, state->num_constants);
-    return -1;
-  }
-
-  // Check if constant exists
-  if (state->gpu_constants[index] == nullptr) {
-    fprintf(stderr, "Constant %lld not found\n", (long long)index);
-    return -1;
-  }
-
-  // Free GPU memory
-  HIP_CHECK(hipFree(state->gpu_constants[index]));
-
-  // Clear array entry
-  state->gpu_constants[index] = nullptr;
-
-  return 0;
-}
-
-// MIOpen convolution forward implementation
 int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
                              const int64_t *input_shape, const void *weights,
                              const int64_t *weights_shape, void *output,
@@ -572,7 +318,6 @@ int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
     return -1;
   }
 
-#ifdef BUILD_MOCK_RUNTIME
   printf("[MOCK] wrap_miopenConvolutionForward(\n");
   printf("[MOCK]   input_shape=[%lld,%lld,%lld,%lld],\n",
          (long long)input_shape[0], (long long)input_shape[1],
@@ -587,7 +332,6 @@ int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
       "[MOCK]   pad=[%lld,%lld], stride=[%lld,%lld], dilation=[%lld,%lld])\n",
       (long long)pad_h, (long long)pad_w, (long long)stride_h,
       (long long)stride_w, (long long)dilation_h, (long long)dilation_w);
-#endif
 
   miopenHandle_t miopen_handle = static_cast<miopenHandle_t>(handle);
   hipStream_t hip_stream = static_cast<hipStream_t>(stream);
@@ -661,7 +405,6 @@ int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
   return 0;
 }
 
-// hipBLASLt GEMM wrapper implementation
 int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
                          int64_t k, const void *alpha, const void *A,
                          const void *B, const void *beta, void *C) {
@@ -670,10 +413,8 @@ int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
     return -1;
   }
 
-#ifdef BUILD_MOCK_RUNTIME
   printf("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n", (long long)m,
          (long long)n, (long long)k);
-#endif
 
   hipblasLtHandle_t hipblas_handle = static_cast<hipblasLtHandle_t>(handle);
   hipStream_t hip_stream = static_cast<hipStream_t>(stream);
@@ -706,7 +447,6 @@ int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
   return 0;
 }
 
-// HIP memory wrappers
 int wrap_hipMalloc(void **ptr, int64_t size) {
   HIP_CHECK(hipMalloc(ptr, size));
   return 0;
@@ -735,43 +475,3 @@ int wrap_hipStreamSynchronize(void *stream) {
   HIP_CHECK(hipStreamSynchronize(static_cast<hipStream_t>(stream)));
   return 0;
 }
-
-//==============================================================================
-// Backward Compatibility Wrappers (for old test MLIR)
-//==============================================================================
-// These wrappers support test MLIR that uses old function names.
-// Production code should use the hipdnn_ep_* API directly.
-
-extern "C" {
-
-// Legacy wrapper: runtime_state_init -> hipdnn_ep_state_init
-int runtime_state_init(void **out_state) {
-  return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state));
-}
-
-// Legacy wrapper: runtime_state_cleanup -> hipdnn_ep_state_cleanup
-int runtime_state_cleanup(void *state) {
-  return hipdnn_ep_state_cleanup(static_cast<RuntimeState *>(state));
-}
-
-// Legacy wrapper: runtime_prepare_inference
-// Simple implementation: allocates temporary inference data structure
-int runtime_prepare_inference(void *state, void *inputs_ptr, void *outputs_ptr,
-                               void **out_data) {
-  // For now, just return a dummy pointer
-  // Real implementation would allocate InferenceData and prepare GPU buffers
-  *out_data = malloc(8); // Dummy allocation
-  return 0; // Success
-}
-
-// Legacy wrapper: runtime_cleanup_inference
-// Simple implementation: frees temporary inference data
-int runtime_cleanup_inference(void *state, void *data, void *outputs_ptr) {
-  // Free the dummy allocation
-  if (data) {
-    free(data);
-  }
-  return 0; // Success
-}
-
-} // extern "C"

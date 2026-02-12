@@ -68,6 +68,19 @@ endif()
 message(STATUS "Found Clang for bitcode generation: ${CLANG_EXECUTABLE}")
 set(ENABLE_RUNTIME_IR_MERGING ON)
 
+# llvm-link REQUIRED for combining multiple bitcode files
+find_program(LLVM_LINK_EXECUTABLE NAMES llvm-link
+    PATHS
+        ${LLVM_BINARY_DIR}/bin
+        ${LLVM_TOOLS_BINARY_DIR}
+)
+
+if(NOT LLVM_LINK_EXECUTABLE)
+    message(FATAL_ERROR "llvm-link not found (required for combining runtime modules)")
+endif()
+
+message(STATUS "Found llvm-link: ${LLVM_LINK_EXECUTABLE}")
+
 # ============================================================================
 # STEP 2: Find ROCm Components (Optional - Mock Mode Available)
 # ============================================================================
@@ -91,7 +104,7 @@ else()
 endif()
 
 # ============================================================================
-# STEP 3: Generate LLVM Bitcode from Runtime Source (CRITICAL)
+# STEP 3: Generate LLVM Bitcode from Runtime Modules
 # ============================================================================
 
 # WHY THIS STEP IS NECESSARY:
@@ -110,33 +123,72 @@ endif()
 #
 # This is the "zero-cost abstraction" - clean code with no performance penalty.
 
+# Macro to compile a single C++ file to bitcode
+macro(compile_to_bitcode SOURCE_FILE OUTPUT_BC)
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${OUTPUT_BC}
+        COMMAND ${CLANG_EXECUTABLE}
+                -c -emit-llvm -O2 -std=c++17
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -DBUILD_MOCK_RUNTIME=$<BOOL:${BUILD_MOCK_RUNTIME}>
+                $<$<BOOL:${BUILD_MOCK_RUNTIME}>:-DBUILD_MOCK_RUNTIME=1>
+                ${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE_FILE}
+                -o ${CMAKE_CURRENT_BINARY_DIR}/${OUTPUT_BC}
+        DEPENDS ${SOURCE_FILE} hipdnn_ep_runtime.h
+        COMMENT "Compiling ${SOURCE_FILE} to bitcode (${OUTPUT_BC})"
+        VERBATIM
+    )
+endmacro()
+
+# Core modules (always compiled)
+compile_to_bitcode(hipdnn_ep_runtime_state.cpp runtime_state.bc)
+compile_to_bitcode(hipdnn_ep_runtime_constants.cpp runtime_constants.bc)
+
+# Conditional modules based on BUILD_MOCK_RUNTIME
+if(NOT BUILD_MOCK_RUNTIME)
+    # Real implementations
+    compile_to_bitcode(hipdnn_ep_runtime_hip.cpp runtime_hip.bc)
+    compile_to_bitcode(hipdnn_ep_runtime_miopen.cpp runtime_miopen.bc)
+    compile_to_bitcode(hipdnn_ep_runtime_hipblas.cpp runtime_hipblas.bc)
+
+    set(RUNTIME_BC_MODULES
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_state.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_constants.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_hip.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_miopen.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_hipblas.bc
+    )
+else()
+    # Mock implementation
+    compile_to_bitcode(hipdnn_ep_runtime_mock.cpp runtime_mock.bc)
+
+    set(RUNTIME_BC_MODULES
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_state.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_constants.bc
+        ${CMAKE_CURRENT_BINARY_DIR}/runtime_mock.bc
+    )
+endif()
+
+# ============================================================================
+# STEP 4: Link Bitcode Modules into Single runtime.bc
+# ============================================================================
+
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc
 
-    # Compile Runtime to LLVM bitcode (not native object code)
-    COMMAND ${CLANG_EXECUTABLE}
-            -c                              # Compile only (no linking)
-            -emit-llvm                      # CRITICAL: Output LLVM bitcode instead of object file
-            -O2                             # Optimize (makes inlining more effective)
-            -std=c++17                      # C++17 features used in Runtime
-            -I${CMAKE_CURRENT_SOURCE_DIR}  # Include path for headers
-
-            # Pass BUILD_MOCK_RUNTIME flag to conditionally compile mock or real Runtime
-            -DBUILD_MOCK_RUNTIME=$<BOOL:${BUILD_MOCK_RUNTIME}>
-            $<$<BOOL:${BUILD_MOCK_RUNTIME}>:-DBUILD_MOCK_RUNTIME=1>
-
-            ${CMAKE_CURRENT_SOURCE_DIR}/hipdnn_ep_runtime.cpp
+    # Combine all bitcode modules into single runtime.bc
+    COMMAND ${LLVM_LINK_EXECUTABLE}
+            ${RUNTIME_BC_MODULES}
             -o ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc
 
-    # Recompile if Runtime source changes
-    DEPENDS hipdnn_ep_runtime.cpp hipdnn_ep_runtime.h
+    DEPENDS ${RUNTIME_BC_MODULES}
 
-    COMMENT "Stage 1: Compiling Runtime to LLVM bitcode (runtime.bc)"
+    COMMENT "Linking runtime modules into runtime.bc"
     VERBATIM
 )
 
 # ============================================================================
-# STEP 4: Embed Bitcode as C Array
+# STEP 5: Embed Bitcode as C Array
 # ============================================================================
 
 # WHY EMBED AS C ARRAY:
@@ -179,7 +231,7 @@ add_custom_command(
 set(RUNTIME_IR_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp)
 
 # ============================================================================
-# STEP 5: Create Runtime Static Library
+# STEP 6: Create Runtime Static Library
 # ============================================================================
 
 # CRITICAL: hipdnn_ep_runtime.cpp is NOT compiled to native code here (tricky!)
@@ -230,26 +282,22 @@ target_include_directories(HipDnnEpRuntime
 )
 
 # ============================================================================
-# STEP 6: Link Dependencies
+# STEP 7: No ROCm Linking Required
 # ============================================================================
 
-if(NOT BUILD_MOCK_RUNTIME)
-    # Real Runtime: Link ROCm libraries
-    # These will be dynamically loaded at runtime by the generated DLL
-    target_link_libraries(HipDnnEpRuntime
-        PUBLIC
-            hip::host       # HIP runtime (hipMalloc, hipMemcpy, hipStreamCreate, etc.)
-            MIOpen          # DNN operations (miopenConvolutionForward, etc.)
-            hipblaslt       # BLAS operations (hipblasLtMatmul, etc.)
-    )
-else()
-    # Mock Runtime: No ROCm dependencies
-    # All GPU functions are stubbed (malloc/free + debug prints)
-    target_compile_definitions(HipDnnEpRuntime PRIVATE BUILD_MOCK_RUNTIME=1)
-endif()
+# Why no target_link_libraries() for HIP/MIOpen/hipBLASLt:
+#
+# 1. HipDnnEpRuntime only contains embedded bitcode data (runtime_ir_data.cpp), not native code
+# 2. Real/mock choice is already baked into runtime.bc at STEP 3/4 (via -DBUILD_MOCK_RUNTIME)
+# 3. EP DLL never calls runtime functions - confirmed by codebase exploration
+# 4. Model DLLs get runtime code through IR merging, not CMake linking
+#
+# The runtime functions (with HIP/MIOpen calls) are inlined into each model DLL
+# during model compilation via llvm::Linker. Model DLLs link ROCm libraries at
+# their own compilation time (in LLVMBackend), not through this CMake target.
 
 # ============================================================================
-# STEP 7: Compiler Settings
+# STEP 8: Compiler Settings
 # ============================================================================
 
 target_compile_features(HipDnnEpRuntime PRIVATE cxx_std_17)
@@ -261,7 +309,7 @@ else()
 endif()
 
 # ============================================================================
-# STEP 8: Install Rules - NOT NEEDED (Static Linking)
+# STEP 9: Install Rules - NOT NEEDED (Static Linking)
 # ============================================================================
 
 # NOTE: Install rules are intentionally omitted for HipDnnEpRuntime
