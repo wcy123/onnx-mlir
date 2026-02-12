@@ -10,6 +10,153 @@ Licensed under the MIT License.
 
 ---
 
+## Runtime Integration Pipeline
+
+This diagram shows how the Runtime integrates into the compilation flow (complementary to [ARCHITECTURE.md System Architecture](ARCHITECTURE.md#system-architecture)):
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  BUILD TIME (Once - when building EP DLL)                        │
+│  Produces: Embedded Runtime bitcode                              │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  hipdnn_ep_runtime.cpp + hipdnn_ep_runtime.h                     │
+│         ↓                                                         │
+│  clang -c -emit-llvm -O2 -std=c++17                              │
+│         ↓                                                         │
+│  runtime.bc (LLVM bitcode)                                       │
+│         ↓                                                         │
+│  xxd.py --var runtime_bc_data                                    │
+│         ↓                                                         │
+│  runtime_ir_data.cpp (embedded as unsigned char array)           │
+│         ↓                                                         │
+│  Compiled into EP DLL (libHipDnnRuntime.a linked)                │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────────┐
+│  MODEL COMPILATION TIME (Per model - Level-1 Pass)               │
+│  Input: ONNX model    Output: EPContext with embedded DLL        │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  [From ARCHITECTURE.md: ONNX → MLIR transformations]             │
+│         ↓                                                         │
+│  MLIR (HIP dialect) → LLVM dialect conversion                    │
+│         ↓                                                         │
+│  ┌────────────────────────────────────────────────────┐          │
+│  │ LLVM IR Generation                                 │          │
+│  │  - @main(state, inputs, outputs) function          │          │
+│  │  - @inference_init/compute/cleanup wrappers        │          │
+│  │  - Calls to @hipdnn_ep_get_stream, etc.            │          │
+│  │  - llvm.mlir.global for embedded constants         │          │
+│  │  - @initialize_constants helper                    │          │
+│  └────────────────────────────────────────────────────┘          │
+│         ↓                                                         │
+│  ┌────────────────────────────────────────────────────┐          │
+│  │ Runtime IR Merging (llvm::Linker API)              │          │
+│  │  1. Parse embedded runtime_bc_data → Runtime IR    │          │
+│  │  2. llvm::Linker::linkInModule(Runtime IR)         │          │
+│  │  3. Resolve function declarations:                 │          │
+│  │     - @hipdnn_ep_state_init(ptr, i64) -> i32       │          │
+│  │     - @hipdnn_ep_get_stream(ptr) -> ptr            │          │
+│  │     - @hipdnn_ep_get_constant(ptr, i64) -> ptr     │          │
+│  │     - @wrap_miopenConvolutionForward(...)          │          │
+│  │     - @wrap_hipblasLtGemm(...)                     │          │
+│  │     - @wrap_hipMalloc/Free/MemcpyH2D/D2H/Sync     │          │
+│  └────────────────────────────────────────────────────┘          │
+│         ↓                                                         │
+│  Combined LLVM IR Module                                         │
+│    (Generated code + Runtime implementation merged)              │
+│         ↓                                                         │
+│  ┌────────────────────────────────────────────────────┐          │
+│  │ LLVM Optimization (PassBuilder O2)                 │          │
+│  │  Key transformations:                              │          │
+│  │  - Inline @hipdnn_ep_get_stream() → load instr     │          │
+│  │  - Inline @hipdnn_ep_get_constant() → array access │          │
+│  │  - Dead code elimination (unused Runtime code)     │          │
+│  │  - Cross-module inlining opportunities             │          │
+│  └────────────────────────────────────────────────────┘          │
+│         ↓                                                         │
+│  Optimized LLVM IR (accessor calls eliminated)                   │
+│         ↓                                                         │
+│  ┌────────────────────────────────────────────────────┐          │
+│  │ Native Code Generation                             │          │
+│  │  - LLVM IR → Object code (.obj/.o)                 │          │
+│  │  - Link with libHipDnnRuntime.a (static)           │          │
+│  │  - Link ROCm libraries:                            │          │
+│  │    * amdhip64.lib (HIP runtime)                    │          │
+│  │    * MIOpen.lib (DNN operations)                   │          │
+│  │    * hipblaslt.lib (BLAS operations)               │          │
+│  │  - Produce: model.dll                              │          │
+│  └────────────────────────────────────────────────────┘          │
+│         ↓                                                         │
+│  model.dll (native x64 DLL)                                      │
+│    Exports:                                                       │
+│      - inference_init(void** out_state) -> i32                   │
+│      - inference_compute(void* state, span_t*, span_t*) -> i32   │
+│      - inference_cleanup(void* state) -> i32                     │
+│    Contains:                                                      │
+│      - Inlined Runtime code (no function call overhead)          │
+│      - Embedded constants (weights/biases in .data section)      │
+│      - GPU operation calls (MIOpen, hipBLAS)                     │
+│         ↓                                                         │
+│  ┌────────────────────────────────────────────────────┐          │
+│  │ EPContext Packaging                                │          │
+│  │  1. Read model.dll into memory buffer              │          │
+│  │  2. Create EPContext node in ONNX graph            │          │
+│  │  3. Embed DLL as binary attribute                  │          │
+│  │  4. Replace original graph with EPContext node     │          │
+│  │  5. Save as model_with_context.onnx                │          │
+│  └────────────────────────────────────────────────────┘          │
+│         ↓                                                         │
+│  model_with_context.onnx (single file deployment)                │
+│    Contains:                                                      │
+│      - EPContext node (com.microsoft:EPContext)                  │
+│      - Embedded model.dll (pre-compiled, optimized)              │
+│      - No ONNX graph (replaced by compiled artifact)             │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────────────┐
+│  INFERENCE TIME (Runtime - repeatedly executed)                  │
+│  Dependencies: HIP runtime, MIOpen, hipBLASLt                    │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Load model_with_context.onnx                                    │
+│         ↓                                                         │
+│  CustomOp recognizes EPContext node                              │
+│         ↓                                                         │
+│  Extract embedded model.dll from EPContext attribute             │
+│         ↓                                                         │
+│  Load DLL from memory (MemoryModule or platform API)             │
+│         ↓                                                         │
+│  Resolve function pointers:                                      │
+│    - fn_init = GetProcAddress("inference_init")                  │
+│    - fn_compute = GetProcAddress("inference_compute")            │
+│    - fn_cleanup = GetProcAddress("inference_cleanup")            │
+│         ↓                                                         │
+│  Session Initialization:                                         │
+│    void* state = nullptr;                                        │
+│    fn_init(&state);  // Creates GPU handles, allocates constants │
+│         ↓                                                         │
+│  Inference Execution (repeated):                                 │
+│    fn_compute(state, inputs, outputs);  // Reuses GPU resources  │
+│         ↓                                                         │
+│  Session Cleanup:                                                │
+│    fn_cleanup(state);  // Frees GPU resources                    │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Key Integration Points:**
+1. **Build Time**: Runtime compiled to bitcode once, embedded in EP DLL
+2. **Model Compilation**: Runtime IR merged with each model's generated IR
+3. **Optimization**: LLVM inlines Runtime accessor functions (zero-cost abstraction)
+4. **Packaging**: Final DLL embedded in EPContext for single-file deployment
+5. **Inference**: CustomOp loads DLL from memory, calls exported functions
+
+---
+
 ## Overview
 
 ### What is the Runtime?
