@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
  * Licensed under the MIT License.
  */
-#include "hip_ep_runtime.h"
+#include "hipdnn_ep_runtime.h"
 
 #ifndef BUILD_MOCK_RUNTIME
 #include <hip/hip_runtime.h>
@@ -360,9 +360,9 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
 
 // Runtime state management implementation
 
-int runtime_state_init(RuntimeState **out_state) {
+int hipdnn_ep_state_init(RuntimeState **out_state) {
   if (!out_state) {
-    fprintf(stderr, "Invalid output parameter to runtime_state_init\n");
+    fprintf(stderr, "Invalid output parameter to hipdnn_ep_state_init\n");
     return 1;
   }
 
@@ -417,7 +417,7 @@ int runtime_state_init(RuntimeState **out_state) {
   return 0;
 }
 
-int runtime_state_cleanup(RuntimeState *state) {
+int hipdnn_ep_state_cleanup(RuntimeState *state) {
   if (!state) {
     fprintf(stderr, "Invalid runtime state in cleanup\n");
     return 0; // Best-effort - don't fail
@@ -452,15 +452,15 @@ int runtime_state_cleanup(RuntimeState *state) {
   return 0; // Best-effort cleanup always returns success
 }
 
-void *runtime_get_stream(RuntimeState *state) {
+void *hipdnn_ep_get_stream(RuntimeState *state) {
   return state ? static_cast<void *>(state->stream) : nullptr;
 }
 
 // Constant management implementation
-int hip_upload_constant(RuntimeState *state, int64_t index, const void *data,
+int hipdnn_ep_upload_constant(RuntimeState *state, int64_t index, const void *data,
                         int64_t size) {
   if (!state || !data || size <= 0) {
-    fprintf(stderr, "Invalid arguments to hip_upload_constant\n");
+    fprintf(stderr, "Invalid arguments to hipdnn_ep_upload_constant\n");
     return -1;
   }
 
@@ -484,7 +484,7 @@ int hip_upload_constant(RuntimeState *state, int64_t index, const void *data,
   return 0;
 }
 
-void *hip_get_constant(RuntimeState *state, int64_t index) {
+void *hipdnn_ep_get_constant(RuntimeState *state, int64_t index) {
   if (!state) {
     fprintf(stderr, "Invalid runtime state\n");
     return nullptr;
@@ -499,7 +499,7 @@ void *hip_get_constant(RuntimeState *state, int64_t index) {
   return it->second;
 }
 
-int hip_release_constant(RuntimeState *state, int64_t index) {
+int hipdnn_ep_release_constant(RuntimeState *state, int64_t index) {
   if (!state) {
     fprintf(stderr, "Invalid runtime state\n");
     return -1;
@@ -521,19 +521,19 @@ int hip_release_constant(RuntimeState *state, int64_t index) {
 }
 
 // MIOpen convolution forward implementation
-int miopenConvolutionForward(void *handle, void *stream, const void *input,
+int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
                              const int64_t *input_shape, const void *weights,
                              const int64_t *weights_shape, void *output,
                              const int64_t *output_shape, int64_t pad_h,
                              int64_t pad_w, int64_t stride_h, int64_t stride_w,
                              int64_t dilation_h, int64_t dilation_w) {
   if (!handle || !stream || !input || !weights || !output) {
-    fprintf(stderr, "Invalid arguments to miopenConvolutionForward\n");
+    fprintf(stderr, "Invalid arguments to wrap_miopenConvolutionForward\n");
     return -1;
   }
 
 #ifdef BUILD_MOCK_RUNTIME
-  printf("[MOCK] miopenConvolutionForward(\n");
+  printf("[MOCK] wrap_miopenConvolutionForward(\n");
   printf("[MOCK]   input_shape=[%lld,%lld,%lld,%lld],\n",
          (long long)input_shape[0], (long long)input_shape[1],
          (long long)input_shape[2], (long long)input_shape[3]);
@@ -622,16 +622,16 @@ int miopenConvolutionForward(void *handle, void *stream, const void *input,
 }
 
 // hipBLASLt GEMM wrapper implementation
-int hipblasLtGemmWrapper(void *handle, void *stream, int64_t m, int64_t n,
+int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
                          int64_t k, const void *alpha, const void *A,
                          const void *B, const void *beta, void *C) {
   if (!handle || !stream || !alpha || !A || !B || !beta || !C) {
-    fprintf(stderr, "Invalid arguments to hipblasLtGemmWrapper\n");
+    fprintf(stderr, "Invalid arguments to wrap_hipblasLtGemm\n");
     return -1;
   }
 
 #ifdef BUILD_MOCK_RUNTIME
-  printf("[MOCK] hipblasLtGemmWrapper(M=%lld, N=%lld, K=%lld)\n", (long long)m,
+  printf("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n", (long long)m,
          (long long)n, (long long)k);
 #endif
 
@@ -667,31 +667,31 @@ int hipblasLtGemmWrapper(void *handle, void *stream, int64_t m, int64_t n,
 }
 
 // HIP memory wrappers
-int hip_malloc_wrapper(void **ptr, int64_t size) {
+int wrap_hipMalloc(void **ptr, int64_t size) {
   HIP_CHECK(hipMalloc(ptr, size));
   return 0;
 }
 
-int hip_free_wrapper(void *ptr) {
+int wrap_hipFree(void *ptr) {
   HIP_CHECK(hipFree(ptr));
   return 0;
 }
 
-int hip_memcpy_h2d_async(void *dst, const void *src, int64_t size,
+int wrap_hipMemcpyH2D(void *dst, const void *src, int64_t size,
                          void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyHostToDevice,
                            static_cast<hipStream_t>(stream)));
   return 0;
 }
 
-int hip_memcpy_d2h_async(void *dst, const void *src, int64_t size,
+int wrap_hipMemcpyD2H(void *dst, const void *src, int64_t size,
                          void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyDeviceToHost,
                            static_cast<hipStream_t>(stream)));
   return 0;
 }
 
-int hip_stream_synchronize_wrapper(void *stream) {
+int wrap_hipStreamSynchronize(void *stream) {
   HIP_CHECK(hipStreamSynchronize(static_cast<hipStream_t>(stream)));
   return 0;
 }

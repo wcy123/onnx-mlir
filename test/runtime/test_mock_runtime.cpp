@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
  * Licensed under the MIT License.
  */
-#include "../../lib/Runtime/hip_ep_runtime.h"
+#include "../../lib/Runtime/hipdnn_ep_runtime.h"
 #include "../../lib/Runtime/hip_ep_runtime_mock.h"
 #include <cassert>
 #include <cstdio>
@@ -70,16 +70,16 @@ int main() {
   void *weights_gpu = nullptr;
   void *output_gpu = nullptr;
 
-  result = hip_malloc_wrapper(&input_gpu, 1 * 3 * 224 * 224 * 4);
+  result = wrap_hipMalloc(&input_gpu, 1 * 3 * 224 * 224 * 4);
   assert(result == 0 && input_gpu != nullptr);
 
-  result = hip_malloc_wrapper(&weights_gpu, 64 * 3 * 7 * 7 * 4);
+  result = wrap_hipMalloc(&weights_gpu, 64 * 3 * 7 * 7 * 4);
   assert(result == 0 && weights_gpu != nullptr);
 
-  result = hip_malloc_wrapper(&output_gpu, 1 * 64 * 112 * 112 * 4);
+  result = wrap_hipMalloc(&output_gpu, 1 * 64 * 112 * 112 * 4);
   assert(result == 0 && output_gpu != nullptr);
 
-  result = miopenConvolutionForward(miopen, stream, input_gpu, input_shape,
+  result = wrap_miopenConvolutionForward(miopen, stream, input_gpu, input_shape,
                                     weights_gpu, weights_shape, output_gpu,
                                     output_shape, 3, 3, // pad
                                     2, 2,               // stride
@@ -94,16 +94,16 @@ int main() {
   void *B = nullptr;
   void *C = nullptr;
 
-  result = hip_malloc_wrapper(&A, 1000 * 2048 * 4);
+  result = wrap_hipMalloc(&A, 1000 * 2048 * 4);
   assert(result == 0 && A != nullptr);
 
-  result = hip_malloc_wrapper(&B, 2048 * 1 * 4);
+  result = wrap_hipMalloc(&B, 2048 * 1 * 4);
   assert(result == 0 && B != nullptr);
 
-  result = hip_malloc_wrapper(&C, 1000 * 1 * 4);
+  result = wrap_hipMalloc(&C, 1000 * 1 * 4);
   assert(result == 0 && C != nullptr);
 
-  result = hipblasLtGemmWrapper(hipblas, stream, 1000, 1, 2048, // M, N, K
+  result = wrap_hipblasLtGemm(hipblas, stream, 1000, 1, 2048, // M, N, K
                                 &alpha, A, B, &beta, C);
   assert(result == 0);
   std::cout << "✓ GEMM completed\n\n";
@@ -113,15 +113,15 @@ int main() {
   std::vector<float> host_data(1024, 1.0f);
   void *device_data = nullptr;
 
-  result = hip_malloc_wrapper(&device_data, 1024 * sizeof(float));
+  result = wrap_hipMalloc(&device_data, 1024 * sizeof(float));
   assert(result == 0 && device_data != nullptr);
 
-  result = hip_memcpy_h2d_async(device_data, host_data.data(),
+  result = wrap_hipMemcpyH2D(device_data, host_data.data(),
                                 1024 * sizeof(float), stream);
   assert(result == 0);
   std::cout << "✓ H2D copy completed\n";
 
-  result = hip_memcpy_d2h_async(host_data.data(), device_data,
+  result = wrap_hipMemcpyD2H(host_data.data(), device_data,
                                 1024 * sizeof(float), stream);
   assert(result == 0);
   std::cout << "✓ D2H copy completed\n\n";
@@ -129,25 +129,25 @@ int main() {
   // Test 7: Cleanup (should print in reverse order)
   std::cout << "--- Test 7: Cleanup ---\n";
 
-  result = hip_free_wrapper(input_gpu);
+  result = wrap_hipFree(input_gpu);
   assert(result == 0);
 
-  result = hip_free_wrapper(weights_gpu);
+  result = wrap_hipFree(weights_gpu);
   assert(result == 0);
 
-  result = hip_free_wrapper(output_gpu);
+  result = wrap_hipFree(output_gpu);
   assert(result == 0);
 
-  result = hip_free_wrapper(A);
+  result = wrap_hipFree(A);
   assert(result == 0);
 
-  result = hip_free_wrapper(B);
+  result = wrap_hipFree(B);
   assert(result == 0);
 
-  result = hip_free_wrapper(C);
+  result = wrap_hipFree(C);
   assert(result == 0);
 
-  result = hip_free_wrapper(device_data);
+  result = wrap_hipFree(device_data);
   assert(result == 0);
 
   result = hipStreamSynchronize(stream);

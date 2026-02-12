@@ -12,7 +12,7 @@ Licensed under the MIT License.
 
 ## Overview
 
-The Runtime is a static library providing GPU state management, constant (model weights) management, and wrapper functions for ROCm operations. It bridges the gap between MLIR-generated code and AMD GPU hardware.
+The Runtime is a static library providing runtime state management, constant (model weights) management, and wrapper functions for ROCm operations. It bridges the gap between MLIR-generated code and AMD GPU hardware.
 
 **Key Design Principle**: The runtime state is **opaque** to all external code (including generated code). This enables evolution without breaking compatibility.
 
@@ -28,38 +28,42 @@ This naming reflects the abstraction boundary between the generic interface and 
 
 ### Core Functionality
 
-The Runtime library (`lib/Runtime`, 343 lines currently) provides:
+The Runtime library (`lib/Runtime`) provides:
 
-#### 1. GPU State Management (~50 lines)
-- RuntimeState struct containing:
-  - HIP stream handle (`hipStream_t`)
-  - MIOpen handle for convolution operations (`miopenHandle_t`)
-  - hipBLASLt handle for matrix operations (`hipblasLtHandle_t`)
-  - GPU constant pointers map
-- Handle lifecycle management (creation, usage, destruction)
+#### 1. Runtime State Management
+- Opaque state pointer (`void*`) for external callers
+- Lifecycle management: `inference_init`, `inference_cleanup`
+- GPU resources persist across multiple inference calls
+- See [Opaque RuntimeState Pattern](#opaque-runtimestate-pattern) for implementation details
 
-#### 2. Constant Management (~80 lines)
-- `hip_upload_constant()` - Upload model weights from DLL .data section to GPU memory
-- `hip_get_constant()` - Retrieve GPU pointer for a constant by index
-- `hip_release_constant()` - Free GPU memory for constants
-- Uses `std::unordered_map<int64_t, void*>` to track uploaded GPU pointers
+#### 2. Constant Management
+- `hipdnn_ep_upload_constant()` - Upload model weights to GPU memory
+- `hipdnn_ep_get_constant()` - Retrieve GPU pointer for a constant by index
+- `hipdnn_ep_release_constant()` - Free GPU memory for constants
 
-#### 3. Operation Wrappers (~150 lines currently, can be 0)
-- `miopenConvolutionForward()` - Full MIOpen convolution wrapper
+#### 3. Operation Wrappers (Extensible)
+
+- `wrap_wrap_miopenConvolutionForward()` - Full MIOpen convolution wrapper
   - Creates tensor/convolution descriptors
   - Finds optimal algorithm
   - Allocates workspace memory
   - Performs forward pass
-- `hipblasLtGemmWrapper()` - Matrix multiplication wrapper
+- `wrap_hipblasLtGemm()` - Matrix multiplication wrapper
   - Creates matrix layout descriptors
   - Performs GEMM operation
 
-#### 4. Memory Management Wrappers (~60 lines currently, can be 0)
-- `hip_malloc_wrapper()` - GPU memory allocation
-- `hip_free_wrapper()` - GPU memory deallocation
-- `hip_memcpy_h2d_async()` - Host-to-device async copy
-- `hip_memcpy_d2h_async()` - Device-to-host async copy
-- `hip_stream_synchronize_wrapper()` - Stream synchronization
+**Currently supported:**
+- MIOpen - convolution
+- hipBLASLt - GEMM
+
+**To add a new library:** Add its handle to RuntimeState, create wrapper functions, and add initialization/cleanup code. The opaque design ensures no impact on existing code.
+
+#### 4. Memory Management Wrappers
+- `wrap_hipMalloc()` - GPU memory allocation
+- `wrap_hipFree()` - GPU memory deallocation
+- `wrap_hipMemcpyH2D()` - Host-to-device async copy
+- `wrap_hipMemcpyD2H()` - Device-to-host async copy
+- `wrap_hipStreamSynchronize()` - Stream synchronization
 
 ---
 
@@ -184,7 +188,7 @@ struct RuntimeState {
 
 **Solution**: Opaque RuntimeState with accessor functions:
 - Runtime owns struct layout (defined in runtime implementation, not generated code)
-- Generated code calls `hip_get_constant(state, index)` - no field offsets
+- Generated code calls `hipdnn_ep_get_constant(state, index)` - no field offsets
 - Runtime can add fields without breaking generated code
 - Clean separation: generated code doesn't know or care about internals
 
@@ -204,11 +208,11 @@ struct RuntimeState {
 **CORRECT - Use accessor functions**:
 ```mlir
 // ✅ Getting GPU stream
-%stream = llvm.call @runtime_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
+%stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
 
 // ✅ Getting constants
 %index_0 = llvm.mlir.constant(0 : i64) : i64
-%weight_0_gpu = llvm.call @hip_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
+%weight_0_gpu = llvm.call @hipdnn_ep_get_constant(%state, %index_0) : (!llvm.ptr, i64) -> !llvm.ptr
 ```
 
 **FORBIDDEN - Direct field access**:
@@ -254,7 +258,7 @@ func.func @main(%ctx: !hip.context, ...) -> i32 {          // ✅ HIP context
 **Internal (MLIR - LLVM dialect)**: Use "state" with `!llvm.ptr` (already lowered)
 ```mlir
 func.func @inference_compute(%state: !llvm.ptr, ...) -> i32 {  // ✅ Lowered to opaque ptr
-  %stream = llvm.call @runtime_get_stream(%state) : ...        // ✅ Access via function
+  %stream = llvm.call @hipdnn_ep_get_stream(%state) : ...        // ✅ Access via function
 }
 ```
 
@@ -321,7 +325,7 @@ Static linking is the **industry standard** for ML inference frameworks:
 
 **Disadvantages**:
 - Code duplication (each DLL contains Runtime code)
-- Slightly larger DLLs (~343 lines × number of models)
+- Slightly larger DLLs
 
 #### Dynamic Linking (Alternative) ❌
 
@@ -348,38 +352,36 @@ Static linking is the **industry standard** for ML inference frameworks:
 
 ## Optimization Opportunities
 
-### Current Runtime Size: 343 lines
+The runtime can be made smaller by generating operations directly in LLVM IR:
 
-**Can reduce to ~130 lines** by generating operations directly in LLVM IR:
-
-#### Keep (130 lines)
-1. **GPU State Management** (~50 lines) - **REQUIRED**
+#### Keep in Runtime - **REQUIRED**
+1. **Runtime State Management**
    - RuntimeState struct, handle lifecycle
    - State must persist between inference calls
 
-2. **Constant Management** (~80 lines) - **REQUIRED**
+2. **Constant Management**
    - upload/get/release functions
    - GPU pointer map must persist across calls
 
-#### Remove (213 lines) - Generate directly instead
-1. **Operation Wrappers** (~150 lines)
-   - Generate direct calls to `miopenConvolutionForward`
+#### Generate Directly Instead
+1. **Operation Wrappers**
+   - Generate direct calls to `wrap_miopenConvolutionForward`
    - Generate direct calls to `hipblasLtMatmul`
    - Inline descriptor creation in generated IR
 
-2. **Memory Wrappers** (~60 lines)
+2. **Memory Wrappers**
    - Generate direct calls to `hipMalloc`/`hipFree`
    - Generate direct calls to `hipMemcpyAsync`
    - Generate direct calls to `hipStreamSynchronize`
 
 ### Benefits of Optimization
-- Smaller static library (130 vs 343 lines)
+- Smaller static library
 - Model-specific optimizations possible
 - Direct ROCm API calls (no wrapper overhead)
 - More flexible code generation
 
 ### Trade-off
-Runtime size vs generated code size - generate wrappers inline trades smaller runtime for slightly larger generated code per model.
+Runtime size vs generated code size - generating wrappers inline trades smaller runtime for slightly larger generated code per model.
 
 ---
 
@@ -487,7 +489,7 @@ int ret = inference_init(&state);  // Creates and initializes state
 **What happens**:
 1. Allocate RuntimeState struct on heap
 2. Create GPU handles (`hipStreamCreate`, `miopenCreate`, `hipblasLtCreate`)
-3. Upload constants to GPU (via `hip_upload_constant`)
+3. Upload constants to GPU (via `hipdnn_ep_upload_constant`)
 4. Store everything in state struct
 5. Return state pointer
 
@@ -499,8 +501,8 @@ int ret = inference_compute(state, inputs, outputs);  // Uses pre-initialized st
 ```
 
 **What happens**:
-1. Get stream via `runtime_get_stream` (opaque - no GEP)
-2. Get pre-uploaded constants via `hip_get_constant` (opaque - no GEP)
+1. Get stream via `hipdnn_ep_get_stream` (opaque - no GEP)
+2. Get pre-uploaded constants via `hipdnn_ep_get_constant` (opaque - no GEP)
 3. Execute operations using stream and weights
 4. Return results
 
@@ -514,7 +516,7 @@ int ret = inference_cleanup(state);  // Frees all resources
 ```
 
 **What happens**:
-1. Free GPU constant memory (via `hip_release_constant`)
+1. Free GPU constant memory (via `hipdnn_ep_release_constant`)
 2. Destroy GPU handles (`miopenDestroy`, `hipStreamDestroy`, etc.)
 3. Free state struct itself
 4. State pointer becomes invalid
@@ -531,8 +533,8 @@ The state structure contains pointers to pre-uploaded constants (weights, biases
 - Constants embedded in DLL as `llvm.mlir.global`
 - Uploaded to GPU in `inference_init`
 - GPU pointers stored in `state->gpu_constants[]`
-- Accessed in `inference_compute` via `hip_get_constant`
-- Freed in `inference_cleanup` via `hip_release_constant`
+- Accessed in `inference_compute` via `hipdnn_ep_get_constant`
+- Freed in `inference_cleanup` via `hipdnn_ep_release_constant`
 
 **Example**:
 ```mlir
@@ -541,15 +543,15 @@ The state structure contains pointers to pre-uploaded constants (weights, biases
 %size = llvm.mlir.constant(6912 : i64) : i64
 %index_0 = llvm.mlir.constant(0 : i64) : i64
 // Upload via runtime function (opaque - no GEP)
-llvm.call @hip_upload_constant(%state, %index_0, %weight_cpu, %size)
+llvm.call @hipdnn_ep_upload_constant(%state, %index_0, %weight_cpu, %size)
   : (!llvm.ptr, i64, !llvm.ptr, i64) -> i32
 
 // In inference_compute:
 %index_0 = llvm.mlir.constant(0 : i64) : i64
 // Get via runtime function (opaque - no GEP)
-%weight_gpu = llvm.call @hip_get_constant(%state, %index_0)
+%weight_gpu = llvm.call @hipdnn_ep_get_constant(%state, %index_0)
   : (!llvm.ptr, i64) -> !llvm.ptr
-llvm.call @miopenConvolutionForward(..., %weight_gpu, ...)
+llvm.call @wrap_miopenConvolutionForward(..., %weight_gpu, ...)
 ```
 
 ---

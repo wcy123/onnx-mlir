@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
  * Licensed under the MIT License.
  */
-#include "../../lib/Runtime/hip_ep_runtime.h"
+#include "../../lib/Runtime/hipdnn_ep_runtime.h"
 #include "../../lib/Runtime/hip_ep_runtime_mock.h"
 #include <cassert>
 #include <cstdio>
@@ -22,7 +22,7 @@ int main() {
 
   // Initialize runtime state
   RuntimeState *state = nullptr;
-  int result = runtime_state_init(&state);
+  int result = hipdnn_ep_state_init(&state);
   assert(result == 0);
   std::cout << "✓ State initialized\n";
 
@@ -74,14 +74,14 @@ int main() {
   std::cout << "✓ Inference cleaned up\n";
 
   // Cleanup state
-  result = runtime_state_cleanup(state);
+  result = hipdnn_ep_state_cleanup(state);
   assert(result == 0);
   std::cout << "✓ State cleaned up\n\n";
 
   // Test 2: Multiple tensors
   std::cout << "--- Test 2: Multiple Input/Output Tensors ---\n";
 
-  result = runtime_state_init(&state);
+  result = hipdnn_ep_state_init(&state);
   assert(result == 0);
 
   // Create multiple input tensors
@@ -142,14 +142,14 @@ int main() {
   // Cleanup
   result = runtime_cleanup_inference(state, inf_data, &multi_outputs_span);
   assert(result == 0);
-  result = runtime_state_cleanup(state);
+  result = hipdnn_ep_state_cleanup(state);
   assert(result == 0);
   std::cout << "✓ Multiple tensors cleaned up\n\n";
 
   // Test 3: Variable rank tensors
   std::cout << "--- Test 3: Variable Rank Tensors ---\n";
 
-  result = runtime_state_init(&state);
+  result = hipdnn_ep_state_init(&state);
   assert(result == 0);
 
   // Rank-2 tensor
@@ -201,7 +201,7 @@ int main() {
   // Cleanup
   result = runtime_cleanup_inference(state, inf_data, &var_outputs_span);
   assert(result == 0);
-  result = runtime_state_cleanup(state);
+  result = hipdnn_ep_state_cleanup(state);
   assert(result == 0);
   std::cout << "✓ Variable rank cleaned up\n\n";
 

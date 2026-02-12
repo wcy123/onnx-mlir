@@ -184,65 +184,65 @@ private:
     }
 
     // Declare high-level runtime state management functions
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_init")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
       auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_init", funcType);
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_init", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_cleanup")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_cleanup")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "runtime_state_cleanup",
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_cleanup",
                                                    funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare runtime wrapper functions
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_malloc_wrapper")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMalloc")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, i64Type});
       auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hip_malloc_wrapper", funcType);
+          builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMalloc", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_free_wrapper")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipFree")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
       auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hip_free_wrapper", funcType);
+          builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipFree", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_h2d_async")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyH2D")) {
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_h2d_async",
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyH2D",
                                                    funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_d2h_async")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyD2H")) {
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hip_memcpy_d2h_async",
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyD2H",
                                                    funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
-            "hip_stream_synchronize_wrapper")) {
+            "wrap_hipStreamSynchronize")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
       auto func = builder.create<LLVM::LLVMFuncOp>(
-          loc, "hip_stream_synchronize_wrapper", funcType);
+          loc, "wrap_hipStreamSynchronize", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    // Declare runtime_get_stream accessor
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_get_stream")) {
-      // void* runtime_get_stream(RuntimeState* state)
+    // Declare hipdnn_ep_get_stream accessor
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_stream")) {
+      // void* hipdnn_ep_get_stream(RuntimeState* state)
       auto funcType = LLVM::LLVMFunctionType::get(ptrType, {ptrType});
       auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "runtime_get_stream", funcType);
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_get_stream", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
   }
@@ -353,11 +353,11 @@ private:
     return success();
   }
 
-  /// Generate inference_init function - simplified to call runtime_state_init()
+  /// Generate inference_init function - simplified to call hipdnn_ep_state_init()
   /// Signature: int inference_init(void** out_state);
   ///
   /// This function is now a simple wrapper that delegates to
-  /// runtime_state_init() in the runtime library. All the complex
+  /// hipdnn_ep_state_init() in the runtime library. All the complex
   /// initialization logic (creating handles, error handling, LIFO cleanup) is
   /// in C++ code instead of LLVM IR generation.
   void generateInferenceInit(ModuleOp module) {
@@ -385,13 +385,13 @@ private:
 
     Value outStatePtr = entryBlock->getArgument(0);
 
-    // Call runtime_state_init(out_state)
+    // Call hipdnn_ep_state_init(out_state)
     auto runtimeInitFunc =
-        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_init");
+        module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init");
     auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc,
                                              ValueRange{outStatePtr});
 
-    // Return the result from runtime_state_init
+    // Return the result from hipdnn_ep_state_init
     builder.create<LLVM::ReturnOp>(loc, call.getResult());
   }
 
@@ -400,7 +400,7 @@ private:
   /// outputs);
   ///
   /// Phase 1: Parse span_t and tensor_t structures to extract input/output metadata
-  /// - Get stream using runtime_get_stream()
+  /// - Get stream using hipdnn_ep_get_stream()
   /// - Parse inputsSpanPtr to extract tensor array
   /// - Get first input tensor and extract data, shape, rank
   /// - Parse outputsSpanPtr to extract tensor array
@@ -450,7 +450,7 @@ private:
         loc, i64Type, builder.getI64IntegerAttr(2));
 
     // Get stream from runtime state
-    auto getStreamFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_get_stream");
+    auto getStreamFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_stream");
     Value stream = builder.create<LLVM::CallOp>(
         loc, getStreamFunc, ValueRange{state}).getResult();
 
@@ -622,8 +622,8 @@ private:
     Value inputGpuPtrStorage = builder.create<LLVM::AllocaOp>(
         loc, ptrType, ptrType, c1_i64, 0);
 
-    // Call hip_malloc_wrapper(ptrStorage, sizeBytes)
-    auto hipMallocFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hip_malloc_wrapper");
+    // Call wrap_hipMalloc(ptrStorage, sizeBytes)
+    auto hipMallocFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMalloc");
     Value inputMallocRet = builder.create<LLVM::CallOp>(
         loc, hipMallocFunc, ValueRange{inputGpuPtrStorage, inputSizeBytes}).getResult();
 
@@ -651,7 +651,7 @@ private:
     Value outputGpuPtrStorage = builder.create<LLVM::AllocaOp>(
         loc, ptrType, ptrType, c1_i64, 0);
 
-    // Call hip_malloc_wrapper(ptrStorage, sizeBytes)
+    // Call wrap_hipMalloc(ptrStorage, sizeBytes)
     Value outputMallocRet = builder.create<LLVM::CallOp>(
         loc, hipMallocFunc, ValueRange{outputGpuPtrStorage, outputSizeBytes}).getResult();
 
@@ -665,7 +665,7 @@ private:
 
     // Error handler for output allocation failure - free input GPU buffer first
     builder.setInsertionPointToEnd(errorAllocOutputBlock);
-    auto hipFreeFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hip_free_wrapper");
+    auto hipFreeFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipFree");
     builder.create<LLVM::CallOp>(loc, hipFreeFunc, ValueRange{inputGpuPtr});
     builder.create<LLVM::ReturnOp>(loc, c3_i32);
 
@@ -677,8 +677,8 @@ private:
     // Load the allocated output GPU pointer
     Value outputGpuPtr = builder.create<LLVM::LoadOp>(loc, ptrType, outputGpuPtrStorage);
 
-    // Call hip_memcpy_h2d_async(gpuPtr, hostDataPtr, sizeBytes, stream)
-    auto h2dFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_h2d_async");
+    // Call wrap_hipMemcpyH2D(gpuPtr, hostDataPtr, sizeBytes, stream)
+    auto h2dFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyH2D");
     Value h2dRet = builder.create<LLVM::CallOp>(
         loc, h2dFunc,
         ValueRange{inputGpuPtr, inputHostDataPtr, inputSizeBytes, stream}).getResult();
@@ -873,8 +873,8 @@ private:
     // ========================================================================
     builder.setInsertionPointToEnd(d2hCopyBlock);
 
-    // Call hip_memcpy_d2h_async(hostDataPtr, gpuPtr, sizeBytes, stream)
-    auto d2hFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hip_memcpy_d2h_async");
+    // Call wrap_hipMemcpyD2H(hostDataPtr, gpuPtr, sizeBytes, stream)
+    auto d2hFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyD2H");
     Value d2hRet = builder.create<LLVM::CallOp>(
         loc, d2hFunc,
         ValueRange{outputHostDataPtr, outputGpuPtr, outputSizeBytes, stream}).getResult();
@@ -882,8 +882,8 @@ private:
     // Check return value (for now, ignore errors and continue to sync)
     // Future: Add proper error handling
 
-    // Add stream synchronization: hip_stream_synchronize_wrapper(stream)
-    auto streamSyncFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("hip_stream_synchronize_wrapper");
+    // Add stream synchronization: wrap_hipStreamSynchronize(stream)
+    auto streamSyncFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipStreamSynchronize");
     builder.create<LLVM::CallOp>(loc, streamSyncFunc, ValueRange{stream});
 
     // Continue to cleanup regardless of sync result (for now)
@@ -894,10 +894,10 @@ private:
     // ========================================================================
     builder.setInsertionPointToEnd(cleanupBlock);
 
-    // Call hip_free_wrapper(inputGpuPtr)
+    // Call wrap_hipFree(inputGpuPtr)
     builder.create<LLVM::CallOp>(loc, hipFreeFunc, ValueRange{inputGpuPtr});
 
-    // Call hip_free_wrapper(outputGpuPtr)
+    // Call wrap_hipFree(outputGpuPtr)
     builder.create<LLVM::CallOp>(loc, hipFreeFunc, ValueRange{outputGpuPtr});
 
     // Return success
@@ -909,10 +909,10 @@ private:
   /// Destroys GPU resources in reverse order of creation (LIFO)
   /// Uses best-effort cleanup: continues even if some operations fail
   /// Generate inference_cleanup function - simplified to call
-  /// runtime_state_cleanup() Signature: int inference_cleanup(void* state);
+  /// hipdnn_ep_state_cleanup() Signature: int inference_cleanup(void* state);
   ///
   /// This function is now a simple wrapper that delegates to
-  /// runtime_state_cleanup() in the runtime library. All the cleanup logic
+  /// hipdnn_ep_state_cleanup() in the runtime library. All the cleanup logic
   /// (synchronization, handle destruction, LIFO order) is in C++ code instead
   /// of LLVM IR generation.
   void generateInferenceCleanup(ModuleOp module) {
@@ -939,13 +939,13 @@ private:
 
     Value state = entryBlock->getArgument(0);
 
-    // Call runtime_state_cleanup(state)
+    // Call hipdnn_ep_state_cleanup(state)
     auto runtimeCleanupFunc =
-        module.lookupSymbol<LLVM::LLVMFuncOp>("runtime_state_cleanup");
+        module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_cleanup");
     auto call = builder.create<LLVM::CallOp>(loc, runtimeCleanupFunc,
                                              ValueRange{state});
 
-    // Return the result from runtime_state_cleanup (always 0)
+    // Return the result from hipdnn_ep_state_cleanup (always 0)
     builder.create<LLVM::ReturnOp>(loc, call.getResult());
   }
 };

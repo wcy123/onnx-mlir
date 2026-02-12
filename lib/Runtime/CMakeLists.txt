@@ -26,7 +26,7 @@ endif()
 
 # Create static library
 add_library(HipDnnRuntime STATIC
-    hip_ep_runtime.cpp
+    hipdnn_ep_runtime.cpp
 )
 
 target_include_directories(HipDnnRuntime
@@ -63,6 +63,6 @@ install(TARGETS HipDnnRuntime
     LIBRARY DESTINATION lib
 )
 
-install(FILES hip_ep_runtime.h
+install(FILES hipdnn_ep_runtime.h
     DESTINATION include
 )

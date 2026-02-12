@@ -35,10 +35,10 @@ static constexpr const char *kHipDestroyHandle = "hipDestroyHandle";
 static constexpr const char *kHipMalloc = "hipMalloc";
 static constexpr const char *kHipFree = "hipFree";
 static constexpr const char *kMiopenConvolutionForward =
-    "miopenConvolutionForward";
-static constexpr const char *kHipUploadConstant = "hip_upload_constant";
-static constexpr const char *kHipReleaseConstant = "hip_release_constant";
-static constexpr const char *kHipGetConstant = "hip_get_constant";
+    "wrap_miopenConvolutionForward";
+static constexpr const char *kHipUploadConstant = "hipdnn_ep_upload_constant";
+static constexpr const char *kHipReleaseConstant = "hipdnn_ep_release_constant";
+static constexpr const char *kHipGetConstant = "hipdnn_ep_get_constant";
 
 // --- CreateHandleOp: hip.create_handle() -> llvm.call @hipCreateHandle()
 struct CreateHandleOpLowering : public ConvertOpToLLVMPattern<CreateHandleOp> {

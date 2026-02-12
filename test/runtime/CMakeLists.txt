@@ -17,7 +17,7 @@ set(BUILD_MOCK_RUNTIME TRUE)
 
 # Add the runtime library
 add_library(HipDnnRuntime STATIC
-    ../../lib/Runtime/hip_ep_runtime.cpp
+    ../../lib/Runtime/hipdnn_ep_runtime.cpp
 )
 
 target_include_directories(HipDnnRuntime
