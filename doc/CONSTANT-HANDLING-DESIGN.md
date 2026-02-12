@@ -104,42 +104,57 @@ Module-level pass provides full visibility and control over all functions.
 
 Trade-off: No automatic deduplication (future optimization).
 
-### Decision 5: HIP Dialect Operations for Constants
+### Decision 5: HIP Dialect Operation for Constants
 
-**Choice**: Define three HIP operations: `hip.get_constant`, `hip.upload_constant`, `hip.release_constant`.
+**Choice**: Define single HIP operation: `hip.get_constant`.
 
 **Rationale**:
-- **Clean abstraction layers**: ONNX→HIP stays in HIP dialect, HIP→LLVM handles lowering to runtime calls
-- **Semantic clarity**: Each operation has clear, unambiguous meaning
-- **Optimization flexibility**: HIP→LLVM can choose naive (individual hipMalloc) or optimized (batched) lowering
-- **Future extensibility**: Can add attributes for optimization hints (pinned memory, async upload, etc.)
+- **Clean abstraction**: ONNX→HIP stays in HIP dialect, runtime owns GPU memory lifecycle
+- **Semantic clarity**: Operation has single purpose - retrieve pre-uploaded constant
+- **Runtime flexibility**: Runtime can optimize upload/cleanup strategy without regenerating DLL
+- **Separation of concerns**: Generated code provides data, runtime controls GPU memory
 
-**Operations**:
+**Operation**:
 ```tablegen
 // Get reference to pre-uploaded constant (used in @main)
 hip.get_constant(%ctx, index) -> memref
-
-// Upload constant to GPU (used in @initialize_constants)
-hip.upload_constant(%ctx, index, cpu_data, size)
-
-// Free GPU memory (used in @release_constants)
-hip.release_constant(%ctx, index)
 ```
 
-### Decision 6: Generated Initialization Functions
+### Decision 6: Generated Constant Registry Function
 
-**Choice**: ConvertOnnxToHipPass generates three metadata functions in the compiled DLL.
+**Choice**: ConvertOnnxToHipPass generates single metadata function returning constant registry.
 
-**Functions**:
-- `get_constant_count() -> i64`: Returns total number of constants
-- `initialize_constants(state*) -> i32`: Uploads all constants to GPU
-- `release_constants(state*) -> i32`: Frees all GPU memory
+**Function**:
+- `get_constant_registry() -> ptr<ConstantRegistry>`: Returns metadata about all constants
+
+**Data Structures**:
+```c
+struct ConstantInfo {
+    const void* cpu_data;      // Pointer to LLVM global in DLL .data section
+    size_t size_bytes;         // Total size in bytes
+    size_t element_size;       // sizeof(float), sizeof(int8_t), etc.
+    size_t num_elements;       // For validation/debugging
+};
+
+struct ConstantRegistry {
+    const ConstantInfo* constants;  // Pointer to static array
+    size_t count;                   // Number of constants
+};
+```
 
 **Rationale**:
-- Runtime knows constant count without parsing ONNX model
-- Initialization code is compiled (fast, no JIT overhead)
-- Standard C ABI enables simple dlsym resolution
-- Separation of concerns: compiler generates, runtime invokes
+- **Better separation**: DLL provides metadata, runtime owns complete GPU lifecycle
+- **More flexible**: Runtime can optimize (batching, pinned memory, async) without code regeneration
+- **Simpler API**: 1 function instead of 3
+- **Cleaner ownership**: Runtime allocates/frees GPU memory, generated code provides data pointers
+- **Debuggable**: Can inspect constant metadata without uploading to GPU
+- **Eliminates coupling**: Generated code doesn't call hipMalloc/hipMemcpy/hipFree
+
+**Benefits over old design**:
+- Old design had generated code manage GPU memory (tight coupling, inflexible)
+- New design lets runtime control upload/cleanup strategy (loose coupling, flexible)
+- Runtime can inspect constants before upload (better visibility)
+- Runtime can batch operations (better performance)
 
 ### Decision 7: ONNX Function Identification (in ONNX→HIP Pass)
 
@@ -172,7 +187,8 @@ MLIR with onnx.Constant operations
     │
     ├─→ Discovery: Find all onnx.Constant, assign indices 0..N-1
     ├─→ Generate: llvm.mlir.global for each constant (embed data)
-    ├─→ Generate: @get_constant_count(), @initialize_constants(), @release_constants()
+    ├─→ Generate: ConstantInfo array + ConstantRegistry struct
+    ├─→ Generate: @get_constant_registry() function
     └─→ Transform: Replace onnx.Constant with hip.get_constant(%ctx, index)
     ↓
 HIP dialect with state-based constant access
@@ -180,44 +196,34 @@ HIP dialect with state-based constant access
 LLVM dialect with HIP runtime calls
     ↓ (LLVM compilation)
 Compiled DLL with:
-  - Embedded constant data (LLVM globals)
-  - Initialization functions
+  - Embedded constant data (LLVM globals in .data section)
+  - ConstantInfo array (metadata)
+  - get_constant_registry() function
   - Inference function using gpu_constants[]
 ```
 
 ### Runtime Initialization
 
-The generated constant management functions are **internal** to the compiled DLL, called from within `inference_init`:
+The generated constant registry provides metadata that runtime uses to manage GPU memory lifecycle:
 
 ```c
 // Inside compiled DLL (generated by ONNX→HIP pass):
 
-// Helper function: returns constant count (generated by pass)
-int64_t get_constant_count() {
-  return 200;  // Compile-time known
-}
+// Static data in .data section
+static const ConstantInfo constant_info_array[] = {
+  { &constant_0_data, 27648, 4, 6912 },  // 64x3x3x3xf32 conv weight
+  { &constant_1_data, 256, 4, 64 },      // 64xf32 conv bias
+  // ... 198 more entries ...
+};
 
-// Helper function: uploads all constants (generated by pass)
-int initialize_constants(void* state) {
-  // Phase 1 naive implementation (individual allocations):
-  // For each constant:
-  //   - Get CPU pointer: llvm.mlir.addressof @constant_N
-  //   - Allocate GPU: hipMalloc (individual allocation)
-  //   - Upload: hipMemcpy(GPU, CPU, size, H2D)
-  //   - Store in state->gpu_constants[N]
-  //
-  // Future optimizations (see Appendix C):
-  //   - Batched upload: single hipMemcpy for all constants
-  //   - Pinned memory: hipMallocHost for faster transfers
-  //   - Memory pooling: single allocation with offset management
-  return 0;
-}
+static const ConstantRegistry constant_registry = {
+  .constants = constant_info_array,
+  .count = 200
+};
 
-// Helper function: releases all constants (generated by pass)
-int release_constants(void* state) {
-  // For each constant:
-  //   - hipFree(state->gpu_constants[N])
-  return 0;
+// Generated function: returns pointer to registry
+const ConstantRegistry* get_constant_registry() {
+  return &constant_registry;
 }
 
 // Public entry point (called by CustomOp via dlsym)
@@ -230,19 +236,53 @@ int inference_init(void** out_state) {
   miopenCreate(&state->miopenHandle);
   // ...
 
-  // 3. Allocate constant pointer array
-  state->gpu_constants = new void*[get_constant_count()];  // Internal call
+  // 3. Get constant metadata from DLL
+  const ConstantRegistry* registry = get_constant_registry();
 
-  // 4. Upload all constants to GPU
-  initialize_constants(state);  // Internal call
+  // 4. Allocate constant pointer array
+  state->gpu_constants = new void*[registry->count];
 
-  // 5. Return state
+  // 5. Upload all constants to GPU (runtime owns strategy)
+  for (size_t i = 0; i < registry->count; i++) {
+    const ConstantInfo* info = &registry->constants[i];
+
+    // Runtime controls allocation/upload strategy
+    hipMalloc(&state->gpu_constants[i], info->size_bytes);
+    hipMemcpy(state->gpu_constants[i], info->cpu_data,
+              info->size_bytes, hipMemcpyHostToDevice);
+  }
+
+  // Future optimizations (runtime can change without DLL recompilation):
+  //   - Batched upload: single hipMemcpy for all constants
+  //   - Pinned memory: hipMallocHost for faster transfers
+  //   - Memory pooling: single allocation with offset management
+  //   - Async upload: hipMemcpyAsync with stream synchronization
+
+  // 6. Return state
   *out_state = state;
+  return 0;
+}
+
+int inference_cleanup(void* state) {
+  HipExecutionState* s = static_cast<HipExecutionState*>(state);
+
+  // Runtime owns cleanup strategy
+  const ConstantRegistry* registry = get_constant_registry();
+  for (size_t i = 0; i < registry->count; i++) {
+    hipFree(s->gpu_constants[i]);
+  }
+
+  delete[] s->gpu_constants;
+  delete s;
   return 0;
 }
 ```
 
-**Key point**: `get_constant_count`, `initialize_constants`, and `release_constants` are **internal helper functions** within the compiled DLL, not external API. Only `inference_init/compute/cleanup` are exposed via dlsym.
+**Key points**:
+- `get_constant_registry()` is the only generated helper function
+- Runtime owns complete GPU memory lifecycle (allocation, upload, cleanup)
+- Generated code provides metadata only (pointers, sizes)
+- Runtime can optimize strategy without regenerating DLL
 
 ### Inference Execution
 
@@ -462,38 +502,46 @@ llvm.mlir.global internal constant @constant_1(dense<[0.5, ...]> : tensor<64xf32
   : !llvm.array<64 x f32>
 ```
 
-### A.4: Initialization Function Generation
+### A.4: Constant Registry Generation
 
 ```mlir
-// 1. Query constant count
-llvm.func @get_constant_count() -> i64 {
-  %count = llvm.mlir.constant(200 : i64) : i64
-  llvm.return %count : i64
-}
+// 1. Generate ConstantInfo array
+llvm.mlir.global internal constant @constant_info_array() : !llvm.array<200 x !llvm.struct<(ptr, i64, i64, i64)>> {
+  %arr = llvm.mlir.undef : !llvm.array<200 x !llvm.struct<(ptr, i64, i64, i64)>>
 
-// 2. Upload all constants to GPU
-func.func @initialize_constants(%ctx: !hip.context) -> i32 {
-  // For each constant:
+  // Entry 0: 64x3x3x3xf32 conv weight (6912 elements * 4 bytes = 27648 bytes)
   %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr
-  %size_0 = llvm.mlir.constant(6912 : i64) : i64
-  %index_0 = llvm.mlir.constant(0 : i64) : i64
-  hip.upload_constant(%ctx, %index_0, %data_0, %size_0)
+  %size_0 = llvm.mlir.constant(27648 : i64) : i64
+  %elem_size_0 = llvm.mlir.constant(4 : i64) : i64
+  %num_elem_0 = llvm.mlir.constant(6912 : i64) : i64
+  %info_0 = llvm.mlir.undef : !llvm.struct<(ptr, i64, i64, i64)>
+  %info_0_1 = llvm.insertvalue %data_0, %info_0[0] : !llvm.struct<(ptr, i64, i64, i64)>
+  %info_0_2 = llvm.insertvalue %size_0, %info_0_1[1] : !llvm.struct<(ptr, i64, i64, i64)>
+  %info_0_3 = llvm.insertvalue %elem_size_0, %info_0_2[2] : !llvm.struct<(ptr, i64, i64, i64)>
+  %info_0_4 = llvm.insertvalue %num_elem_0, %info_0_3[3] : !llvm.struct<(ptr, i64, i64, i64)>
+  %arr_1 = llvm.insertvalue %info_0_4, %arr[0] : !llvm.array<200 x !llvm.struct<(ptr, i64, i64, i64)>>
 
-  // ... repeat for all constants ...
+  // ... repeat for all 200 constants ...
 
-  %success = llvm.mlir.constant(0 : i32) : i32
-  return %success : i32
+  llvm.return %arr_200 : !llvm.array<200 x !llvm.struct<(ptr, i64, i64, i64)>>
 }
 
-// 3. Release all constants
-func.func @release_constants(%ctx: !hip.context) -> i32 {
-  %index_0 = llvm.mlir.constant(0 : i64) : i64
-  hip.release_constant(%ctx, %index_0)
+// 2. Generate ConstantRegistry struct
+llvm.mlir.global internal constant @constant_registry() : !llvm.struct<(ptr, i64)> {
+  %info_array_ptr = llvm.mlir.addressof @constant_info_array : !llvm.ptr
+  %count = llvm.mlir.constant(200 : i64) : i64
 
-  // ... repeat for all constants ...
+  %registry = llvm.mlir.undef : !llvm.struct<(ptr, i64)>
+  %registry_1 = llvm.insertvalue %info_array_ptr, %registry[0] : !llvm.struct<(ptr, i64)>
+  %registry_2 = llvm.insertvalue %count, %registry_1[1] : !llvm.struct<(ptr, i64)>
 
-  %success = llvm.mlir.constant(0 : i32) : i32
-  return %success : i32
+  llvm.return %registry_2 : !llvm.struct<(ptr, i64)>
+}
+
+// 3. Generate accessor function
+llvm.func @get_constant_registry() -> !llvm.ptr {
+  %registry_ptr = llvm.mlir.addressof @constant_registry : !llvm.ptr
+  llvm.return %registry_ptr : !llvm.ptr
 }
 ```
 
@@ -502,6 +550,19 @@ func.func @release_constants(%ctx: !hip.context) -> i32 {
 For state structure design and lifecycle, see [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md).
 
 ```c
+// Data structures (in DLL .data section)
+struct ConstantInfo {
+    const void* cpu_data;      // Pointer to LLVM global
+    size_t size_bytes;         // Total bytes
+    size_t element_size;       // sizeof(element)
+    size_t num_elements;       // For validation
+};
+
+struct ConstantRegistry {
+    const ConstantInfo* constants;  // Pointer to array
+    size_t count;                   // Number of constants
+};
+
 // Internal state structure (opaque to C interface)
 struct HipExecutionState {
     hipStream_t stream;
@@ -510,21 +571,26 @@ struct HipExecutionState {
     void** gpu_constants;  // Array of GPU pointers
 };
 
-// Generated functions (called by runtime)
-extern "C" int64_t get_constant_count();
-extern "C" int initialize_constants(void* state);
-extern "C" int release_constants(void* state);
+// Generated function (called by runtime)
+extern "C" const ConstantRegistry* get_constant_registry();
 
 // Runtime implementation
 int inference_init(void** out_state) {
     // Allocate state on heap
     HipExecutionState* state = new HipExecutionState();
 
-    // Allocate constant pointer array
-    state->gpu_constants = new void*[get_constant_count()];
+    // Get constant metadata
+    const ConstantRegistry* registry = get_constant_registry();
 
-    // Upload constants to GPU
-    initialize_constants(state);
+    // Allocate constant pointer array
+    state->gpu_constants = new void*[registry->count];
+
+    // Upload constants to GPU (runtime controls strategy)
+    for (size_t i = 0; i < registry->count; i++) {
+        hipMalloc(&state->gpu_constants[i], registry->constants[i].size_bytes);
+        hipMemcpy(state->gpu_constants[i], registry->constants[i].cpu_data,
+                  registry->constants[i].size_bytes, hipMemcpyHostToDevice);
+    }
 
     // Return opaque pointer
     *out_state = state;
@@ -532,11 +598,17 @@ int inference_init(void** out_state) {
 }
 
 int inference_cleanup(void* state) {
-    // Free GPU constant memory
-    release_constants(state);
+    HipExecutionState* s = static_cast<HipExecutionState*>(state);
+
+    // Free GPU constant memory (runtime controls strategy)
+    const ConstantRegistry* registry = get_constant_registry();
+    for (size_t i = 0; i < registry->count; i++) {
+        hipFree(s->gpu_constants[i]);
+    }
 
     // Free state structure
-    delete static_cast<HipExecutionState*>(state);
+    delete[] s->gpu_constants;
+    delete s;
     return 0;
 }
 ```
@@ -561,10 +633,10 @@ int inference_cleanup(void* state) {
 - Embed `dense<...>` data
 - Verify in LLVM IR output
 
-### Phase 4: Initialization Functions (Week 2-3)
-- Generate `@get_constant_count()`
-- Generate `@initialize_constants()` with hip.upload_constant
-- Generate `@release_constants()` with hip.release_constant
+### Phase 4: Constant Registry Generation (Week 2-3)
+- Generate ConstantInfo array with metadata for each constant
+- Generate ConstantRegistry struct linking to array
+- Generate `@get_constant_registry()` accessor function
 - Test compilation and linking
 
 ### Phase 5: Constant Access in @main (Week 3)
