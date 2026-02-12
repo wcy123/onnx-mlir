@@ -30,7 +30,7 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 │         ↓                                                         │
 │  runtime_ir_data.cpp (embedded as unsigned char array)           │
 │         ↓                                                         │
-│  Compiled into EP DLL (libHipDnnRuntime.a linked)                │
+│  Compiled into EP DLL (libHipDnnEpRuntime.a linked)              │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
                             ↓
@@ -82,7 +82,7 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 │  ┌────────────────────────────────────────────────────┐          │
 │  │ Native Code Generation                             │          │
 │  │  - LLVM IR → Object code (.obj/.o)                 │          │
-│  │  - Link with libHipDnnRuntime.a (static)           │          │
+│  │  - Link with libHipDnnEpRuntime.a (static)          │          │
 │  │  - Link ROCm libraries:                            │          │
 │  │    * amdhip64.lib (HIP runtime)                    │          │
 │  │    * MIOpen.lib (DNN operations)                   │          │
@@ -267,7 +267,7 @@ This section details how the Runtime library integrates with compiled models. Fo
 │         ↓                                                │
 │  runtime_ir_data.cpp (embedded C array)                 │
 │         ↓                                                │
-│  Compiled into libHipDnnRuntime.a                       │
+│  Compiled into libHipDnnEpRuntime.a                     │
 │  (EP DLL contains embedded bitcode)                     │
 └─────────────────────────────────────────────────────────┘
                          ↓
@@ -548,7 +548,7 @@ Each addition is isolated to the runtime implementation. The opaque design ensur
 
 ### Why Static Library?
 
-The Runtime is compiled as `libHipDnnRuntime.a` and statically linked into each model DLL.
+The Runtime is compiled as `libHipDnnEpRuntime.a` and statically linked into each model DLL.
 
 **Rationale:**
 - Industry standard (TensorRT, TVM, IREE, XLA all use static linking)
