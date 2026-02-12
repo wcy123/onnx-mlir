@@ -277,8 +277,6 @@ add_library(HipDnnEpRuntime STATIC
 target_include_directories(HipDnnEpRuntime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}    # Export hipdnn_ep_runtime.h
-    PRIVATE
-        ${ROCM_PATH}/include           # HIP/MIOpen/hipBLAS headers (if available)
 )
 
 # ============================================================================
