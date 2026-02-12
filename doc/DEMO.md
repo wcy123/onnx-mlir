@@ -77,9 +77,61 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 ```
 
 **What you'll see**:
-- 3 exported functions: `inference_init()`, `inference_compute()`, `inference_cleanup()`
-- C-ABI compliance attributes
-- Error handling and validation logic
+
+The `--generate-interface` pass creates a **two-layer architecture** for the compiled DLL:
+
+**Layer 1: C Interface (Public API)**
+- `inference_init(void** out_state) -> i32` - Create GPU handles and upload model weights
+- `inference_compute(void* state, span_t* inputs, span_t* outputs) -> i32` - Execute inference
+- `inference_cleanup(void* state) -> i32` - Release GPU resources
+
+**Layer 2: Internal MLIR Functions (Private)**
+- `@main(context, inputs, outputs) -> i32` - Actual computation
+- `@initialize_constants(context) -> i32` - Upload constants to GPU
+- `@release_constants(context) -> i32` - Free GPU constant memory
+- `@get_constant_count() -> i64` - Metadata helper
+
+**Key Design Features**:
+
+1. **Opaque RuntimeState Design**
+   - External code sees: `void* state` (opaque pointer)
+   - Internal code owns: `hipStream_t`, `miopenHandle_t`, `hipblasLtHandle_t`, GPU constant array
+   - Enables runtime evolution without breaking generated code
+
+2. **Dynamic Shape Support**
+   - `tensor_t` structure with `int64_t* shape` pointer
+   - Same DLL handles different batch sizes (no recompilation needed)
+   - Runtime dimensions loaded from `tensor_t.shape` during `inference_compute`
+
+3. **C-ABI Compatibility**
+   - Cross-language DLL loading (C, C++, C#, Python, etc.)
+   - No C++ name mangling (uses `extern "C"`)
+   - Standard calling conventions
+
+4. **Data Structures**:
+   ```c
+   typedef struct {
+       void* data;        // Pointer to tensor data (CPU memory)
+       int64_t* shape;    // Pointer to shape array (runtime dimensions)
+       int rank;          // Number of dimensions (compile-time known)
+       int data_type;     // Element type (0=FLOAT32, 1=FLOAT16, 2=INT8)
+   } tensor_t;
+
+   typedef struct {
+       tensor_t* data;    // Pointer to array of tensors
+       size_t count;      // Number of tensors
+   } span_t;
+   ```
+
+5. **Error Code Handling**:
+   - `0` = Success
+   - `1-5` = Init errors (allocation, handle creation, constant upload)
+   - `5,8,9` = Compute errors (invalid input, computation failed, memory transfer)
+   - `10-14` = Cleanup errors (stream/handle destruction, synchronization)
+
+**For complete interface specification and design rationale**, see:
+- [doc/mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - C interface specification
+- [doc/RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime integration pipeline
 
 ### Stage 4: Compile to Native DLL
 
