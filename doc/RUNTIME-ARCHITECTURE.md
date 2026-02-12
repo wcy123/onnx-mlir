@@ -5,14 +5,142 @@ Licensed under the MIT License.
 # Runtime Architecture
 
 **Date**: 2026-02-12
-**Status**: Design Document
-**Related**: [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md), [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md)
+**Document Type**: Design Document
+**Review Status**: Draft (Tech Committee Review)
+**Related**: [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md), [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md)
 
 ---
 
-## Runtime Integration Pipeline
+## 1. Core Design: Opaque RuntimeState Pattern
 
-This diagram shows how the Runtime integrates into the compilation flow (complementary to [ARCHITECTURE.md System Architecture](ARCHITECTURE.md#system-architecture)):
+### Problem
+
+MLIR-generated code for compiled models needs to:
+- Manage persistent GPU resources (streams, library handles)
+- Access pre-uploaded model weights (constants on GPU)
+- Call GPU operations (convolution, GEMM) without coupling to runtime implementation details
+
+**Constraint**: Runtime must be able to evolve (add libraries, optimize layout) without breaking already-compiled models.
+
+### Solution: Opaque Handle with Accessor Functions
+
+Generated code sees only `void* state` (opaque pointer). Runtime owns the internal structure.
+
+**Abstraction Boundary:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Generated Code (LLVM IR)                                │
+│  - Sees: void* state (opaque pointer)                   │
+│  - Calls: hipdnn_ep_get_stream(state)                   │
+│  - Calls: hipdnn_ep_get_constant(state, index)          │
+│  - Cannot: Access internal fields directly              │
+└─────────────────────────────────────────────────────────┘
+                         ↕ (Abstraction Boundary)
+┌─────────────────────────────────────────────────────────┐
+│  Runtime Implementation (C++)                            │
+│  - Owns: struct RuntimeState {                          │
+│           hipStream_t stream;                            │
+│           miopenHandle_t miopen_handle;                  │
+│           hipblasLtHandle_t hipblas_handle;              │
+│           void** gpu_constants;                          │
+│           size_t num_constants;                          │
+│         }                                                │
+│  - Provides: Accessor functions                         │
+│  - Can: Evolve internal layout freely                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Correct Pattern (Opaque Access):**
+```mlir
+%stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
+%constant = llvm.call @hipdnn_ep_get_constant(%state, %idx) : (!llvm.ptr, i64) -> !llvm.ptr
+```
+
+**Forbidden Pattern (Direct Access):**
+```mlir
+%stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
+```
+
+### Design Implications
+
+**Extensibility**: Can add GPU libraries without breaking generated code
+- Example: Adding `rocfft_plan fft_plan;` to RuntimeState requires:
+  - ✅ No changes to generated code (still uses `void* state`)
+  - ✅ No recompilation of existing models
+  - ✅ No changes to C interface
+
+**Evolution**: Can optimize internal layout independently
+- Reorder fields for cache efficiency
+- Change memory allocation strategy
+- Add descriptor caches
+
+**Self-Contained Models**: Each compiled model.dll is independent
+- No shared runtime state across models
+- No version conflicts
+
+---
+
+## 2. Design Challenge: Performance Cost of Abstraction
+
+### The Concern
+
+Opaque access requires function calls: `hipdnn_ep_get_stream(state)` instead of direct field access.
+
+**Naive expectation**: Function call overhead on every GPU operation
+- Call instruction: ~5-10 cycles
+- Register spills, ABI overhead
+- Repeated for every stream/constant access
+
+This would be unacceptable for performance-critical GPU code.
+
+### The Solution: Zero-Cost via IR Merging
+
+Runtime is distributed as **LLVM bitcode** (runtime.bc), not compiled library:
+1. Embedded in EP DLL at build time
+2. Merged with generated IR at model compilation via `llvm::Linker::linkInModule()`
+3. Fully inlined during LLVM optimization pass
+
+**Before optimization (after IR merging):**
+```llvm
+%stream = call ptr @hipdnn_ep_get_stream(ptr %state)
+```
+
+**After LLVM O2 inlining:**
+```llvm
+%stream_ptr = getelementptr inbounds %struct.RuntimeState, ptr %state, i32 0, i32 0
+%stream = load ptr, ptr %stream_ptr
+```
+
+**Result**: Accessor function disappeared - transformed to direct memory load.
+
+### Verification
+
+Final model.dll should NOT contain runtime function symbols:
+```bash
+grep "hipdnn_ep_get_stream" optimized.ll  # Should be empty
+```
+
+All accessor calls are inlined to load instructions - zero runtime overhead.
+
+### Design Trade-off
+
+**Why not just use direct field access?**
+- Generated code would couple to RuntimeState layout
+- Adding fields would break existing models (ABI breakage)
+- Cannot evolve runtime independently
+
+**IR merging gives us both:**
+- Clean abstraction at source level (maintainability)
+- Direct access at binary level (performance)
+
+For architectural rationale, see [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction).
+
+---
+
+## 3. Integration Architecture
+
+This diagram shows the complete pipeline from Runtime development to model inference:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -30,7 +158,7 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 │         ↓                                                         │
 │  runtime_ir_data.cpp (embedded as unsigned char array)           │
 │         ↓                                                         │
-│  Compiled into EP DLL (libHipDnnEpRuntime.a linked)              │
+│  Compiled into EP DLL (contains embedded bitcode)                │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
                             ↓
@@ -82,7 +210,6 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 │  ┌────────────────────────────────────────────────────┐          │
 │  │ Native Code Generation                             │          │
 │  │  - LLVM IR → Object code (.obj/.o)                 │          │
-│  │  - Link with libHipDnnEpRuntime.a (static)          │          │
 │  │  - Link ROCm libraries:                            │          │
 │  │    * amdhip64.lib (HIP runtime)                    │          │
 │  │    * MIOpen.lib (DNN operations)                   │          │
@@ -148,457 +275,184 @@ This diagram shows how the Runtime integrates into the compilation flow (complem
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Integration Points:**
+### Key Transformation Points
+
 1. **Build Time**: Runtime compiled to bitcode once, embedded in EP DLL
-2. **Model Compilation**: Runtime IR merged with each model's generated IR
-3. **Optimization**: LLVM inlines Runtime accessor functions (zero-cost abstraction)
+2. **Model Compilation**: Runtime IR merged with generated IR via llvm::Linker
+3. **Optimization**: LLVM inlines accessor functions (zero-cost abstraction achieved)
 4. **Packaging**: Final DLL embedded in EPContext for single-file deployment
 5. **Inference**: CustomOp loads DLL from memory, calls exported functions
 
 ---
 
-## Overview
-
-### What is the Runtime?
-
-The Runtime is a static library that manages GPU execution state for compiled ONNX models.
-
-**Core Problem**: MLIR-generated code needs to:
-- Manage persistent GPU resources (stream, library handles)
-- Access pre-uploaded model weights (constants)
-- Call GPU operations (convolution, GEMM) without coupling to implementation details
-
-**Solution**: Opaque RuntimeState with accessor functions
-- External code sees: `void* state` (opaque pointer)
-- Internal code owns: GPU handles, constant mappings, resources
-- Clean abstraction: Runtime can evolve without breaking generated code
+## 4. API Contract
 
 ### Three-Function Lifecycle
 
-**`inference_init(void** out_state)`** - Create GPU resources once
-- Calls `get_constant_registry()` to get constant metadata
-- Allocates RuntimeState with constant array sized from registry
-- Creates HIP stream, MIOpen handle, hipBLAS handle
-- Uploads constants to GPU (loop: hipMalloc + hipMemcpy using registry)
-- Returns opaque state pointer via out_state
+The compiled DLL exports exactly three C-ABI functions. For complete specification including data structures, error codes, and usage examples, see [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md).
 
-**`inference_compute(void* state, span_t* inputs, span_t* outputs)`** - Execute inference (reuses resources)
-- Parses input/output tensors
-- Allocates GPU buffers
-- Copies data H2D, calls @main, copies results D2H
-- Synchronizes and frees buffers
+**`inference_init(void** out_state) -> i32`**
+- Creates GPU handles (stream, MIOpen, hipBLAS)
+- Allocates RuntimeState structure
+- Uploads model constants to GPU
+- Returns opaque state pointer
+- One-time cost amortized across many inferences
 
-**`inference_cleanup(void* state)`** - Free all resources
-- Synchronizes GPU operations
-- Destroys library handles in LIFO order
-- Frees RuntimeState memory
+**`inference_compute(void* state, span_t* inputs, span_t* outputs) -> i32`**
+- Validates input/output tensors
+- Allocates temporary GPU buffers
+- Copies data H2D, executes @main, copies results D2H
+- Synchronizes GPU stream
+- Frees temporary buffers (constants remain on GPU)
+- Reuses GPU handles and constant memory
 
----
+**`inference_cleanup(void* state) -> i32`**
+- Synchronizes GPU stream
+- Frees GPU constant memory
+- Destroys GPU handles in LIFO order
+- Frees RuntimeState structure
 
-## Architecture
+### Design Rationale
 
-### Opaque Handle Design
+**Why init/compute/cleanup pattern?**
+- GPU handle creation is expensive (~10-100ms)
+- Constant upload is expensive (weights can be GB-sized)
+- Amortize one-time costs across many inferences
+- Clear resource lifecycle (acquire → use → release)
 
-The abstraction boundary separates generated code from runtime internals:
+**Why opaque state pointer?**
+- See [Section 1: Core Design](#1-core-design-opaque-runtimestate-pattern)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Generated Code (LLVM IR)                                │
-│  - Sees: void* state (opaque pointer)                   │
-│  - Calls: hipdnn_ep_get_stream(state)                   │
-│  - Calls: hipdnn_ep_get_constant(state, index)          │
-│  - Cannot: Access internal fields directly              │
-└─────────────────────────────────────────────────────────┘
-                         ↕ (Abstraction Boundary)
-┌─────────────────────────────────────────────────────────┐
-│  Runtime Library (C++ Implementation)                    │
-│  - Owns: struct RuntimeState {                          │
-│           hipStream_t stream;                            │
-│           miopenHandle_t miopen_handle;                  │
-│           hipblasLtHandle_t hipblas_handle;              │
-│           void** gpu_constants;                          │
-│           size_t num_constants;                          │
-│         }                                                │
-│  - Provides: Accessor functions                         │
-│  - Can: Evolve internal layout freely                   │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Why Opaque?
-
-Generated code uses accessor functions instead of direct field access (GEP):
-
-**✅ Correct - Opaque access:**
-```mlir
-%stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
-%constant = llvm.call @hipdnn_ep_get_constant(%state, %idx) : (!llvm.ptr, i64) -> !llvm.ptr
-```
-
-**❌ Forbidden - Direct access:**
-```mlir
-%stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
-```
-
-**Benefits:**
-- Add GPU libraries (rocFFT, rocRAND) without breaking generated code
-- Optimize internal layout independently
-- Each compiled model is self-contained
-
-**Implementation:** Real accessor functions are inlined to zero cost via LLVM IR merging (see Compilation Pipeline section).
+**Why C-ABI?**
+- Cross-language compatibility (C, C++, C#, Python, Rust)
+- Standard DLL export mechanism
+- No C++ name mangling
 
 ---
 
-## LLVM IR Merging Implementation Details
+## 5. RuntimeState Design
 
-This section provides implementation details for the IR merging approach shown in the [Runtime Integration Pipeline](#runtime-integration-pipeline) above. For architectural rationale, see [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction).
+### Internal Structure
 
-### Build-Time Pipeline
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ BUILD TIME (Once - when building EP DLL)                │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  hipdnn_ep_runtime.cpp                                  │
-│         ↓                                                │
-│  clang -c -emit-llvm -O2                                │
-│         ↓                                                │
-│  runtime.bc (LLVM bitcode)                              │
-│         ↓                                                │
-│  xxd.py --var runtime_bc_data                           │
-│         ↓                                                │
-│  runtime_ir_data.cpp (embedded C array)                 │
-│         ↓                                                │
-│  Compiled into libHipDnnEpRuntime.a                     │
-│  (EP DLL contains embedded bitcode)                     │
-└─────────────────────────────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│ MODEL COMPILATION (Per model)                           │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  MLIR → LLVM IR (generated code)                        │
-│         ↓                                                │
-│  llvm::Linker::linkInModule()                           │
-│  (Merge runtime.bc with generated IR)                   │
-│         ↓                                                │
-│  Combined LLVM IR module                                │
-│         ↓                                                │
-│  LLVM PassBuilder (O2 optimization)                     │
-│  - Inline hipdnn_ep_get_stream() → single load          │
-│  - Inline hipdnn_ep_get_constant() → single load        │
-│         ↓                                                │
-│  Optimized native code (model.dll)                      │
-│  (Accessor functions disappeared - inlined away)        │
-└─────────────────────────────────────────────────────────┘
-```
-
-This focused diagram shows just the IR merging pipeline. For the complete end-to-end flow including EPContext packaging and inference execution, see [Runtime Integration Pipeline](#runtime-integration-pipeline).
-
-### Zero-Cost Abstraction
-
-Runtime accessor functions have **zero overhead** in final binary:
-
-**Before optimization (after linking):**
-```llvm
-%stream = call ptr @hipdnn_ep_get_stream(ptr %state)
-```
-
-**After LLVM O2 inlining:**
-```llvm
-%stream_ptr = getelementptr inbounds %struct.RuntimeState, ptr %state, i32 0, i32 0
-%stream = load ptr, ptr %stream_ptr
-```
-
-Result: Clean abstraction in source code, efficient code in binary.
-
-### Build Configuration
-
-```cmake
-# CMakeLists.txt (lib/Runtime)
-if(ENABLE_RUNTIME_IR_MERGING)
-    add_custom_command(
-        OUTPUT runtime.bc
-        COMMAND ${CMAKE_CXX_COMPILER} -c -emit-llvm -O2
-                hipdnn_ep_runtime.cpp -o runtime.bc
-    )
-    add_custom_command(
-        OUTPUT runtime_ir_data.cpp
-        COMMAND ${Python3_EXECUTABLE} xxd.py
-                --var runtime_bc_data --output runtime_ir_data.cpp runtime.bc
-    )
-else()
-    # Fallback: stub if Clang not available
-    file(WRITE runtime_ir_data_stub.cpp ...)
-endif()
-```
-
-**Requirements:** Clang compiler, Python 3, LLVM Linker API
-
-### C++ Implementation
-
-LLVMBackend integration code:
-
-```cpp
-// Link Runtime IR at model compilation
-bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
-    // Parse embedded bitcode
-    auto MemBuf = llvm::MemoryBuffer::getMemBuffer(
-        llvm::StringRef((const char*)runtime_bc_data, bcSize),
-        "runtime.bc", false);
-
-    auto ModuleOrErr = llvm::parseBitcodeFile(
-        MemBuf->getMemBufferRef(), destModule->getContext());
-
-    // Merge Runtime IR with generated IR
-    llvm::Linker linker(*destModule);
-    return !linker.linkInModule(std::move(*ModuleOrErr));
-}
-```
-
-### Verification
-
-Verify Runtime functions are properly inlined:
-
-```bash
-# Compile model and dump optimized IR
-mlir-hip-compiler --opt-level=2 --dump-llvm-ir model.onnx
-
-# Verify Runtime functions are inlined (should NOT appear in final IR)
-grep "hipdnn_ep_get_stream" output.ll  # Should be empty
-grep "hipdnn_ep_get_constant" output.ll  # Should be empty
-```
-
-If accessor functions appear in the final IR, optimization level may be too low or inlining is disabled.
-
----
-
-## Implementation Reference
-
-### RuntimeState Internal Structure
-
-**Actual Implementation** (lib/Runtime/hipdnn_ep_runtime.cpp):
 ```cpp
 struct RuntimeState {
-  hipStream_t stream;                    // GPU stream
-  miopenHandle_t miopen_handle;          // MIOpen for convolution
-  hipblasLtHandle_t hipblas_handle;      // hipBLAS for GEMM
-  void** gpu_constants;                  // Array of GPU pointers
-  size_t num_constants;                  // Array size (known at compile time)
+  hipStream_t stream;                    // GPU execution stream
+  miopenHandle_t miopen_handle;          // MIOpen library handle for DNN ops
+  hipblasLtHandle_t hipblas_handle;      // hipBLAS handle for GEMM
+  void** gpu_constants;                  // Array of GPU pointers to constants
+  size_t num_constants;                  // Array size (compile-time known)
 };
 ```
 
-**Key Properties:**
-- Size: 4 pointers + array pointer + size (~40 bytes + constant array)
-- Allocation: Heap (`malloc` in init, `free` in cleanup)
-- Thread safety: **NOT thread-safe** - one inference per state at a time
-- Extensibility: Can add fields (rocFFT, rocRAND, etc.) without breaking generated code
+### Design Properties
 
-### Error Codes
+**Allocation**: Heap-allocated in `inference_init`, freed in `inference_cleanup`
 
-**hipdnn_ep_state_init():**
-- `0` = success
-- `1` = allocation failed
-- `2` = stream creation failed
-- `3` = MIOpen creation failed
-- `4` = set stream failed
-- `5` = hipBLAS creation failed
+**Lifetime**: Tied to inference session
+- Created once per session
+- Reused across multiple inference calls
+- Destroyed when session ends
 
-**Other functions:**
-- `0` = success
-- Negative = runtime error
-- `hipdnn_ep_state_cleanup()` always returns `0` (best-effort)
+**Thread Safety**: NOT thread-safe
+- One inference per state at a time
+- Multiple states can run concurrently (different sessions)
 
-### Core Functions
+**Size**: ~40 bytes + constant array
+- Fixed overhead is minimal
+- Constant array size known at model compile time
 
-#### State Management
-- **`hipdnn_ep_state_init(RuntimeState** out_state, size_t num_constants)`**
-  - Creates stream, MIOpen handle, hipBLAS handle
-  - Allocates constant array with given size
-  - Returns error code (0 = success)
+### Extensibility
 
-- **`hipdnn_ep_state_cleanup(RuntimeState* state)`**
-  - Frees all constants
-  - Destroys handles in LIFO order
-  - Always returns 0 (best-effort)
+Can add fields without breaking generated code:
 
-- **`hipdnn_ep_get_stream(RuntimeState* state)`**
-  - Returns stream as void*
-  - Used by generated code to pass stream to operations
-
-#### Constant Management
-- **`hipdnn_ep_upload_constant(RuntimeState* state, int64_t index, const void* data, int64_t size)`**
-  - Validates index range [0, num_constants)
-  - Allocates GPU memory via hipMalloc
-  - Copies data via hipMemcpyAsync
-  - Stores GPU pointer in array
-
-- **`hipdnn_ep_get_constant(RuntimeState* state, int64_t index)`**
-  - Validates index range
-  - Returns GPU pointer from array
-  - NULL if index out of range
-
-- **`hipdnn_ep_release_constant(RuntimeState* state, int64_t index)`**
-  - Validates index range
-  - Frees GPU memory via hipFree
-  - Clears array entry
-
-#### Operation Wrappers
-- **`wrap_miopenConvolutionForward(...)`**
-  - Full convolution (creates descriptors, finds algorithm, allocates workspace)
-  - Currently hardcoded to float32 (miopenFloat)
-
-- **`wrap_hipblasLtGemm(...)`**
-  - Matrix multiplication (creates layout descriptors)
-  - Currently hardcoded to float32 (HIPBLAS_R_32F)
-  - Assumes column-major layout
-
-**Current Limitations:**
-- No descriptor caching (recreated per operation)
-- Fixed to float32 data type
-- GEMM assumes column-major layout
-
-#### Memory Wrappers
-- **`wrap_hipMalloc(void** ptr, int64_t size)`** - GPU allocation
-- **`wrap_hipFree(void* ptr)`** - GPU deallocation
-- **`wrap_hipMemcpyH2D(void* dst, const void* src, int64_t size, void* stream)`** - Async copy
-- **`wrap_hipMemcpyD2H(void* dst, const void* src, int64_t size, void* stream)`** - Async copy
-- **`wrap_hipStreamSynchronize(void* stream)`** - Synchronization
-
-### Mock Runtime
-
-**Purpose:** Enable testing without ROCm installation
-
-**Configuration:** `cmake -DBUILD_MOCK_RUNTIME=ON`
-
-**Behavior:**
-- Prints diagnostic messages to stdout
-- Uses malloc/free instead of GPU operations
-- All functions return success codes
-
-**Example:** See test/runtime/test_runtime_state.cpp
-
----
-
-## Usage Examples
-
-### API Usage (from test/runtime/test_runtime_state.cpp)
-
-```cpp
-// Initialize runtime state with 0 constants
-RuntimeState *state = nullptr;
-int result = hipdnn_ep_state_init(&state, 0);
-assert(result == 0 && state != nullptr);
-
-// Use state for inference
-// ... (call inference_compute, operations, etc.)
-
-// Cleanup
-result = hipdnn_ep_state_cleanup(state);
-assert(result == 0);
-```
-
-### MLIR Lowering Patterns (from lib/HipDialect/HipToLLVM.cpp)
-
-**High-level HIP dialect:**
-```mlir
-hip.conv(%ctx, %input, %weights, %output) { ... }
-```
-
-**Lowered to LLVM dialect with runtime calls:**
-```mlir
-llvm.call @wrap_miopenConvolutionForward(
-  %handle, %stream, %input_ptr, %input_shape,
-  %weights_ptr, %weights_shape, %output_ptr, %output_shape,
-  %pad_h, %pad_w, %stride_h, %stride_w, %dilation_h, %dilation_w
-) : (...) -> i32
-```
-
-### Generated Interface (from lib/HipDialect/GenerateInterfacePass.cpp)
-
-```mlir
-llvm.func @inference_init(%out_state: !llvm.ptr) -> i32 {
-  // Get constant metadata
-  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
-
-  // Allocate state, create GPU handles, upload constants using registry
-  // (Inlined: malloc state, hipStreamCreate, miopenCreate,
-  //  loop through registry: hipMalloc + hipMemcpy each constant)
-
-  llvm.return %success : i32
-}
-
-llvm.func @inference_compute(%state: !llvm.ptr, %inputs: !llvm.ptr, %outputs: !llvm.ptr) -> i32 {
-  %stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
-  // ... allocate GPU buffers, copy data, call @main, copy results ...
-  llvm.call @wrap_hipStreamSynchronize(%stream) : (!llvm.ptr) -> i32
-  llvm.return %c0_i32 : i32
-}
-
-llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32 {
-  %result = llvm.call @hipdnn_ep_state_cleanup(%state) : (!llvm.ptr) -> i32
-  llvm.return %result : i32
-}
-```
-
----
-
-## Extensibility
-
-The opaque RuntimeState design enables adding GPU libraries without breaking the interface.
-
-### Adding New Libraries
-
-**Example:** Add rocFFT for FFT operations
-
-**Required changes:**
 ```cpp
 struct RuntimeState {
-    // ... existing fields ...
-    rocfft_plan fft_plan;  // NEW field
+    // Existing fields...
+    hipStream_t stream;
+    miopenHandle_t miopen_handle;
+    hipblasLtHandle_t hipblas_handle;
+    void** gpu_constants;
+    size_t num_constants;
+
+    // NEW: Add library handles as needed
+    rocfft_plan fft_plan;              // For FFT operations
+    rocblas_handle blas_handle;        // For additional BLAS ops
+    // ... more fields
 };
 ```
 
-**No changes needed:**
-- ✅ C interface unchanged (`void* state`)
-- ✅ Generated code unchanged (opaque pointer)
-- ✅ Existing compiled models unchanged (accessor functions)
+**No impact on:**
+- ✅ Generated code (uses opaque `void* state`)
+- ✅ C interface (still `void*`)
+- ✅ Existing compiled models (accessor functions still work)
 
-### Extensible Libraries
+### Potential Extensions
 
-The RuntimeState can be extended with handles for:
-- **rocBLAS** - Basic linear algebra
-- **rocFFT** - Fast Fourier Transform
-- **rocRAND** - Random number generation
-- **rocSPARSE** - Sparse linear algebra
-- **rocSOLVER** - LAPACK functionality
-- **RCCL** - Multi-GPU collective communication
+The RuntimeState design can accommodate:
+- **Library handles**: rocBLAS, rocFFT, rocRAND, rocSPARSE, rocSOLVER, RCCL
+- **Performance optimizations**: Descriptor caches, workspace pools, algorithm selection caches
+- **Resource management**: Memory pools, buffer reuse strategies
 
-### Other Extensible Fields
-
-Beyond library handles, RuntimeState can include:
-- Descriptor caches (avoid recreation overhead)
-- Workspace memory pools (reduce allocation)
-- Algorithm selection caches (avoid re-finding optimal algorithms)
-
-Each addition is isolated to the runtime implementation. The opaque design ensures zero impact on existing code.
+Each addition is isolated to runtime implementation. Opaque design ensures zero impact on generated code.
 
 ---
 
-## Dependencies & Deployment
+## 6. Deployment Model
 
-### Why Static Library?
+### Single-File Deployment
 
-The Runtime is compiled as `libHipDnnEpRuntime.a` and statically linked into each model DLL.
+Each model is packaged as a single `.onnx` file containing:
+- EPContext node (com.microsoft:EPContext)
+- Embedded model.dll (pre-compiled, fully optimized)
+- No ONNX graph (replaced by compiled artifact)
 
-**Rationale:**
-- Industry standard (TensorRT, TVM, IREE, XLA all use static linking)
-- Simple deployment: 1 DLL = 1 model (self-contained)
-- No DLL versioning conflicts between models
+**Deployment**: Copy single file, no build tools needed at inference time.
 
-### Runtime Dependencies (External)
+### Runtime Distribution
 
-These must be installed on target system via ROCm:
-- **amdhip64.dll** - HIP runtime
-- **MIOpen.dll** - Convolution and DNN operations
-- **hipblaslt.dll** - Matrix multiplication
+**Runtime is NOT a separate library**. The Runtime code is:
+- Merged with generated IR at model compilation time
+- Fully inlined during LLVM optimization
+- Embedded in final model.dll as inline code
+
+**Result**: model.dll has no runtime dependencies beyond ROCm libraries.
+
+### External Dependencies
+
+Target system must have ROCm installed with:
+- **amdhip64.dll** - HIP runtime (GPU execution)
+- **MIOpen.dll** - DNN operations (convolution, pooling, etc.)
+- **hipblaslt.dll** - BLAS operations (matrix multiplication)
+
+These are standard ROCm components, not project-specific.
+
+### No Static Library Linking
+
+Common misconception: "Runtime is a static library linked into each model.dll"
+
+**Reality**: Runtime is LLVM bitcode that is:
+1. Merged at IR level (not linked at binary level)
+2. Fully inlined during optimization (function calls eliminated)
+3. Dead code eliminated (unused runtime functions removed)
+
+Final model.dll contains runtime code as **inline instructions**, not function calls.
+
+---
+
+## Related Documents
+
+**Architecture & Design:**
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture, design decisions
+- [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) - Compilation pipeline overview
+
+**Interface Specification:**
+- [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - Complete C interface specification (tensor_t, span_t, error codes, usage examples)
+
+**Supporting Design:**
+- [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Constant extraction, upload, and management
+- [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape support design
+
+**Implementation Details** (for developers, not design review):
+- lib/Runtime/hipdnn_ep_runtime.cpp - Runtime implementation
+- lib/Backend/LLVMBackend.cpp - IR merging implementation
+- CMakeLists.txt (lib/Runtime) - Build configuration
