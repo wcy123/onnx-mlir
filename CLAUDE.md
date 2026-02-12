@@ -29,11 +29,14 @@ cmake -S . -B ../../build/$(basename $PWD) -DBUILD_SHARED_LIBS=OFF \
   -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_PREFIX_PATH=$LOCAL_DIR" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_PROGRAM_PATH="C:/LLVM20/bin" \
+  -DONNX_MLIR_BUILD_TESTS=OFF \
   --fresh
 ```
 
 **Note**: `CMAKE_PROGRAM_PATH` specifies where to find `clang` and `llvm-link` executables.
 Adjust path based on your system (see README.md for full build instructions).
+
+**Note**: `ONNX_MLIR_BUILD_TESTS=OFF` disables onnx-mlir tests (requires LLVM test utilities not installed).
 
 **Build**: `cmake --build ../../build/$(basename $PWD) --config Debug --parallel`
 
