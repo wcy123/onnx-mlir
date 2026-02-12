@@ -4,8 +4,9 @@ Licensed under the MIT License.
 -->
 # MLIR Compilation Overview
 
-**Date:** 2026-02-10
-**Status:** Design Document
+**Date:** 2026-02-12
+**Document Type:** Design Document
+**Review Status:** Self-Reviewed
 **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [mlir/](mlir/)
 
 ---
@@ -64,7 +65,7 @@ For detailed transformation through each stage, see [mlir/LOWERING-PIPELINE.md](
 
 ## Output: 3-Function Interface
 
-The compiled DLL exports exactly 3 functions:
+The compiled DLL exports exactly 3 functions. For complete interface specification including data structures, error codes, and design rationale, see [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md).
 
 ### 1. inference_init
 ```c
