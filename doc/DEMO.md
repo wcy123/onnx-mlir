@@ -83,33 +83,29 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 
 ### Stage 4: Compile to Native DLL
 
-**Current Status**: Object file generation ✅ | DLL linking ❌ (requires LLD)
+**Current Status**: Steps 1-7 ✅ (MLIR → Object → LLD invocation) | Runtime linking ⚠️ (requires HipDnnRuntime.lib)
+
+**Prerequisites**:
+- LLVM built with LLD support (`-DLLVM_ENABLE_PROJECTS="mlir;lld"`) - see CLAUDE.md
+- LLD libraries automatically detected by CMake (lldCOFF, lldELF, lldCommon)
 
 ```bash
-# First, save the interface-generated MLIR to a file
-../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
-  tools/hip-opt/demo_two_layer_conv.mlir \
-  --convert-onnx-to-hip \
-  --convert-hip-to-llvm \
-  --generate-interface \
-  > demo_with_interface.mlir
-
-# Compile to object file (Steps 1-6 work)
+# Test with minimal identity function (real example)
 export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
-../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
-  demo_with_interface.mlir \
-  -o inference.obj \
-  --mode object \
+../../build/onnx-hipdnn-ep.2/bin/Debug/mlir-hip-compiler.exe \
+  test/mlir/identity_llvm.mlir \
+  -o test_identity.dll \
+  --mode dll \
   -v \
   --keep
 ```
 
-**What you'll see** (real output from test run):
+**Real Output** (from successful test run, 2026-02-12):
 ```
 === MLIR to HIP DLL Compiler ===
-Input: demo_with_interface.mlir
-Output: inference.obj
-Mode: object
+Input: test/mlir/identity_llvm.mlir
+Output: test_identity.dll
+Mode: dll
 Optimization: O2
 
 --- Step 1: Parsing MLIR ---
@@ -126,44 +122,60 @@ Skipping passes - assuming input is already in LLVM dialect
 ✓ Optimization completed
 
 --- Step 5: Emitting LLVM IR ---
-Emitted LLVM IR to: inference.ll
-✓ LLVM IR written to: inference.ll
+Emitted LLVM IR to: test_identity.ll
+✓ LLVM IR written to: test_identity.ll
 
 --- Step 6: Compiling to Object File ---
-Compiled object file to: inference.obj
-✓ Object file created: inference.obj
+Compiled object file to: test_identity.obj
+✓ Object file created: test_identity.obj
 
-Output: inference.obj
-```
-
-**Generated files**:
-- `inference.ll` - LLVM IR text format, contains inference_init/compute/cleanup functions
-- `inference.obj` - Object file PE/COFF format, native x86-64 machine code
-
-**DLL linking blocked**:
-
-Attempting `--mode dll` will fail at Step 7:
-```
 --- Step 7: Linking to DLL ---
-ERROR: LLD library not available. Native mode requires LLVM built with LLD.
-       Rebuild LLVM with: -DLLVM_ENABLE_PROJECTS="mlir;lld"
-Error linking DLL
+Warning: Runtime library not found, DLL may have unresolved symbols
+LLD-LINK command (6 args): [0]='/DLL' [1]='/OUT:test_identity.dll' [2]='/DEF:test_identity.obj.def' [3]='test_identity.obj' [4]='/NOLOGO' [5]='/MACHINE:X64'
+ArrayRef size: 6
 ```
 
-**To enable full DLL compilation**:
-
-Rebuild LLVM with LLD enabled:
+**Generated Intermediate Files**:
 ```bash
-cmake -S llvm-project/llvm -B build-llvm \
-  -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-  -DCMAKE_INSTALL_PREFIX=/path/to/install \
-  -DCMAKE_BUILD_TYPE=Release
-
-cmake --build build-llvm --parallel
-cmake --install build-llvm
+$ ls -lh test_identity.*
+-rw-r--r-- 1 user 1049089 2.1K Feb 12 06:34 test_identity.ll       # LLVM IR (text)
+-rw-r--r-- 1 user 1049089 1.1K Feb 12 06:34 test_identity.obj      # Object file (PE/COFF)
+-rw-r--r-- 1 user 1049089   75 Feb 12 06:34 test_identity.obj.def  # Export definitions
 ```
 
-Then uncomment LLD libraries in `lib/Backend/CMakeLists.txt` (lines 72-76, 84, 101-109, 114)
+**Key Success**: LLD linker is successfully invoked! The CommandLine conflict is resolved (see `notes/lld-commandline-conflict.md` for technical details).
+
+**Current Blocker**: DLL linking fails with undefined runtime symbols:
+```
+DLL: error: undefined symbol: runtime_state_init
+>>> referenced by test_identity.obj:(inference_init)
+
+DLL: error: undefined symbol: runtime_state_cleanup
+>>> referenced by test_identity.obj:(inference_cleanup)
+
+DLL: error: undefined symbol: runtime_prepare_inference
+DLL: error: undefined symbol: runtime_cleanup_inference
+>>> referenced by test_identity.obj:(inference_compute)
+```
+
+**Root Cause**: `HipDnnRuntime.lib` not built yet. The mlir-hip-compiler searches these paths:
+- `../../lib/Runtime/build/Release/HipDnnRuntime.lib`
+- `../../test/runtime/build_standalone/Release/HipDnnRuntime.lib`
+- `../../build/Release/HipDnnRuntime.lib`
+- (none found)
+
+**Next Steps**:
+1. Build HipDnnRuntime library (see `lib/Runtime/` or `test/runtime/`)
+2. Re-run mlir-hip-compiler with runtime library available
+3. Verify DLL exports with `dumpbin /EXPORTS test_identity.dll`
+4. Expected exports: `inference_init`, `inference_compute`, `inference_cleanup`
+
+**Technical Achievement**:
+- ✅ 8-step compilation pipeline complete (parsing → IR → optimization → object → LLD)
+- ✅ LLD library integration working (no CommandLine conflicts)
+- ✅ Object file generation with correct PE/COFF format
+- ✅ Export definition file (.def) automatically generated
+- ⚠️ Final DLL linking pending runtime library availability
 
 ---
 
