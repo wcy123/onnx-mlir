@@ -4,10 +4,11 @@ Licensed under the MIT License.
 -->
 # Runtime Architecture
 
-**Date**: 2026-02-12
-**Document Type**: Design Document
-**Review Status**: Draft (Tech Committee Review)
-**Related**: [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md), [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md)
+**Date:** 2026-02-12
+**Document Type:** Design Document
+**Review Status:** Self-Reviewed
+**Branch:** `mlir-integration`
+**Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md), [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md)
 
 ---
 
@@ -332,19 +333,18 @@ The compiled DLL exports exactly three C-ABI functions. For complete specificati
 
 ### Design Rationale
 
-**Why init/compute/cleanup pattern?**
-- GPU handle creation is expensive (~10-100ms)
-- Constant upload is expensive (weights can be GB-sized)
-- Amortize one-time costs across many inferences
-- Clear resource lifecycle (acquire → use → release)
+For detailed design decisions including:
+- Why init/compute/cleanup pattern? (with alternatives and performance analysis)
+- Why span_t/tensor_t structures? (scalability and flexibility)
+- Why dynamic shape support? (deployment flexibility)
+- Why C-ABI compatibility? (cross-language integration)
 
-**Why opaque state pointer?**
-- See [Section 1: Core Design](#1-core-design-opaque-runtimestate-pattern)
+See [mlir/INTERFACE-DESIGN.md - Section 4: Design Decisions](mlir/INTERFACE-DESIGN.md#4-design-decisions).
 
-**Why C-ABI?**
-- Cross-language compatibility (C, C++, C#, Python, Rust)
-- Standard DLL export mechanism
-- No C++ name mangling
+**Runtime-specific considerations:**
+- **Opaque state pointer**: See [Section 1: Core Design](#1-core-design-opaque-runtimestate-pattern)
+- **GPU handle reuse**: Handles and constants persist across inferences (init once, compute many, cleanup once)
+- **Resource lifecycle**: Clear separation of one-time costs (init/cleanup) from hot path (compute)
 
 ---
 
