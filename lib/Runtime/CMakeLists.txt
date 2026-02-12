@@ -3,15 +3,18 @@
 # ** Licensed under the MIT License.
 ##
 
-# Runtime library for generated DLL
+# HipDnnEpRuntime - Runtime library for ONNX HIP DNN Execution Provider
 # Provides HIP/MIOpen/hipBLASLt wrappers called by generated LLVM IR
+#
+# NOTE: "HipDnnEP" = HIP DNN Execution Provider (this project)
+#       "hipDNN" = AMD's separate DNN library (different project - not used here)
 #
 # CRITICAL BUILD FLOW:
 # This CMakeLists.txt implements a non-standard two-stage compilation:
 #
 # Stage 1 (Build Time - Once):
 #   hipdnn_ep_runtime.cpp → [Clang -emit-llvm] → runtime.bc → [xxd.py] → runtime_ir_data.cpp
-#   Result: Runtime compiled to LLVM bitcode and embedded as C array in libHipDnnRuntime.a
+#   Result: Runtime compiled to LLVM bitcode and embedded as C array in libHipDnnEpRuntime.a
 #
 # Stage 2 (Model Compilation - Per Model):
 #   Generated MLIR IR + embedded runtime.bc → [llvm::Linker] → Combined IR → [LLVM O2] → model.dll
@@ -186,12 +189,12 @@ set(RUNTIME_IR_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp)
 # This library is linked into the EP DLL. At model compilation time, the
 # model compiler extracts the embedded bitcode and merges it with generated IR.
 
-add_library(HipDnnRuntime STATIC
+add_library(HipDnnEpRuntime STATIC
     hipdnn_ep_runtime.cpp    # Runtime implementation (compiled to native code)
     ${RUNTIME_IR_SOURCES}    # Embedded bitcode (data only, not compiled)
 )
 
-target_include_directories(HipDnnRuntime
+target_include_directories(HipDnnEpRuntime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}    # Export hipdnn_ep_runtime.h
     PRIVATE
@@ -205,7 +208,7 @@ target_include_directories(HipDnnRuntime
 if(NOT BUILD_MOCK_RUNTIME)
     # Real Runtime: Link ROCm libraries
     # These will be dynamically loaded at runtime by the generated DLL
-    target_link_libraries(HipDnnRuntime
+    target_link_libraries(HipDnnEpRuntime
         PUBLIC
             hip::host       # HIP runtime (hipMalloc, hipMemcpy, hipStreamCreate, etc.)
             MIOpen          # DNN operations (miopenConvolutionForward, etc.)
@@ -214,39 +217,39 @@ if(NOT BUILD_MOCK_RUNTIME)
 else()
     # Mock Runtime: No ROCm dependencies
     # All GPU functions are stubbed (malloc/free + debug prints)
-    target_compile_definitions(HipDnnRuntime PRIVATE BUILD_MOCK_RUNTIME=1)
+    target_compile_definitions(HipDnnEpRuntime PRIVATE BUILD_MOCK_RUNTIME=1)
 endif()
 
 # ============================================================================
 # STEP 7: Compiler Settings
 # ============================================================================
 
-target_compile_features(HipDnnRuntime PRIVATE cxx_std_17)
+target_compile_features(HipDnnEpRuntime PRIVATE cxx_std_17)
 
 if(MSVC)
-    target_compile_options(HipDnnRuntime PRIVATE /W4)   # Warning level 4
+    target_compile_options(HipDnnEpRuntime PRIVATE /W4)   # Warning level 4
 else()
-    target_compile_options(HipDnnRuntime PRIVATE -Wall -Wextra)
+    target_compile_options(HipDnnEpRuntime PRIVATE -Wall -Wextra)
 endif()
 
 # ============================================================================
 # STEP 8: Install Rules - NOT NEEDED (Static Linking)
 # ============================================================================
 
-# NOTE: Install rules are intentionally omitted for HipDnnRuntime
+# NOTE: Install rules are intentionally omitted for HipDnnEpRuntime
 #
 # Why install is NOT needed:
-#   1. HipDnnRuntime.a is STATICALLY linked into the EP DLL at build time
+#   1. libHipDnnEpRuntime.a is STATICALLY linked into the EP DLL at build time
 #   2. The embedded bitcode is accessed from EP DLL's own memory (not external file)
 #   3. External consumers only need:
 #      - EP DLL (onnxruntime_morphizen_ep.dll) - contains Runtime + bitcode
 #      - Model DLLs (generated, also contain inlined Runtime code)
-#   4. No one needs to link against HipDnnRuntime.a separately
+#   4. No one needs to link against libHipDnnEpRuntime.a separately
 #
 # If install is needed (for custom tooling or testing):
 #   Uncomment the following:
 #
-# install(TARGETS HipDnnRuntime
+# install(TARGETS HipDnnEpRuntime
 #     ARCHIVE DESTINATION lib
 # )
 # install(FILES hipdnn_ep_runtime.h
@@ -260,7 +263,7 @@ endif()
 # Build-time outputs:
 #   1. runtime.bc                  - LLVM bitcode (intermediate)
 #   2. runtime_ir_data.cpp         - Embedded bitcode as C array (intermediate)
-#   3. libHipDnnRuntime.a          - Static library (linked into EP DLL)
+#   3. libHipDnnEpRuntime.a        - Static library (linked into EP DLL)
 #
 # What gets embedded in EP DLL:
 #   - Runtime implementation (native code from hipdnn_ep_runtime.cpp)
