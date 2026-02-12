@@ -328,9 +328,9 @@ llvm.func @release_constants(%context: !llvm.ptr) -> i32 {
 
 **See also:** [../CONSTANT-MANAGEMENT.md](../CONSTANT-MANAGEMENT.md) for complete constant handling details.
 
-### Prerequisite 4: RuntimeState Contract
+### Design Convention: RuntimeState Contract
 
-**Satisfied by:** Convention established in [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md)
+**Reference:** [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) - Opaque Handle Design
 
 **CRITICAL**: RuntimeState is **OPAQUE** to generated code. Generated code NEVER accesses fields directly.
 
