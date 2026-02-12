@@ -431,16 +431,6 @@ llvm.func @inference_init(%out_state: !llvm.ptr) -> i32
 - Runtime library merged via llvm::Linker - same final binary
 - LLVM optimization inlines everything - zero overhead
 
-**What the runtime function does** (see `lib/Runtime/hipdnn_ep_runtime.cpp` for implementation):
-1. Allocates RuntimeState structure
-2. Creates GPU stream
-3. Creates MIOpen and hipBLAS handles, associates them with stream
-4. Gets constant registry from `get_constant_registry()`
-5. Allocates GPU memory for all constants
-6. Uploads constants from CPU to GPU
-7. Returns 0 on success, non-zero on error
-8. On error: LIFO cleanup of all allocated resources
-
 **For runtime implementation details:** See [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) and `lib/Runtime/hipdnn_ep_runtime.cpp`.
 
 ### Function 2: inference_compute
