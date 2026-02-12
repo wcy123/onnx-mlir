@@ -35,15 +35,19 @@ struct ConstantInfo {
   Type elementType;              // Element type (f32, i64, etc.)
   SmallVector<int64_t, 4> shape; // Tensor shape (owned storage)
   size_t sizeInBytes;            // Total size in bytes
+  size_t elementSizeInBytes;     // Size of one element (sizeof(float), etc.)
+  size_t numElements;            // Total number of elements
   std::string name;              // Debug name (from operation location)
 
   // Default constructor (required by DenseMap)
-  ConstantInfo() : globalIndex(-1), sizeInBytes(0) {}
+  ConstantInfo() : globalIndex(-1), sizeInBytes(0), elementSizeInBytes(0), numElements(0) {}
 
   ConstantInfo(int64_t idx, ElementsAttr val, Type elemType,
-               ArrayRef<int64_t> shp, size_t size, StringRef debugName)
+               ArrayRef<int64_t> shp, size_t size, size_t elemSize, size_t numElems,
+               StringRef debugName)
       : globalIndex(idx), value(val), elementType(elemType),
         shape(shp.begin(), shp.end()), sizeInBytes(size),
+        elementSizeInBytes(elemSize), numElements(numElems),
         name(debugName.str()) {}
 };
 
@@ -555,7 +559,7 @@ public:
     }
 
     // Phase 4: Generate initialization functions
-    if (failed(generateInitializationFunctions(module))) {
+    if (failed(generateConstantRegistry(module))) {
       signalPassFailure();
       return;
     }
@@ -643,7 +647,7 @@ private:
 
           // Store constant info
           ConstantInfo info(nextIndex, elementsAttr, elementType, shape,
-                            totalSize, debugName);
+                            totalSize, elementSize, numElements, debugName);
 
           constantRegistry_[constantOp.getResult()] = std::move(info);
           nextIndex++;
@@ -791,126 +795,125 @@ private:
     return success();
   }
 
-  /// Generate initialization functions for constant management
-  LogicalResult generateInitializationFunctions(ModuleOp module) {
+  /// Generate constant registry function for runtime initialization
+  /// Implements design from CONSTANT-HANDLING-DESIGN.md
+  LogicalResult generateConstantRegistry(ModuleOp module) {
     if (constantRegistry_.empty()) {
-      return success(); // No constants, no initialization needed
+      return success(); // No constants, no registry needed
     }
 
     OpBuilder builder(module.getBodyRegion());
     auto loc = module.getLoc();
+    auto *context = builder.getContext();
 
-    llvm::errs() << "[ONNX→HIP] Generating initialization functions\n";
+    llvm::errs() << "[ONNX→HIP] Generating constant registry\n";
 
-    // 1. Generate get_constant_count() -> i64
-    {
-      // Reset insertion point to end of module for each function
-      builder.setInsertionPointToEnd(module.getBody());
+    // Define LLVM types for ConstantInfo and ConstantRegistry structs
+    // struct ConstantInfo { void* cpu_data; i64 size_bytes; i64 element_size; i64 num_elements; }
+    auto ptrType = LLVM::LLVMPointerType::get(context);
+    auto i64Type = builder.getI64Type();
+    auto constantInfoType = LLVM::LLVMStructType::getLiteral(
+        context, {ptrType, i64Type, i64Type, i64Type});
 
-      auto i64Type = builder.getI64Type();
-      auto llvmFuncType = LLVM::LLVMFunctionType::get(i64Type, {});
-      auto funcOp = builder.create<LLVM::LLVMFuncOp>(
-          loc, "get_constant_count", llvmFuncType, LLVM::Linkage::External);
+    // struct ConstantRegistry { ConstantInfo* constants; i64 count; }
+    auto constantRegistryType = LLVM::LLVMStructType::getLiteral(
+        context, {ptrType, i64Type});
 
-      Block *entryBlock = funcOp.addEntryBlock(builder);
-      builder.setInsertionPointToStart(entryBlock);
+    // 1. Generate ConstantInfo array as global
+    builder.setInsertionPointToStart(module.getBody());
 
-      // Return constant count
-      Value count = builder.create<LLVM::ConstantOp>(
-          loc, i64Type, builder.getI64IntegerAttr(constantRegistry_.size()));
-      builder.create<LLVM::ReturnOp>(loc, count);
+    auto constantInfoArrayType = LLVM::LLVMArrayType::get(
+        constantInfoType, constantRegistry_.size());
 
-      llvm::errs() << "  Generated: get_constant_count() -> "
-                   << constantRegistry_.size() << "\n";
+    auto constantInfoArrayGlobal = builder.create<LLVM::GlobalOp>(
+        loc, constantInfoArrayType, /*isConstant=*/true,
+        LLVM::Linkage::Internal, "constant_info_array",
+        Attribute());
+
+    // Initialize the ConstantInfo array
+    Region &initRegion = constantInfoArrayGlobal.getInitializerRegion();
+    Block *initBlock = builder.createBlock(&initRegion);
+    builder.setInsertionPointToStart(initBlock);
+
+    Value arrayInit = builder.create<LLVM::UndefOp>(loc, constantInfoArrayType);
+
+    size_t index = 0;
+    for (const auto &entry : constantRegistry_) {
+      const auto &info = entry.second;
+
+      // Create ConstantInfo struct for this constant
+      Value constInfo = builder.create<LLVM::UndefOp>(loc, constantInfoType);
+
+      // Field 0: cpu_data (pointer to LLVM global)
+      Value dataPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, info.name);
+      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, dataPtr, 0);
+
+      // Field 1: size_bytes
+      Value sizeBytes = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(info.sizeInBytes));
+      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, sizeBytes, 1);
+
+      // Field 2: element_size (sizeof(element type))
+      Value elemSize = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(info.elementSizeInBytes));
+      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, elemSize, 2);
+
+      // Field 3: num_elements
+      Value numElems = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(info.numElements));
+      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, numElems, 3);
+
+      // Insert into array
+      arrayInit = builder.create<LLVM::InsertValueOp>(
+          loc, arrayInit, constInfo, ArrayRef<int64_t>{static_cast<int64_t>(index)});
+
+      index++;
     }
 
-    // 2. Generate initialize_constants(%ctx: !hip.context) -> i32
-    {
-      // Reset insertion point to end of module for each function
-      builder.setInsertionPointToEnd(module.getBody());
+    builder.create<LLVM::ReturnOp>(loc, arrayInit);
 
-      auto contextType = hip::ContextType::get(builder.getContext());
-      auto i32Type = builder.getI32Type();
-      auto funcType = builder.getFunctionType({contextType}, {i32Type});
-      auto funcOp =
-          builder.create<func::FuncOp>(loc, "initialize_constants", funcType);
-      funcOp.setPublic();
+    // 2. Generate ConstantRegistry struct as global
+    builder.setInsertionPointToEnd(module.getBody());
 
-      Block *entryBlock = funcOp.addEntryBlock();
-      builder.setInsertionPointToStart(entryBlock);
+    auto constantRegistryGlobal = builder.create<LLVM::GlobalOp>(
+        loc, constantRegistryType, /*isConstant=*/true,
+        LLVM::Linkage::Internal, "constant_registry",
+        Attribute());
 
-      Value ctx = entryBlock->getArgument(0);
+    // Initialize the ConstantRegistry struct
+    Region &regInitRegion = constantRegistryGlobal.getInitializerRegion();
+    Block *regInitBlock = builder.createBlock(&regInitRegion);
+    builder.setInsertionPointToStart(regInitBlock);
 
-      // For each constant: upload to GPU
-      for (const auto &entry : constantRegistry_) {
-        const auto &info = entry.second;
+    Value registryInit = builder.create<LLVM::UndefOp>(loc, constantRegistryType);
 
-        // Get address of global constant
-        auto ptrType = LLVM::LLVMPointerType::get(builder.getContext());
-        Value dataPtr =
-            builder.create<LLVM::AddressOfOp>(loc, ptrType, info.name);
+    // Field 0: constants (pointer to ConstantInfo array)
+    Value arrayPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_info_array");
+    registryInit = builder.create<LLVM::InsertValueOp>(loc, registryInit, arrayPtr, 0);
 
-        // Create index constant
-        Value index = builder.create<arith::ConstantOp>(
-            loc, builder.getI64Type(),
-            builder.getI64IntegerAttr(info.globalIndex));
+    // Field 1: count
+    Value count = builder.create<LLVM::ConstantOp>(
+        loc, i64Type, builder.getI64IntegerAttr(constantRegistry_.size()));
+    registryInit = builder.create<LLVM::InsertValueOp>(loc, registryInit, count, 1);
 
-        // Create size constant
-        Value size = builder.create<arith::ConstantOp>(
-            loc, builder.getI64Type(),
-            builder.getI64IntegerAttr(info.sizeInBytes));
+    builder.create<LLVM::ReturnOp>(loc, registryInit);
 
-        // Call hip.upload_constant
-        builder.create<hip::UploadConstantOp>(loc, ctx, index, dataPtr, size);
-      }
+    // 3. Generate get_constant_registry() -> ptr function
+    builder.setInsertionPointToEnd(module.getBody());
 
-      // Return success (0)
-      Value success = builder.create<arith::ConstantOp>(
-          loc, i32Type, builder.getI32IntegerAttr(0));
-      builder.create<func::ReturnOp>(loc, success);
+    auto funcType = LLVM::LLVMFunctionType::get(ptrType, {});
+    auto funcOp = builder.create<LLVM::LLVMFuncOp>(
+        loc, "get_constant_registry", funcType, LLVM::Linkage::External);
 
-      llvm::errs() << "  Generated: initialize_constants() with "
-                   << constantRegistry_.size() << " uploads\n";
-    }
+    Block *entryBlock = funcOp.addEntryBlock(builder);
+    builder.setInsertionPointToStart(entryBlock);
 
-    // 3. Generate release_constants(%ctx: !hip.context) -> i32
-    {
-      // Reset insertion point to end of module for each function
-      builder.setInsertionPointToEnd(module.getBody());
+    // Return pointer to constant_registry global
+    Value registryPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_registry");
+    builder.create<LLVM::ReturnOp>(loc, registryPtr);
 
-      auto contextType = hip::ContextType::get(builder.getContext());
-      auto i32Type = builder.getI32Type();
-      auto funcType = builder.getFunctionType({contextType}, {i32Type});
-      auto funcOp =
-          builder.create<func::FuncOp>(loc, "release_constants", funcType);
-      funcOp.setPublic();
-
-      Block *entryBlock = funcOp.addEntryBlock();
-      builder.setInsertionPointToStart(entryBlock);
-
-      Value ctx = entryBlock->getArgument(0);
-
-      // For each constant: release from GPU
-      for (const auto &entry : constantRegistry_) {
-        const auto &info = entry.second;
-
-        // Create index constant
-        Value index = builder.create<arith::ConstantOp>(
-            loc, builder.getI64Type(),
-            builder.getI64IntegerAttr(info.globalIndex));
-
-        // Call hip.release_constant
-        builder.create<hip::ReleaseConstantOp>(loc, ctx, index);
-      }
-
-      // Return success (0)
-      Value success = builder.create<arith::ConstantOp>(
-          loc, i32Type, builder.getI32IntegerAttr(0));
-      builder.create<func::ReturnOp>(loc, success);
-
-      llvm::errs() << "  Generated: release_constants() with "
-                   << constantRegistry_.size() << " releases\n";
-    }
+    llvm::errs() << "  Generated: get_constant_registry() with "
+                 << constantRegistry_.size() << " constants\n";
 
     return success();
   }

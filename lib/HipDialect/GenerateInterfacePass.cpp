@@ -506,20 +506,31 @@ private:
     Value errorCodePtr = builder.create<LLVM::AllocaOp>(
         loc, ptrType, i32Type, c1_i64, 0);
 
+    // Allocate all TensorBuffer structs upfront in entry block so they dominate all uses
+    SmallVector<Value> inputBuffers;
+    SmallVector<Value> outputBuffers;
+    for (size_t i = 0; i < numInputs; i++) {
+      Value bufferPtr = builder.create<LLVM::AllocaOp>(
+          loc, ptrType, tensorBufferType, c1_i64, 0);
+      inputBuffers.push_back(bufferPtr);
+    }
+    for (size_t i = 0; i < numOutputs; i++) {
+      Value bufferPtr = builder.create<LLVM::AllocaOp>(
+          loc, ptrType, tensorBufferType, c1_i64, 0);
+      outputBuffers.push_back(bufferPtr);
+    }
+
     // Create error cleanup block
     Block *errorCleanupBlock = funcOp.addBlock();
 
     // ========================================================================
     // Phase 1: Prepare all input tensors
     // ========================================================================
-    SmallVector<Value> inputBuffers;
     SmallVector<Value> inputMemrefs;
 
     for (size_t i = 0; i < numInputs; i++) {
-      // Allocate TensorBuffer on stack
-      Value bufferPtr = builder.create<LLVM::AllocaOp>(
-          loc, ptrType, tensorBufferType, c1_i64, 0);
-      inputBuffers.push_back(bufferPtr);
+      // Get pre-allocated buffer
+      Value bufferPtr = inputBuffers[i];
 
       // Create index constant
       Value indexVal = builder.create<LLVM::ConstantOp>(
@@ -559,14 +570,11 @@ private:
     // ========================================================================
     // Phase 2: Prepare all output tensors
     // ========================================================================
-    SmallVector<Value> outputBuffers;
     SmallVector<Value> outputMemrefs;
 
     for (size_t i = 0; i < numOutputs; i++) {
-      // Allocate TensorBuffer on stack
-      Value bufferPtr = builder.create<LLVM::AllocaOp>(
-          loc, ptrType, tensorBufferType, c1_i64, 0);
-      outputBuffers.push_back(bufferPtr);
+      // Get pre-allocated buffer
+      Value bufferPtr = outputBuffers[i];
 
       // Create index constant
       Value indexVal = builder.create<LLVM::ConstantOp>(
@@ -624,7 +632,11 @@ private:
       Value gpuPtrFieldPtr = builder.create<LLVM::GEPOp>(
           loc, ptrType, tensorBufferType, bufferPtr,
           ArrayRef<LLVM::GEPArg>{0, 0});
-      Value gpuPtr = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+      Value gpuPtrRaw = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+
+      // Cast to GPU address space (address space 1)
+      Type gpuPtrType = LLVM::LLVMPointerType::get(builder.getContext(), 1);
+      Value gpuPtr = builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
 
       // Load shape_ptr (field 2)
       Value shapePtrFieldPtr = builder.create<LLVM::GEPOp>(
@@ -715,7 +727,11 @@ private:
       Value gpuPtrFieldPtr = builder.create<LLVM::GEPOp>(
           loc, ptrType, tensorBufferType, bufferPtr,
           ArrayRef<LLVM::GEPArg>{0, 0});
-      Value gpuPtr = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+      Value gpuPtrRaw = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+
+      // Cast to GPU address space (address space 1)
+      Type gpuPtrType = LLVM::LLVMPointerType::get(builder.getContext(), 1);
+      Value gpuPtr = builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
 
       // Load shape_ptr
       Value shapePtrFieldPtr = builder.create<LLVM::GEPOp>(
