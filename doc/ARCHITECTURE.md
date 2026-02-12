@@ -23,6 +23,7 @@ Licensed under the MIT License.
   - [4. Synchronous Execution vs Async](#4-synchronous-execution-vs-async)
   - [5. Full Model Fusion vs Per-Op Execution](#5-full-model-fusion-vs-per-op-execution)
   - [6. Standalone Resources vs Shared Context](#6-standalone-resources-vs-shared-context)
+  - [7. LLVM IR Merging for Zero-Cost Runtime Abstraction](#7-llvm-ir-merging-for-zero-cost-runtime-abstraction)
 - [Design Principles](#design-principles)
 - [ONNX-MLIR Integration](#onnx-mlir-integration)
 - [Open Architectural Questions](#open-architectural-questions)
@@ -52,7 +53,8 @@ The system separates compilation from execution into two distinct stages:
 ┌─────────────────────────────────────────────────────────────┐
 │               COMPILE-TIME (Level-1 Pass)                    │
 ├─────────────────────────────────────────────────────────────┤
-│  Dependencies: LLVM, MLIR, onnx-mlir, HIP headers, MIOpen   │
+│  Dependencies: LLVM, MLIR, onnx-mlir, HIP headers, MIOpen,  │
+│                clang (for Runtime bitcode generation)       │
 │                                                              │
 │  ONNX Model                                                 │
 │      ↓                                                       │
@@ -64,7 +66,9 @@ The system separates compilation from execution into two distinct stages:
 │      ↓                                                       │
 │  Generate C interface (GenerateInterfacePass)               │
 │      ↓                                                       │
-│  LLVM IR → Compiled Artifact (DLL or IR)                    │
+│  LLVM IR → Merge with Runtime bitcode → Optimize (inline)  │
+│      ↓                                                       │
+│  Optimized IR → Native DLL                                  │
 │      ↓                                                       │
 │  Embed in EPContext → ONNX model with EPContext             │
 │                                                              │
@@ -260,6 +264,90 @@ See [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) for detailed memory allocation 
 
 ---
 
+### 7. LLVM IR Merging for Zero-Cost Runtime Abstraction
+
+**Decision:** Embed Runtime as LLVM bitcode in EP DLL, merge with generated IR using `llvm::Linker` API at model compilation time.
+
+**Rationale:**
+- **Zero-cost abstraction:** Runtime accessor functions (e.g., `hipdnn_ep_get_stream()`) are inlined to single load instructions
+- **Clean separation:** Generated code uses abstraction layer without performance penalty
+- **Cross-module optimization:** LLVM optimizer can inline across compilation units
+- **No runtime overhead:** Function call overhead eliminated during optimization
+
+**How it works:**
+1. **Build time (once):** Runtime compiled to LLVM bitcode (.bc) using clang `-emit-llvm`
+2. **Build time (once):** Bitcode embedded as C array in EP DLL using xxd.py
+3. **Model compilation (per model):** Runtime bitcode parsed and merged with MLIR-generated IR
+4. **Optimization:** LLVM PassBuilder inlines Runtime functions at O2+
+5. **Result:** Final DLL contains inlined Runtime code (single load instructions)
+
+**Implementation:**
+
+```cmake
+# CMake: Generate Runtime bitcode
+add_custom_command(
+    OUTPUT runtime.bc
+    COMMAND ${CMAKE_CXX_COMPILER} -c -emit-llvm -O2
+            -std=c++17 hipdnn_ep_runtime.cpp -o runtime.bc
+    DEPENDS hipdnn_ep_runtime.cpp
+)
+
+# CMake: Embed bitcode as C array
+add_custom_command(
+    OUTPUT runtime_ir_data.cpp
+    COMMAND ${Python3_EXECUTABLE} xxd.py --var runtime_bc_data
+            --output runtime_ir_data.cpp runtime.bc
+    DEPENDS runtime.bc
+)
+```
+
+```cpp
+// C++: Link Runtime IR at model compilation
+bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
+    // Parse embedded bitcode
+    auto MemBuf = llvm::MemoryBuffer::getMemBuffer(
+        llvm::StringRef((const char*)runtime_bc_data, bcSize),
+        "runtime.bc", false);
+
+    auto ModuleOrErr = llvm::parseBitcodeFile(
+        MemBuf->getMemBufferRef(), destModule->getContext());
+
+    // Merge Runtime IR with generated IR
+    llvm::Linker linker(*destModule);
+    return !linker.linkInModule(std::move(*ModuleOrErr));
+}
+```
+
+**Trade-offs:**
+
+| Aspect | IR Merging (Chosen) | Direct Linking |
+|--------|---------------------|----------------|
+| **Runtime overhead** | Zero (inlined) | 5-10 cycles per call |
+| **DLL size** | Slightly larger (embedded .bc) | Smaller |
+| **Build complexity** | Moderate (clang + xxd.py) | Simple |
+| **Abstraction cost** | Free (optimizer eliminates) | Paid at runtime |
+| **Dependencies** | Clang for bitcode generation | None |
+
+**Requirements:**
+- Clang compiler with `-emit-llvm` support
+- Python 3 for xxd.py embedding script
+- LLVM Linker API (`llvm::Linker::linkInModule()`)
+- LLVM Bitcode APIs (`llvm::parseBitcodeFile()`)
+
+**Verification:**
+```bash
+# Compile model and dump optimized IR
+mlir-hip-compiler --opt-level=2 --dump-llvm-ir model.onnx
+
+# Verify Runtime functions are inlined (should NOT appear)
+grep "hipdnn_ep_get_stream" output.ll  # Should be empty
+grep "hipdnn_ep_get_constant" output.ll  # Should be empty
+```
+
+See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for detailed Runtime design and abstraction rationale.
+
+---
+
 ## Design Principles
 
 These principles guided the architectural decisions:
@@ -309,6 +397,16 @@ Related decision: [#2 Stateful Interface](#2-stateful-interface-initcomputeclean
 **Application:** ONNX Constant nodes lowered to LLVM globals in compiled DLL
 
 Related decision: [#3 Embedded Constants vs External Files](#3-embedded-constants-vs-external-files)
+
+### 6. Zero-Cost Abstractions via IR Merging
+
+**Principle:** Runtime abstraction layer should have zero performance overhead.
+
+**Rationale:** Clean code separation shouldn't sacrifice performance
+
+**Application:** Merge Runtime LLVM bitcode with generated IR, enabling cross-module inlining
+
+Related decision: [#7 LLVM IR Merging for Zero-Cost Runtime Abstraction](#7-llvm-ir-merging-for-zero-cost-runtime-abstraction)
 
 ---
 
@@ -380,6 +478,7 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 
 ### Architectural Decisions
 - [NATIVE-VS-IR-COMPARISON.md](NATIVE-VS-IR-COMPARISON.md) - Detailed comparison of Native DLL vs LLVM IR storage
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime design and zero-cost abstraction rationale
 
 ### Specifications
 - [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - Complete C interface specification
@@ -404,10 +503,13 @@ See [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) for complete pipeli
 - [AMD ROCm](https://rocm.docs.amd.com/) - AMD GPU computing platform
 - [HIP Programming Guide](https://rocm.docs.amd.com/projects/HIP/) - HIP API documentation
 - [HIP Performance Guidelines](https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/performance_guidelines.html) - Optimization best practices
+- [LLVM Linker API](https://llvm.org/doxygen/classllvm_1_1Linker.html) - LLVM module linking interface
+- [LLVM Bitcode Format](https://llvm.org/docs/BitCodeFormat.html) - LLVM bitcode specification
 
 ---
 
 **Document History:**
+- v2.4 (2026-02-12): Added Design Decision #7 (LLVM IR Merging), Design Principle #6 (Zero-Cost Abstractions), updated system diagram
 - v2.3 (2026-02-11): Removed "Quality Attributes" section (redundant bureaucracy)
 - v2.2 (2026-02-11): Moved "Memory DLL Loading vs Disk Files" to NATIVE-VS-IR-COMPARISON.md as Native DLL sub-decision
 - v2.1 (2026-02-11): Moved Native DLL vs LLVM IR decision to "Open Questions", created separate comparison document

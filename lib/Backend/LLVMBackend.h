@@ -51,6 +51,11 @@ public:
   // Returns true on success, false on failure
   bool compileToObjectFile(llvm::Module *module, const std::string &outputPath);
 
+  // Link embedded Runtime IR into destination module
+  // Merges Runtime bitcode with generated IR for zero-cost abstraction
+  // Returns true on success, false on failure
+  bool linkRuntimeModule(llvm::Module *destModule);
+
 private:
   // Helper: Initialize LLVM target for current platform
   void initializeTarget();

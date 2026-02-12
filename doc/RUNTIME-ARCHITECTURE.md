@@ -58,7 +58,15 @@ The Runtime library (`lib/Runtime`) provides:
 
 **To add a new library:** Add its handle to RuntimeState, create wrapper functions, and add initialization/cleanup code. The opaque design ensures no impact on existing code.
 
-#### 4. Memory Management Wrappers
+#### 4. LLVM IR Embedding (Build-Time Only)
+- Runtime compiled to LLVM bitcode (.bc) at build time using `clang -emit-llvm`
+- Bitcode embedded as binary data in EP DLL using `xxd.py` tool
+- Merged with MLIR-generated IR during model compilation using `llvm::Linker` API
+- Enables cross-module inlining for zero-cost abstraction
+- Accessor functions (`hipdnn_ep_get_stream()`, etc.) optimized to single load instructions
+- See [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction) for complete details
+
+#### 5. Memory Management Wrappers
 - `wrap_hipMalloc()` - GPU memory allocation
 - `wrap_hipFree()` - GPU memory deallocation
 - `wrap_hipMemcpyH2D()` - Host-to-device async copy
@@ -196,7 +204,11 @@ struct RuntimeState {
 5. **Testability**: Can mock runtime functions for testing
 
 **Trade-offs**:
-- Function call overhead (negligible - optimized to single load instruction)
+- Function call overhead (eliminated via IR merging - see [ARCHITECTURE.md Design Decision #7](ARCHITECTURE.md#7-llvm-ir-merging-for-zero-cost-runtime-abstraction))
+  - Runtime bitcode embedded in EP DLL at build time
+  - Merged with generated IR using `llvm::Linker` API during model compilation
+  - LLVM optimizer inlines accessor functions to single load instructions
+  - Result: Zero runtime cost, accessor calls disappear from final binary
 - Runtime must provide accessor implementations
 
 ### Access Pattern

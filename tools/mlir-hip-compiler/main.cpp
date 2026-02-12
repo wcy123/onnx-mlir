@@ -214,12 +214,25 @@ int main(int argc, char **argv) {
   if (opts.verbose)
     std::cout << "✓ LLVM IR generated\n\n";
 
-  // Optimize LLVM IR
+  // Link Runtime module for zero-cost abstraction
   if (opts.verbose)
-    std::cout << "--- Step 4: Optimizing LLVM IR (O" << opts.optLevel << ") ---\n";
+    std::cout << "--- Step 3.5: Linking Runtime Module ---\n";
+
+  if (!backend.linkRuntimeModule(llvmModule.get())) {
+    std::cerr << "Error linking Runtime module\n";
+    return 1;
+  }
+
+  if (opts.verbose)
+    std::cout << "✓ Runtime module linked (enables cross-module inlining)\n\n";
+
+  // Optimize LLVM IR (inlining happens here)
+  if (opts.verbose)
+    std::cout << "--- Step 4: Optimizing LLVM IR (O" << opts.optLevel
+              << ") - Runtime functions will be inlined ---\n";
   backend.optimizeLLVMIR(llvmModule.get(), opts.optLevel);
   if (opts.verbose)
-    std::cout << "✓ Optimization completed\n\n";
+    std::cout << "✓ Optimization completed (Runtime calls inlined)\n\n";
 
   // Emit LLVM IR to file (if requested or keeping intermediates)
   std::string llFilename = opts.outputFilename;
