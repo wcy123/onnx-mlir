@@ -365,12 +365,11 @@ typedef struct {
 
 | Contract | Critical For | Documented In |
 |----------|--------------|---------------|
-| @main behavioral contract | Correct memref handling | HipToLLVM.md |
-| Constant registry contract | GPU memory management | ../../CONSTANT-HANDLING-DESIGN.md |
-| RuntimeState opaque design | ABI stability | RUNTIME-ARCHITECTURE.md |
-| Error handling policy | Robust error paths | INTERFACE-DESIGN.md |
-| Tensor interface (span_t/tensor_t) | C-ABI compatibility | INTERFACE-DESIGN.md |
-| Dynamic shape support | Runtime flexibility | DYNAMIC-SHAPE-DESIGN.md |
+| @main behavioral contract | Correct memref handling | [HipToLLVM.md](../conversion/HipToLLVM.md) |
+| Constant registry contract | GPU memory management | [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) |
+| RuntimeState opaque design | ABI stability | [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) |
+| Tensor interface (span_t/tensor_t) | C-ABI compatibility | [../../INTERFACE-DESIGN.md](../../INTERFACE-DESIGN.md) |
+| Dynamic shape support | Runtime flexibility | [../../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) |
 
 ---
 
