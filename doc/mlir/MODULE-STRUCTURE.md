@@ -41,18 +41,18 @@ module {
     // All ONNX operations lowered inline (hip.conv, hip.alloc, etc.)
   }
 
-  // Constant management functions
-  llvm.func @get_constant_count() -> i64 {
-    %0 = llvm.mlir.constant(4 : i64) : i64
-    llvm.return %0 : i64
+  // Constant registry - metadata for all constants
+  llvm.mlir.global constant @constant_info_array() : !llvm.array<4 x !llvm.struct<(ptr, i64, i64, i64)>> {
+    // Array of ConstantInfo structs
   }
 
-  llvm.func @initialize_constants(%context: !llvm.ptr) -> i32 {
-    // Upload all constants to GPU
+  llvm.mlir.global constant @constant_registry() : !llvm.struct<(ptr, i64)> {
+    // ConstantRegistry struct
   }
 
-  llvm.func @release_constants(%context: !llvm.ptr) -> i32 {
-    // Free all GPU constant memory
+  llvm.func @get_constant_registry() -> !llvm.ptr {
+    %0 = llvm.mlir.addressof @constant_registry : !llvm.ptr
+    llvm.return %0 : !llvm.ptr
   }
 
   // ============================================================================
@@ -60,10 +60,10 @@ module {
   // Exported from DLL for CustomOp
   // ============================================================================
 
-  // Function 1: inference_init - wrapper around initialize_constants
+  // Function 1: inference_init - creates state and uploads constants
   // C signature: int inference_init(void** out_state);
   llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32 {
-    // Create state, initialize GPU handles, call initialize_constants
+    // Create state, initialize GPU handles, upload constants from registry
   }
 
   // Function 2: inference_compute - wrapper around @main
@@ -74,10 +74,10 @@ module {
     // Parse span_t → build memref descriptors → call @main
   }
 
-  // Function 3: inference_cleanup - wrapper around release_constants
+  // Function 3: inference_cleanup - frees GPU resources
   // C signature: int inference_cleanup(void* state);
   llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32 {
-    // Call release_constants, destroy GPU handles, free state
+    // Free GPU constants, destroy GPU handles, free state
   }
 }
 ```
@@ -101,10 +101,11 @@ llvm.mlir.global constant @constant_0(
 
 **Key points:**
 - Embedded in DLL at compile time
-- Uploaded to GPU in `initialize_constants`
+- Metadata provided via `get_constant_registry()`
+- Runtime uploads to GPU in `inference_init`
 - Retrieved via `hip.get_constant` in @main
 
-See [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) for details.
+See [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) for details.
 
 ### 2. Internal Functions (Private)
 
@@ -133,41 +134,35 @@ llvm.func @main(%context: !llvm.ptr,
 - Supports multiple inputs and outputs
 - Dynamic shape ready (memref sizes are runtime values)
 
-#### Constant Management Helpers
+#### Constant Registry Helper
 
-**get_constant_count()**
+**get_constant_registry()**
 ```mlir
-llvm.func @get_constant_count() -> i64 {
-  %count = llvm.mlir.constant(4 : i64) : i64  // Compile-time constant
-  llvm.return %count : i64
+llvm.func @get_constant_registry() -> !llvm.ptr {
+  %registry_ptr = llvm.mlir.addressof @constant_registry : !llvm.ptr
+  llvm.return %registry_ptr : !llvm.ptr
 }
 ```
-- Returns number of constants in the model
-- Pure function (no side effects)
 
-**initialize_constants(context)**
-```mlir
-llvm.func @initialize_constants(%context: !llvm.ptr) -> i32 {
-  // 1. Get constant data from globals
-  // 2. Allocate GPU memory (hipMalloc)
-  // 3. Copy to GPU (hipMemcpy)
-  // 4. Store GPU pointers in context.gpu_constants array
-  llvm.return %status : i32
-}
-```
-- Uploads all constants to GPU
-- Called by `inference_init`
+**Returns pointer to ConstantRegistry struct:**
+```c
+struct ConstantInfo {
+    const void* cpu_data;      // Pointer to LLVM global
+    size_t size_bytes;         // Total bytes
+    size_t element_size;       // sizeof(element)
+    size_t num_elements;       // For validation
+};
 
-**release_constants(context)**
-```mlir
-llvm.func @release_constants(%context: !llvm.ptr) -> i32 {
-  // 1. Load GPU pointers from context.gpu_constants
-  // 2. Free GPU memory (hipFree)
-  llvm.return %status : i32
-}
+struct ConstantRegistry {
+    const ConstantInfo* constants;  // Pointer to array
+    size_t count;                   // Number of constants
+};
 ```
-- Frees all GPU constant memory
-- Called by `inference_cleanup`
+
+- Returns metadata about all constants in the model
+- Pure function (no side effects, no GPU operations)
+- Runtime uses this to allocate/upload/free GPU memory
+- Called by `inference_init` and `inference_cleanup`
 
 ### 3. C Interface Functions (Public, Exported)
 
@@ -188,9 +183,10 @@ llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
 **Workflow:**
 1. Allocate context struct (malloc)
 2. Create GPU handles (hipStreamCreate, miopenCreate, hipblasLtCreate)
-3. Allocate gpu_constants array
-4. Call `initialize_constants(context)`
-5. Return context pointer via out parameter
+3. Get constant registry (`get_constant_registry()`)
+4. Allocate gpu_constants array based on registry count
+5. Upload constants to GPU (loop: hipMalloc + hipMemcpy for each constant)
+6. Return context pointer via out parameter
 
 **Generated by:** GenerateInterfacePass
 
@@ -236,7 +232,7 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
 **Purpose:** Free GPU resources and state
 
 **Workflow:**
-1. Call `release_constants(state)`
+1. Free GPU constant memory (loop: hipFree for each constant)
 2. Destroy GPU handles (hipblasLtDestroy, miopenDestroy, hipStreamDestroy)
 3. Free gpu_constants array
 4. Free context struct (free)
@@ -255,11 +251,11 @@ CustomOp (C++ code)
   │     ├─→ hipStreamCreate()
   │     ├─→ miopenCreate()
   │     ├─→ hipblasLtCreate()
-  │     ├─→ malloc() - allocate gpu_constants array
-  │     └─→ initialize_constants(context)
-  │           ├─→ llvm.mlir.addressof @constant_0
+  │     ├─→ get_constant_registry() - get metadata
+  │     ├─→ malloc() - allocate gpu_constants array (size from registry)
+  │     └─→ for each constant in registry:
   │           ├─→ hipMalloc() - allocate GPU memory
-  │           ├─→ hipMemcpy() - copy to GPU
+  │           ├─→ hipMemcpy() - copy from registry.constants[i].cpu_data to GPU
   │           └─→ store GPU pointer in context.gpu_constants[i]
   │
   ├─→ inference_compute(void* state, span_t* inputs, span_t* outputs)
@@ -275,8 +271,9 @@ CustomOp (C++ code)
   │           └─→ ... (more operations inline)
   │
   └─→ inference_cleanup(void* state)
-        ├─→ release_constants(context)
-        │     └─→ hipFree() - free GPU constants
+        ├─→ get_constant_registry() - get count
+        ├─→ for each constant:
+        │     └─→ hipFree(context.gpu_constants[i])
         ├─→ hipblasLtDestroy()
         ├─→ miopenDestroy()
         ├─→ hipStreamDestroy()
@@ -290,13 +287,14 @@ CustomOp (C++ code)
 
 1. **Two layers**: C interface wrappers + internal MLIR functions
 2. **3 exported functions**: `inference_init`, `inference_compute`, `inference_cleanup`
-3. **Internal functions**: `@main` (computation), constant management helpers
+3. **Internal functions**: `@main` (computation), `get_constant_registry` (metadata)
 4. **@main uses memref struct arrays** (not unpacked parameters)
 5. **Wrappers handle impedance mismatch**: span_t ↔ memref
 6. All ONNX operations are lowered **inline** within `@main`
 7. No separate `@node_0_conv`, `@node_1_relu` functions
 8. Constants are global data, not code
-9. **Dynamic shapes supported**: Memref sizes loaded at runtime
+9. **Runtime owns GPU memory**: DLL provides metadata, runtime uploads/frees
+10. **Dynamic shapes supported**: Memref sizes loaded at runtime
 
 ---
 
@@ -304,5 +302,5 @@ CustomOp (C++ code)
 
 - [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - How each pass transforms the module
 - [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) - GenerateInterfacePass prerequisites
-- [CONSTANT-MANAGEMENT.md](CONSTANT-MANAGEMENT.md) - Constant handling details
+- [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) - Constant handling details
 - [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape support
