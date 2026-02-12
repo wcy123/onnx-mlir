@@ -83,28 +83,28 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 
 ### Stage 4: Compile to Native DLL
 
-**Current Status**: Steps 1-7 ✅ (MLIR → Object → LLD invocation) | Runtime linking ⚠️ (requires HipDnnRuntime.lib)
+**Current Status**: ✅ COMPLETE - Full MLIR → DLL pipeline working (Steps 1-8)
 
 **Prerequisites**:
 - LLVM built with LLD support (`-DLLVM_ENABLE_PROJECTS="mlir;lld"`) - see CLAUDE.md
 - LLD libraries automatically detected by CMake (lldCOFF, lldELF, lldCommon)
 
 ```bash
-# Test with minimal identity function (real example)
+# Complete MLIR → DLL compilation (real working example)
 export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ../../build/onnx-hipdnn-ep.2/bin/Debug/mlir-hip-compiler.exe \
   test/mlir/identity_llvm.mlir \
-  -o test_identity.dll \
+  -o identity_final.dll \
   --mode dll \
   -v \
   --keep
 ```
 
-**Real Output** (from successful test run, 2026-02-12):
+**Real Output** (from successful compilation, 2026-02-12):
 ```
 === MLIR to HIP DLL Compiler ===
 Input: test/mlir/identity_llvm.mlir
-Output: test_identity.dll
+Output: identity_final.dll
 Mode: dll
 Optimization: O2
 
@@ -119,63 +119,66 @@ Skipping passes - assuming input is already in LLVM dialect
 ✓ LLVM IR generated
 
 --- Step 4: Optimizing LLVM IR (O2) ---
-✓ Optimization completed
+✓ Optimization completed (Runtime calls inlined)
 
 --- Step 5: Emitting LLVM IR ---
-Emitted LLVM IR to: test_identity.ll
-✓ LLVM IR written to: test_identity.ll
+Emitted LLVM IR to: identity_final.ll
+✓ LLVM IR written to: identity_final.ll
 
 --- Step 6: Compiling to Object File ---
-Compiled object file to: test_identity.obj
-✓ Object file created: test_identity.obj
+Compiled object file to: identity_final.obj
+✓ Object file created: identity_final.obj
 
 --- Step 7: Linking to DLL ---
-Warning: Runtime library not found, DLL may have unresolved symbols
-LLD-LINK command (6 args): [0]='/DLL' [1]='/OUT:test_identity.dll' [2]='/DEF:test_identity.obj.def' [3]='test_identity.obj' [4]='/NOLOGO' [5]='/MACHINE:X64'
-ArrayRef size: 6
+Found runtime library: ../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug/HipDnnRuntime.lib
+LLD-LINK command (7 args): [0]='/DLL' [1]='/OUT:identity_final.dll' [2]='/DEF:identity_final.obj.def' [3]='identity_final.obj' [4]='../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug/HipDnnRuntime.lib' [5]='/NOLOGO' [6]='/MACHINE:X64'
+ArrayRef size: 7
+Successfully linked DLL: identity_final.dll
+✓ DLL created: identity_final.dll
+
+--- Step 8: Verifying DLL Exports ---
+Verifying DLL exports for: identity_final.dll
+  Required symbol: inference_init
+  Required symbol: inference_compute
+  Required symbol: inference_cleanup
+✓ All expected exports present
+
+=== Compilation Successful ===
+Output: identity_final.dll
 ```
 
-**Generated Intermediate Files**:
+**Generated Files**:
 ```bash
-$ ls -lh test_identity.*
--rw-r--r-- 1 user 1049089 2.1K Feb 12 06:34 test_identity.ll       # LLVM IR (text)
--rw-r--r-- 1 user 1049089 1.1K Feb 12 06:34 test_identity.obj      # Object file (PE/COFF)
--rw-r--r-- 1 user 1049089   75 Feb 12 06:34 test_identity.obj.def  # Export definitions
+$ ls -lh identity_final.*
+-rwxr-xr-x 1 user 1049089 478K Feb 12 07:19 identity_final.dll*    # Final DLL
+-rw-r--r-- 1 user 1049089 1.9K Feb 12 07:19 identity_final.lib     # Import library
+-rw-r--r-- 1 user 1049089 2.1K Feb 12 07:19 identity_final.ll      # LLVM IR (text)
+-rw-r--r-- 1 user 1049089 1.1K Feb 12 07:19 identity_final.obj     # Object file (PE/COFF)
 ```
 
-**Key Success**: LLD linker is successfully invoked! The CommandLine conflict is resolved (see `notes/lld-commandline-conflict.md` for technical details).
-
-**Current Blocker**: DLL linking fails with undefined runtime symbols:
-```
-DLL: error: undefined symbol: runtime_state_init
->>> referenced by test_identity.obj:(inference_init)
-
-DLL: error: undefined symbol: runtime_state_cleanup
->>> referenced by test_identity.obj:(inference_cleanup)
-
-DLL: error: undefined symbol: runtime_prepare_inference
-DLL: error: undefined symbol: runtime_cleanup_inference
->>> referenced by test_identity.obj:(inference_compute)
+**DLL Exports Verified**:
+```bash
+$ strings identity_final.dll | grep inference_
+inference_cleanup
+inference_compute
+inference_init
 ```
 
-**Root Cause**: `HipDnnRuntime.lib` not built yet. The mlir-hip-compiler searches these paths:
-- `../../lib/Runtime/build/Release/HipDnnRuntime.lib`
-- `../../test/runtime/build_standalone/Release/HipDnnRuntime.lib`
-- `../../build/Release/HipDnnRuntime.lib`
-- (none found)
-
-**Next Steps**:
-1. Build HipDnnRuntime library (see `lib/Runtime/` or `test/runtime/`)
-2. Re-run mlir-hip-compiler with runtime library available
-3. Verify DLL exports with `dumpbin /EXPORTS test_identity.dll`
-4. Expected exports: `inference_init`, `inference_compute`, `inference_cleanup`
+**Complete Pipeline Success**:
+- ✅ MLIR parsing and passes
+- ✅ LLVM IR translation and optimization (O2)
+- ✅ Object file compilation (PE/COFF format)
+- ✅ Runtime library linking (HipDnnRuntime.lib found and linked)
+- ✅ LLD library integration (no subprocess calls, no CommandLine conflicts)
+- ✅ DLL creation (478 KB, all exports present)
+- ✅ Export verification (inference_init, inference_compute, inference_cleanup)
 
 **Technical Achievement**:
-- ✅ 8-step compilation pipeline complete (parsing → IR → optimization → object → LLD)
-- ✅ LLD library integration working (no CommandLine conflicts)
-- ✅ Object file generation with correct PE/COFF format
-- ✅ Export definition file (.def) automatically generated
-- ⚠️ Final DLL linking pending runtime library availability
+Full end-to-end MLIR → DLL compilation pipeline working with:
+- LLD as library (not external tool)
+- Runtime backward compatibility wrappers
+- Complete 8-step pipeline with verification
+- Real working DLL output
 
 ---
 
