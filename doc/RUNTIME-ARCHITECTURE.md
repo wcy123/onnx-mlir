@@ -81,25 +81,43 @@ Generated code sees only `void* state` (opaque pointer). Runtime owns the intern
 
 ---
 
-## 2. Design Challenge: Performance Cost of Abstraction
+## 2. Design Decision: Runtime as Embedded Bitcode
 
-### The Concern
+### Primary Rationale: Self-Contained Compiler (MUST HAVE)
 
-Opaque access requires function calls: `hipdnn_ep_get_stream(state)` instead of direct field access.
+**Problem**: Model compilation requires runtime functions (stream access, constant registry, etc.)
 
-**Naive expectation**: Function call overhead on every GPU operation
-- Call instruction: ~5-10 cycles
-- Register spills, ABI overhead
-- Repeated for every stream/constant access
+**Traditional approach**: Link generated code against external runtime library (.lib/.a file)
 
-This would be unacceptable for performance-critical GPU code.
+**Issues with traditional approach:**
+- Compiler must locate/ship runtime library files
+- Version management complexity (which runtime version to use?)
+- Deployment overhead (multiple files to distribute)
+- Risk of version conflicts (user's runtime vs. compiler's runtime)
 
-### The Solution: Zero-Cost via IR Merging
+**Our solution**: Embed runtime as LLVM bitcode in EP DLL
 
-Runtime is distributed as **LLVM bitcode** (runtime.bc), not compiled library:
-1. Embedded in EP DLL at build time
-2. Merged with generated IR at model compilation via `llvm::Linker::linkInModule()`
-3. Fully inlined during LLVM optimization pass
+**How it works:**
+1. Runtime compiled to bitcode (runtime.bc) at EP build time
+2. Bitcode embedded as binary resource in EP DLL
+3. During model compilation, bitcode extracted and merged via `llvm::Linker::linkInModule()`
+4. No external files required - everything self-contained
+
+**Benefits:**
+- **Self-contained compiler**: Everything needed in single EP DLL
+- **No external dependencies**: Model compilation works out-of-the-box
+- **Version consistency**: Runtime bitcode frozen at EP build time
+- **Simple deployment**: One EP DLL contains compiler + runtime
+
+This is the **primary architectural requirement** - without embedded bitcode, the compiler would need external runtime files.
+
+### Secondary Benefit: Zero-Cost Abstraction (NICE TO HAVE)
+
+Additionally, IR merging provides a performance benefit.
+
+**The concern**: Opaque access requires function calls like `hipdnn_ep_get_stream(state)` instead of direct field access. Naive expectation would be function call overhead on every GPU operation (5-10 cycles per call, register spills, ABI overhead).
+
+**The solution**: LLVM optimization fully inlines accessor functions during model compilation.
 
 **Before optimization (after IR merging):**
 ```llvm
