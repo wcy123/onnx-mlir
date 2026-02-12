@@ -379,6 +379,18 @@ typedef struct {
 
 ## Detailed MLIR Implementations
 
+**Architectural Note:**
+
+This pass uses a **two-tier approach** for the three interface functions:
+
+1. **inference_init/cleanup**: Simple wrappers that delegate to runtime library functions
+   - Rationale: Complex initialization logic (handle creation, error handling, LIFO cleanup) is easier to maintain in C++ than OpBuilder code
+   - Implementation: Runtime library merged via llvm::Linker - same final binary, zero overhead after LLVM optimization
+
+2. **inference_compute**: Full MLIR IR generation (cannot be moved to runtime)
+   - Rationale: MLIR's type system requires compile-time knowledge of tensor ranks to generate memref struct types
+   - Implementation: Must generate IR here because rank information is only available at compile time
+
 ### Function 1: inference_init
 
 **C Signature:**
@@ -390,102 +402,50 @@ int inference_init(void** out_state);
 
 **MLIR Implementation:**
 
-**NOTE:** This function is a CONSTRUCTOR for RuntimeState. It directly accesses RuntimeState fields via GEP operations to initialize them. This is an EXCEPTION to the opaque handle design - regular computation code (@main, wrappers) MUST use accessor functions instead.
+**NOTE:** This function is a **simple wrapper** that delegates initialization to the runtime library (`hipdnn_ep_state_init`). All complex handle creation, error handling, and LIFO cleanup logic is implemented in C++ code (`lib/Runtime/hipdnn_ep_runtime.cpp`), not in generated MLIR.
+
+The pass generates this MLIR:
 
 ```mlir
-llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32
+llvm.func @inference_init(%out_state: !llvm.ptr) -> i32
     attributes {
       llvm.emit_c_interface,
       sym_visibility = "public"
     } {
-  // 1. Allocate context
-  %context_size = llvm.mlir.constant(32 : i64) : i64
-  %context = llvm.call @malloc(%context_size) : (i64) -> !llvm.ptr
-  %is_null = llvm.icmp "eq" %context, %null : !llvm.ptr
-  llvm.cond_br %is_null, ^error_alloc, ^cont1
+  // Get constant count from generated code
+  %num_constants = llvm.call @get_constant_count() : () -> i64
 
-^cont1:
-  // 2. Create stream
-  %stream_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  %stream_ret = llvm.call @hipStreamCreate(%stream_ptr) : (!llvm.ptr) -> i32
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0 : i32
-  llvm.cond_br %stream_failed, ^error_stream, ^cont2
+  // Delegate all initialization to runtime library
+  // This call handles:
+  // - Allocating RuntimeState structure
+  // - Creating GPU stream
+  // - Creating MIOpen/hipBLAS handles
+  // - Uploading constants to GPU
+  // - All error handling and cleanup on failure
+  %result = llvm.call @hipdnn_ep_state_init(%out_state, %num_constants)
+    : (!llvm.ptr, i64) -> i32
 
-^cont2:
-  %stream = llvm.load %stream_ptr : !llvm.ptr
-  %stream_field = llvm.getelementptr %context[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %stream, %stream_field : !llvm.ptr
-
-  // 3. Create MIOpen handle
-  %miopen_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  llvm.call @miopenCreate(%miopen_ptr) : (!llvm.ptr) -> i32
-  %miopen = llvm.load %miopen_ptr : !llvm.ptr
-  llvm.call @miopenSetStream(%miopen, %stream) : (!llvm.ptr, !llvm.ptr) -> i32
-  %miopen_field = llvm.getelementptr %context[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %miopen, %miopen_field : !llvm.ptr
-
-  // 4. Create hipBLAS handle
-  %hipblas_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  llvm.call @hipblasLtCreate(%hipblas_ptr) : (!llvm.ptr) -> i32
-  %hipblas = llvm.load %hipblas_ptr : !llvm.ptr
-  %hipblas_field = llvm.getelementptr %context[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %hipblas, %hipblas_field : !llvm.ptr
-
-  // 5. Get constant registry and allocate gpu_constants array
-  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
-  %count_ptr = llvm.getelementptr %registry_ptr[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %count = llvm.load %count_ptr : !llvm.ptr -> i64
-  %ptr_size = llvm.mlir.constant(8 : i64) : i64
-  %array_size = llvm.mul %count, %ptr_size : i64
-  %gpu_constants = llvm.call @malloc(%array_size) : (i64) -> !llvm.ptr
-  %gpu_constants_field = llvm.getelementptr %context[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  llvm.store %gpu_constants, %gpu_constants_field : !llvm.ptr
-
-  // 6. Upload constants to GPU (runtime owns strategy)
-  %constants_array_ptr_ptr = llvm.getelementptr %registry_ptr[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %constants_array_ptr = llvm.load %constants_array_ptr_ptr : !llvm.ptr -> !llvm.ptr
-
-  // Loop through all constants and upload
-  // (In actual implementation, this would be an unrolled loop or scf.for)
-  // For each i in 0..count:
-  //   info = constants_array_ptr[i]
-  //   hipMalloc(&gpu_constants[i], info.size_bytes)
-  //   hipMemcpy(gpu_constants[i], info.cpu_data, info.size_bytes, H2D)
-
-  %upload_success = <constant upload loop> : i32
-  %upload_failed = llvm.icmp "ne" %upload_success, %c0 : i32
-  llvm.cond_br %upload_failed, ^error_init, ^success
-
-^success:
-  llvm.store %context, %out_state : !llvm.ptr
-  llvm.return %c0 : i32
-
-^error_init:
-  // Cleanup: destroy handles, free context
-  llvm.call @hipblasLtDestroy(%hipblas)
-  llvm.call @miopenDestroy(%miopen)
-  llvm.call @hipStreamDestroy(%stream)
-  llvm.call @free(%gpu_constants)
-  llvm.call @free(%context)
-  %c3 = llvm.mlir.constant(3 : i32) : i32
-  llvm.return %c3 : i32
-
-^error_stream:
-  llvm.call @free(%context)
-  %c2 = llvm.mlir.constant(2 : i32) : i32
-  llvm.return %c2 : i32
-
-^error_alloc:
-  %c1 = llvm.mlir.constant(1 : i32) : i32
-  llvm.return %c1 : i32
+  llvm.return %result : i32
 }
 ```
 
-**Error codes:**
-- 0: Success
-- 1: Context allocation failed
-- 2: Handle creation failed
-- 3: Constant initialization failed
+**Design rationale:**
+- Delegation pattern simplifies MLIR IR generation code
+- Complex initialization logic easier to maintain in C++ than OpBuilder
+- Runtime library merged via llvm::Linker - same final binary
+- LLVM optimization inlines everything - zero overhead
+
+**What the runtime function does** (see `lib/Runtime/hipdnn_ep_runtime.cpp` for implementation):
+1. Allocates RuntimeState structure
+2. Creates GPU stream
+3. Creates MIOpen and hipBLAS handles, associates them with stream
+4. Gets constant registry from `get_constant_registry()`
+5. Allocates GPU memory for all constants
+6. Uploads constants from CPU to GPU
+7. Returns 0 on success, non-zero on error
+8. On error: LIFO cleanup of all allocated resources
+
+**For runtime implementation details:** See [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) and `lib/Runtime/hipdnn_ep_runtime.cpp`.
 
 ### Function 2: inference_compute
 
@@ -764,7 +724,9 @@ int inference_cleanup(void* state);
 
 **MLIR Implementation:**
 
-**NOTE:** This function is a DESTRUCTOR for RuntimeState. It directly accesses RuntimeState fields via GEP operations to read and cleanup resources. This is an EXCEPTION to the opaque handle design - regular computation code (@main, wrappers) MUST use accessor functions instead.
+**NOTE:** This function is a **simple wrapper** that delegates cleanup to the runtime library (`hipdnn_ep_state_cleanup`). All cleanup logic (stream synchronization, handle destruction in LIFO order, best-effort error handling) is implemented in C++ code (`lib/Runtime/hipdnn_ep_runtime.cpp`), not in generated MLIR.
+
+The pass generates this MLIR:
 
 ```mlir
 llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
@@ -772,195 +734,35 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
       llvm.emit_c_interface,
       sym_visibility = "public"
     } {
-  // Define constants
-  %c0_i32 = llvm.mlir.constant(0 : i32) : i32
+  // Delegate all cleanup to runtime library
+  // This call handles:
+  // - Synchronizing GPU stream
+  // - Freeing GPU constant memory
+  // - Destroying handles in LIFO order (hipBLAS → MIOpen → stream)
+  // - Freeing CPU memory (gpu_constants array, RuntimeState struct)
+  // - Best-effort cleanup on errors
+  %result = llvm.call @hipdnn_ep_state_cleanup(%state) : (!llvm.ptr) -> i32
 
-  // ============================================================================
-  // Step 1: Synchronize stream before cleanup
-  // ============================================================================
-  // CRITICAL: Wait for all pending GPU operations to complete
-  // If we destroy handles while GPU is still working, we'll get crashes
-  %stream_ptr = llvm.getelementptr %state[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %stream = llvm.load %stream_ptr : !llvm.ptr
-
-  %sync_ret = llvm.call @hipStreamSynchronize(%stream) : (!llvm.ptr) -> i32
-
-  // Check if synchronization succeeded
-  %sync_failed = llvm.icmp "ne" %sync_ret, %c0_i32 : i32
-  llvm.cond_br %sync_failed, ^error_sync, ^free_gpu_constants
-
-^free_gpu_constants:
-  // ============================================================================
-  // Step 2: Free GPU constant memory (weights, biases)
-  // ============================================================================
-  // Get constant count and gpu_constants array
-  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
-  %count_ptr = llvm.getelementptr %registry_ptr[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %count = llvm.load %count_ptr : !llvm.ptr -> i64
-
-  %gpu_constants_ptr_load = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_load = llvm.load %gpu_constants_ptr_load : !llvm.ptr
-
-  // Loop through all constants and free GPU memory
-  // (In actual implementation, this would be an unrolled loop or scf.for)
-  // For each i in 0..count:
-  //   hipFree(gpu_constants[i])
-
-  %free_success = <constant free loop> : i32
-  %free_failed = llvm.icmp "ne" %free_success, %c0_i32 : i32
-  llvm.cond_br %free_failed, ^error_release, ^destroy_handles
-
-^destroy_handles:
-  // ============================================================================
-  // Step 3: Destroy GPU handles in REVERSE creation order
-  // ============================================================================
-  // Order: hipBLAS (created last) → MIOpen → stream (created first)
-
-  // Load hipBLAS handle (field 2)
-  %hipblas_ptr = llvm.getelementptr %state[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %hipblas = llvm.load %hipblas_ptr : !llvm.ptr
-
-  // Destroy hipBLAS handle
-  %hipblas_ret = llvm.call @hipblasLtDestroy(%hipblas) : (!llvm.ptr) -> i32
-  %hipblas_failed = llvm.icmp "ne" %hipblas_ret, %c0_i32 : i32
-  llvm.cond_br %hipblas_failed, ^error_hipblas, ^destroy_miopen
-
-^destroy_miopen:
-  // Load MIOpen handle (field 1)
-  %miopen_ptr = llvm.getelementptr %state[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen = llvm.load %miopen_ptr : !llvm.ptr
-
-  // Destroy MIOpen handle
-  %miopen_ret = llvm.call @miopenDestroy(%miopen) : (!llvm.ptr) -> i32
-  %miopen_failed = llvm.icmp "ne" %miopen_ret, %c0_i32 : i32
-  llvm.cond_br %miopen_failed, ^error_miopen, ^destroy_stream
-
-^destroy_stream:
-  // Stream already loaded in Step 1
-  // Destroy stream
-  %stream_ret = llvm.call @hipStreamDestroy(%stream) : (!llvm.ptr) -> i32
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0_i32 : i32
-  llvm.cond_br %stream_failed, ^error_stream, ^free_memory
-
-^free_memory:
-  // ============================================================================
-  // Step 4: Free host memory allocations
-  // ============================================================================
-  // Free gpu_constants array pointer (field 3)
-  %gpu_constants_ptr = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants = llvm.load %gpu_constants_ptr : !llvm.ptr
-  llvm.call @free(%gpu_constants) : (!llvm.ptr) -> ()
-
-  // Free context struct itself
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  // Success - all resources released
-  llvm.return %c0_i32 : i32
-
-// ==============================================================================
-// ERROR PATHS
-// ==============================================================================
-// Note: Even if cleanup fails, we still free memory to prevent leaks
-// Return error codes to inform caller, but don't leave resources dangling
-
-^error_stream:
-  // Stream destruction failed - still free memory
-  %gpu_constants_ptr_es = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_es = llvm.load %gpu_constants_ptr_es : !llvm.ptr
-  llvm.call @free(%gpu_constants_es) : (!llvm.ptr) -> ()
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  %c10_i32 = llvm.mlir.constant(10 : i32) : i32
-  llvm.return %c10_i32 : i32
-
-^error_miopen:
-  // MIOpen destruction failed - still destroy stream and free memory
-  llvm.call @hipStreamDestroy(%stream) : (!llvm.ptr) -> i32
-
-  %gpu_constants_ptr_em = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_em = llvm.load %gpu_constants_ptr_em : !llvm.ptr
-  llvm.call @free(%gpu_constants_em) : (!llvm.ptr) -> ()
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  %c11_i32 = llvm.mlir.constant(11 : i32) : i32
-  llvm.return %c11_i32 : i32
-
-^error_hipblas:
-  // hipBLAS destruction failed - still destroy remaining handles and free memory
-  %miopen_ptr_eh = llvm.getelementptr %state[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_eh = llvm.load %miopen_ptr_eh : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_eh) : (!llvm.ptr) -> i32
-  llvm.call @hipStreamDestroy(%stream) : (!llvm.ptr) -> i32
-
-  %gpu_constants_ptr_eh = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_eh = llvm.load %gpu_constants_ptr_eh : !llvm.ptr
-  llvm.call @free(%gpu_constants_eh) : (!llvm.ptr) -> ()
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  %c12_i32 = llvm.mlir.constant(12 : i32) : i32
-  llvm.return %c12_i32 : i32
-
-^error_release:
-  // Constant free loop failed - still destroy handles and free memory
-  // Note: GPU memory for constants may be leaked, but we free handles
-  %hipblas_ptr_er = llvm.getelementptr %state[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %hipblas_er = llvm.load %hipblas_ptr_er : !llvm.ptr
-  llvm.call @hipblasLtDestroy(%hipblas_er) : (!llvm.ptr) -> i32
-
-  %miopen_ptr_er = llvm.getelementptr %state[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_er = llvm.load %miopen_ptr_er : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_er) : (!llvm.ptr) -> i32
-
-  llvm.call @hipStreamDestroy(%stream) : (!llvm.ptr) -> i32
-
-  %gpu_constants_ptr_er = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_er = llvm.load %gpu_constants_ptr_er : !llvm.ptr
-  llvm.call @free(%gpu_constants_er) : (!llvm.ptr) -> ()
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  %c13_i32 = llvm.mlir.constant(13 : i32) : i32
-  llvm.return %c13_i32 : i32
-
-^error_sync:
-  // Stream synchronization failed - this is serious, but still try cleanup
-  // Try to free GPU constants despite sync failure (best effort)
-  // (GPU constant free loop would go here - omitted for brevity)
-
-  %hipblas_ptr_sync = llvm.getelementptr %state[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %hipblas_sync = llvm.load %hipblas_ptr_sync : !llvm.ptr
-  llvm.call @hipblasLtDestroy(%hipblas_sync) : (!llvm.ptr) -> i32
-
-  %miopen_ptr_sync = llvm.getelementptr %state[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %miopen_sync = llvm.load %miopen_ptr_sync : !llvm.ptr
-  llvm.call @miopenDestroy(%miopen_sync) : (!llvm.ptr) -> i32
-
-  llvm.call @hipStreamDestroy(%stream) : (!llvm.ptr) -> i32
-
-  %gpu_constants_ptr_sync = llvm.getelementptr %state[0, 3] : (!llvm.ptr) -> !llvm.ptr
-  %gpu_constants_sync = llvm.load %gpu_constants_ptr_sync : !llvm.ptr
-  llvm.call @free(%gpu_constants_sync) : (!llvm.ptr) -> ()
-  llvm.call @free(%state) : (!llvm.ptr) -> ()
-
-  %c14_i32 = llvm.mlir.constant(14 : i32) : i32
-  llvm.return %c14_i32 : i32
+  llvm.return %result : i32
 }
 ```
 
-**Key implementation notes:**
-- ✅ **Synchronizes stream first** - Critical to ensure no GPU work is pending
-- ✅ **Checks all return values** - Every API call is validated
-- ✅ **Destroys in reverse order** - hipBLAS → MIOpen → stream (opposite of creation)
-- ✅ **Best-effort cleanup on error** - Even if one step fails, continues to free remaining resources
-- ✅ **Prevents memory leaks** - Always frees CPU memory even on error
-- ✅ **Clear error codes** - Distinct codes for each failure point (10-14)
+**Design rationale:**
+- Delegation pattern simplifies MLIR IR generation code
+- Complex cleanup logic easier to maintain in C++ than OpBuilder
+- Runtime library merged via llvm::Linker - same final binary
+- LLVM optimization inlines everything - zero overhead
 
-**Error codes:**
-- 0: Success - all resources released cleanly
-- 10: Stream destruction failed
-- 11: MIOpen destruction failed
-- 12: hipBLAS destruction failed
-- 13: Constant release failed (potential GPU memory leak)
-- 14: Stream synchronization failed (GPU may still be working)
+**What the runtime function does** (see `lib/Runtime/hipdnn_ep_runtime.cpp` for implementation):
+1. Synchronizes stream to ensure all GPU work completes
+2. Frees all GPU constant memory
+3. Destroys handles in LIFO order: hipBLAS → MIOpen → stream (reverse of creation)
+4. Frees CPU memory: gpu_constants array, RuntimeState struct
+5. Uses best-effort cleanup: continues even if some operations fail
+6. Always frees memory to prevent leaks, even on error
+7. Returns 0 on success, non-zero on error (with distinct error codes)
+
+**For runtime implementation details:** See [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) and `lib/Runtime/hipdnn_ep_runtime.cpp`.
 
 ---
 
