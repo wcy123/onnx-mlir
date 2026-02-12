@@ -310,55 +310,6 @@ struct RuntimeState {
 2. MIOpen/hipBLAS handles created and associated with stream
 3. Constants uploaded to GPU using handles
 
-### Error Handling Contract
-
-**Required policy (not enforced by code):**
-- Fail fast on errors
-- Cleanup all allocated resources on error paths
-- Return distinct error codes for each failure type
-- No exceptions (pure C-ABI)
-
-**Error code scheme:**
-
-See [../INTERFACE-DESIGN.md - Error Codes](../INTERFACE-DESIGN.md#33-error-codes-consolidated) for the complete error code specification.
-
-**Example error handling pattern in inference_init:**
-```mlir
-llvm.func @inference_init(%out_state: !llvm.ptr<!llvm.ptr>) -> i32 {
-  // 1. Allocate context
-  %context = llvm.call @malloc(%size) : (i64) -> !llvm.ptr
-  %is_null = llvm.icmp "eq" %context, %null : !llvm.ptr
-  llvm.cond_br %is_null, ^error_alloc, ^cont1
-
-^cont1:
-  // 2. Create stream
-  %stream_ret = llvm.call @hipStreamCreate(%stream_ptr) : ...
-  %stream_failed = llvm.icmp "ne" %stream_ret, %c0 : i32
-  llvm.cond_br %stream_failed, ^error_stream, ^cont2
-
-  // ... more operations
-
-^success:
-  llvm.store %context, %out_state : !llvm.ptr
-  llvm.return %c0 : i32
-
-^error_init:
-  // Cleanup: destroy handles, free context
-  llvm.call @hipblasLtDestroy(%hipblas)
-  llvm.call @miopenDestroy(%miopen)
-  llvm.call @hipStreamDestroy(%stream)
-  llvm.call @free(%context)
-  llvm.return %c3_i32 : i32  // ERROR_CONSTANT_INIT
-}
-```
-
-**Policy:**
-- ✅ **Fail fast:** Return error immediately on failure
-- ✅ **Cleanup on error:** Free all resources allocated before error
-- ✅ **Propagate errors:** Pass through error codes from @main and helpers
-- ✅ **No exceptions:** Pure C ABI, use integer error codes
-- ✅ **Validate inputs:** Check span_t/tensor_t pointers are non-null
-
 ### Tensor Interface Contract (span_t and tensor_t)
 
 **Defined in:** CustomOp header (external to MLIR compilation)
