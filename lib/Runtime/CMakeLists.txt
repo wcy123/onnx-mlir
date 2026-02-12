@@ -17,15 +17,7 @@ find_program(CLANG_EXECUTABLE NAMES clang clang-cl
     PATHS
         ${LLVM_BINARY_DIR}/bin
         ${LLVM_TOOLS_BINARY_DIR}
-        C:/Develop/m/local/bin
-        C:/Develop/m/build/llvm-project/Debug/bin
-        C:/Develop/m/build/llvm-project/Release/bin
-    NO_DEFAULT_PATH
 )
-
-if(NOT CLANG_EXECUTABLE)
-    find_program(CLANG_EXECUTABLE NAMES clang clang-cl)
-endif()
 
 if(CLANG_EXECUTABLE)
     message(STATUS "Found Clang for bitcode generation: ${CLANG_EXECUTABLE}")
