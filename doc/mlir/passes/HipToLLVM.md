@@ -142,29 +142,14 @@ module attributes {
 }
 ```
 
-**Key Differences from Earlier Description:**
+**Architecture Details:**
 
-The HipToLLVM pass implements a **simplified Phase 1 architecture**:
-
-1. **No inline MIOpen wrapper generation**: The pass generates **external function declarations** to pre-existing C++ runtime functions (see `lib/HipDialect/HipToLLVM.cpp:37-38`).
-
-2. **All MIOpen complexity in C++ runtime**: Descriptor creation, algorithm finding, workspace allocation - all handled in `lib/Runtime/hipdnn_ep_runtime_miopen.cpp:34-115`.
-
-3. **Pass only extracts data pointers**: The MLIR code extracts aligned pointers and shape arrays from memref structs, then passes them to the C++ wrapper.
-
-4. **No runtime dimension extraction in MLIR**: Unlike the earlier description showing `llvm.extractvalue %input[3, 0]` for dimensions, the actual implementation passes entire shape arrays to C++, which extracts dimensions as needed.
-
-**Why this architecture?** (See `lib/HipDialect/HipToLLVM.cpp:191-194`)
-- Simplified initial implementation
-- Easier debugging (MIOpen calls in familiar C++ code)
-- Preparation for future Phase 2 (full MLIR lowering)
-
-**What the C++ runtime does** (`lib/Runtime/hipdnn_ep_runtime_miopen.cpp`):
-- Creates tensor descriptors with `miopenSet4dTensorDescriptor()`
-- Finds optimal algorithm with `miopenFindConvolutionForwardAlgorithm()`
-- Allocates workspace memory
-- Calls `miopenConvolutionForward()`
-- Cleans up descriptors and workspace
+The HipToLLVM pass implements a **Phase 1 architecture** (see `lib/HipDialect/HipToLLVM.cpp:191-194`):
+- Generates external function declarations to C++ runtime functions
+- All MIOpen complexity (descriptor creation, algorithm finding, workspace allocation) is in `lib/Runtime/hipdnn_ep_runtime_miopen.cpp`
+- MLIR code extracts data pointers and passes shape arrays to C++ runtime
+- Simpler implementation for easier debugging
+- Foundation for future Phase 2 (full MLIR lowering)
 
 ---
 
