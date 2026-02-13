@@ -3,27 +3,14 @@
 # ** Licensed under the MIT License.
 ##
 
-# Find LLVM and MLIR (already configured by top-level cmake/deps.cmake)
-find_package(LLVM REQUIRED CONFIG)
-find_package(MLIR REQUIRED CONFIG)
+# Setup LLVM/MLIR
+include(LLVMSetup)
+setup_llvm_mlir()
 
 message(STATUS "Building HIP MLIR Dialect Library")
-message(STATUS "  LLVM_DIR: ${LLVM_DIR}")
-message(STATUS "  MLIR_DIR: ${MLIR_DIR}")
 
-# Add LLVM and MLIR definitions
-separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
-add_definitions(${LLVM_DEFINITIONS_LIST})
-
-# Include directories
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-
-# Add LLVM TableGen function
-list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
-list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 
 # Set TableGen executables with absolute paths
 # Visual Studio MSBuild doesn't inherit PATH, so we need absolute paths to mlir-tblgen/llvm-tblgen.
@@ -44,8 +31,6 @@ message(STATUS "Found mlir-tblgen: ${MLIR_TABLEGEN_EXE}")
 message(STATUS "Found llvm-tblgen: ${LLVM_TABLEGEN_EXE}")
 
 include(TableGen)
-include(AddLLVM)
-include(AddMLIR)
 
 # Generate dialect definition
 set(LLVM_TARGET_DEFINITIONS HipDialect.td)
@@ -84,22 +69,11 @@ add_dependencies(HipDialect
 llvm_map_components_to_libnames(llvm_libs Support Core)
 
 # Link against MLIR libraries and onnx-mlir
+include(MlirLibraries)
 target_link_libraries(HipDialect PUBLIC
-  MLIRSupport
-  MLIRIR
-  MLIRParser
-  MLIRPass
-  MLIRTransforms
-  MLIRAnalysis
-  MLIRArithDialect
-  MLIRFuncDialect
-  MLIRMemRefDialect
-  MLIRLLVMDialect
-  MLIRLLVMCommonConversion
-  MLIRTransformUtils
-  MLIRArithToLLVM
-  MLIRFuncToLLVM
-  MLIRMemRefToLLVM
+  ${MLIR_CORE_LIBS}
+  ${MLIR_DIALECT_LIBS}
+  ${MLIR_CONVERSION_LIBS}
   OMONNXOps  # ONNX dialect from onnx-mlir (required)
   ${llvm_libs}
 )
@@ -112,12 +86,8 @@ target_include_directories(HipDialect PUBLIC
 
 message(STATUS "HipDialect: Linked with onnx-mlir ONNX dialect")
 
-# Set C++ standard
-set_target_properties(HipDialect PROPERTIES
-  CXX_STANDARD 17
-  CXX_STANDARD_REQUIRED ON
-  FOLDER "mlir"
-)
+# Set folder for IDE organization
+set_target_properties(HipDialect PROPERTIES FOLDER "mlir")
 
 # Export include directories for downstream targets
 target_include_directories(HipDialect PUBLIC

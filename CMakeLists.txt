@@ -9,6 +9,13 @@ project(
   VERSION 1.0.0
   LANGUAGES C CXX)
 
+# Add custom CMake modules
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
+
+# Set C++ standard for entire project
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Build options
 option(BUILD_HIP_DIALECT "Build HIP MLIR dialect library" ON)
 option(BUILD_HIP_OPT_TOOL "Build hip-opt standalone tool" OFF)

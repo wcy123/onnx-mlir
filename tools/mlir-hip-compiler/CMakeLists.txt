@@ -14,39 +14,21 @@ project(mlir-hip-compiler)
 # 2. Remove zlib dependency from LLVM build (rebuild LLVM with -DLLVM_ENABLE_ZLIB=OFF)
 # 3. Bundle zlibd.dll with the tool (workaround, not ideal)
 
-# Find LLVM and MLIR
-find_package(LLVM REQUIRED CONFIG)
-find_package(MLIR REQUIRED CONFIG)
+# Setup LLVM/MLIR
+include(LLVMSetup)
+setup_llvm_mlir()
 
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
-
-# Include directories
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../lib)
-
-# Add LLVM definitions
-separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
-add_definitions(${LLVM_DEFINITIONS_LIST})
 
 # Get LLVM and MLIR libraries
 llvm_map_components_to_libnames(llvm_libs support core irreader option windowsmanifest windowsdriver lto libdriver)
 
 # MLIR libraries
+include(MlirLibraries)
 set(MLIR_LIBS
-    MLIRAnalysis
-    MLIRIR
-    MLIRParser
-    MLIRPass
-    MLIRSupport
-    MLIRTransforms
-    MLIRTargetLLVMIRExport
-    MLIRLLVMDialect
-    MLIRFuncDialect
-    MLIRLLVMToLLVMIRTranslation
-    MLIRMemRefDialect
-    MLIRArithDialect
+    ${MLIR_CORE_LIBS}
+    ${MLIR_LLVM_TRANSLATION_LIBS}
+    ${MLIR_DIALECT_LIBS}
 )
 
 # Our backend libraries
@@ -59,9 +41,6 @@ set(BACKEND_LIBS
 
 # Create executable
 add_executable(mlir-hip-compiler main.cpp)
-
-# Set C++ standard
-set_property(TARGET mlir-hip-compiler PROPERTY CXX_STANDARD 17)
 
 # Link libraries
 target_link_libraries(mlir-hip-compiler

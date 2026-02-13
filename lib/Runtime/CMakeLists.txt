@@ -312,13 +312,8 @@ target_include_directories(HipDnnEpRuntime
 # STEP 8: Compiler Settings
 # ============================================================================
 
-target_compile_features(HipDnnEpRuntime PRIVATE cxx_std_17)
-
-if(MSVC)
-    target_compile_options(HipDnnEpRuntime PRIVATE /W4)   # Warning level 4
-else()
-    target_compile_options(HipDnnEpRuntime PRIVATE -Wall -Wextra)
-endif()
+include(CompilerFlags)
+set_project_warnings(HipDnnEpRuntime)
 
 # ============================================================================
 # STEP 9: Install Rules - NOT NEEDED (Static Linking)

@@ -16,19 +16,14 @@ add_executable(dll_tester
     dll_tester.cpp
 )
 
-target_compile_features(dll_tester PRIVATE cxx_std_17)
+include(CompilerFlags)
+set_project_warnings(dll_tester)
 
 if(WIN32)
     # Windows: No extra libs needed (uses LoadLibrary)
 else()
     # Linux: Link dl for dlopen
     target_link_libraries(dll_tester PRIVATE dl)
-endif()
-
-if(MSVC)
-    target_compile_options(dll_tester PRIVATE /W4)
-else()
-    target_compile_options(dll_tester PRIVATE -Wall -Wextra)
 endif()
 
 #=============================================================================
@@ -84,8 +79,6 @@ if(BUILD_MOCK_RUNTIME)
             BUILD_MOCK_RUNTIME=1
         )
 
-        target_compile_features(test_mock_runtime PRIVATE cxx_std_17)
-
         add_test(NAME MockRuntime COMMAND test_mock_runtime)
 
         set_target_properties(test_mock_runtime PROPERTIES FOLDER "tests")
@@ -114,7 +107,6 @@ if(TARGET onnxruntime::onnxruntime)
             GTest::gtest
             GTest::gtest_main
         )
-        target_compile_features(ort_integration_test PRIVATE cxx_std_17)
 
         if(WIN32)
             target_compile_definitions(ort_integration_test PRIVATE "_CRT_SECURE_NO_WARNINGS")

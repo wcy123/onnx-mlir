@@ -4,25 +4,19 @@
 ##
 find_package(glog CONFIG REQUIRED)
 
-# find_package works for both pre-installed and FetchContent LLVM:
-# - Pre-installed: imports targets via MLIRTargets.cmake
-# - FetchContent: targets already exist, MLIRConfig.cmake skips import
-# See doc/FETCHCONTENT_LLVM_ISSUE.md for detailed explanation
-find_package(LLVM REQUIRED CONFIG)
-find_package(MLIR REQUIRED CONFIG)
+# Setup LLVM/MLIR
+include(LLVMSetup)
+setup_llvm_mlir()
 
 set(LIB_NAME morphizen-level1-pass-mlir-compiler)
 add_library(${LIB_NAME} STATIC src/pass_main.cpp)
+
+include(MlirLibraries)
 target_link_libraries(${LIB_NAME} PUBLIC
 	morphizen::morphizen-core-static
 	glog::glog
-	MLIRIR
-	MLIRFuncDialect
-	MLIRArithDialect
-	MLIRLLVMDialect
-	MLIRParser
-	MLIRSupport
-	MLIRPass
+	${MLIR_CORE_LIBS}
+	${MLIR_DIALECT_LIBS}
 
 	# HipDialect passes
 	HipDialect

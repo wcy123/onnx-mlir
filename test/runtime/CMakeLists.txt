@@ -12,6 +12,9 @@ project(MockRuntimeTest CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Add custom CMake modules
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/Modules")
+
 # Force mock runtime mode
 set(BUILD_MOCK_RUNTIME TRUE)
 
@@ -27,11 +30,8 @@ target_include_directories(HipDnnRuntime
 
 target_compile_definitions(HipDnnRuntime PRIVATE BUILD_MOCK_RUNTIME=1)
 
-if(MSVC)
-    target_compile_options(HipDnnRuntime PRIVATE /W4)
-else()
-    target_compile_options(HipDnnRuntime PRIVATE -Wall -Wextra)
-endif()
+include(CompilerFlags)
+set_project_warnings(HipDnnRuntime)
 
 # Add the mock runtime test executable
 add_executable(test_mock_runtime
