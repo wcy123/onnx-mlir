@@ -418,6 +418,5 @@ span_t input_span = {
 - [passes/HipToLLVM.md](passes/HipToLLVM.md) - Transforms @main signature
 
 **Supporting details:**
-- [mlir/MODULE-STRUCTURE.md](mlir/MODULE-STRUCTURE.md) - MLIR module organization
-- [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Complete lowering flow
+- [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Complete lowering flow
 - [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md) - Constant handling

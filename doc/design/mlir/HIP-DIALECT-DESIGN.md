@@ -222,7 +222,6 @@ These optimizations don't change wrapper signatures - backward compatible.
 
 ## Related Documents
 
-- [MODULE-STRUCTURE.md](MODULE-STRUCTURE.md) - Where wrappers fit in module structure
 - [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Complete wrapper implementation examples
 - [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) - How dynamic shapes flow through wrappers
-- [../STATE-AND-CONTEXT.md](../RUNTIME-ARCHITECTURE.md) - Context struct layout
+- [../RUNTIME-ARCHITECTURE.md](../RUNTIME-ARCHITECTURE.md) - Context struct layout

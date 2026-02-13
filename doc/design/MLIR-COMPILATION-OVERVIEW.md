@@ -133,7 +133,6 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 
 | Document | Description |
 |----------|-------------|
-| [mlir/MODULE-STRUCTURE.md](mlir/MODULE-STRUCTURE.md) | MLIR module structure and organization |
 | [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) | Pass pipeline and transformation stages |
 | [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) | C interface and GenerateInterfacePass prerequisites |
 | [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) | HIP context, types, and wrapper functions |

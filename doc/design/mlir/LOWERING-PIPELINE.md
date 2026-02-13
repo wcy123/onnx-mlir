@@ -368,7 +368,6 @@ These documents provide detailed specifications for implementing each pass:
 ### Design Documents
 These documents explain cross-cutting concerns and architectural decisions:
 
-- **[MODULE-STRUCTURE.md](MODULE-STRUCTURE.md)** - Final MLIR module organization after all passes
 - **[INTERFACE-DESIGN.md](INTERFACE-DESIGN.md)** - C interface design and prerequisites
 - **[HIP-DIALECT-DESIGN.md](HIP-DIALECT-DESIGN.md)** - HIP dialect types, operations, and wrappers
 - **[../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md)** - Constant extraction, upload, and lifecycle
@@ -389,5 +388,4 @@ These documents explain cross-cutting concerns and architectural decisions:
 **For understanding a specific concern:**
 - Constants → [../CONSTANT-HANDLING-DESIGN.md](../CONSTANT-HANDLING-DESIGN.md)
 - Dynamic shapes → [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md)
-- Module structure → [MODULE-STRUCTURE.md](MODULE-STRUCTURE.md)
 - HIP dialect → [HIP-DIALECT-DESIGN.md](HIP-DIALECT-DESIGN.md)

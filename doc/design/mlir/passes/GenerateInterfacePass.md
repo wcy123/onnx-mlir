@@ -860,7 +860,6 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
 - [HipToLLVM.md](HipToLLVM.md) - Transforms @main to final signature
 
 **Supporting:**
-- [../MODULE-STRUCTURE.md](../MODULE-STRUCTURE.md) - MLIR module organization
 - [../LOWERING-PIPELINE.md](../LOWERING-PIPELINE.md) - Complete lowering flow
 - [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) - Constant handling details
-- [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md) - Runtime state structure
+- [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) - Runtime state structure
