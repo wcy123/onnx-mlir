@@ -27,9 +27,9 @@ This directory contains detailed design documents for the MLIR-based compilation
 
 | Document | Description |
 |----------|-------------|
-| [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md) | Runtime state/context structure |
+| [../RUNTIME-ARCHITECTURE.md](../RUNTIME-ARCHITECTURE.md) | Runtime state/context structure |
 | [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) | Comprehensive dynamic shape support |
-| [../DEMO.md](../DEMO.md) | End-to-end demo walkthrough |
+| [../guides/DEMO.md](../../guides/DEMO.md) | End-to-end demo walkthrough |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | Overall system architecture |
 
 ---

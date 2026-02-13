@@ -7,7 +7,8 @@ Licensed under the MIT License.
 **Note:** This is the authoritative source for dynamic shape design. Other documents reference this for details.
 
 **Date:** 2026-02-10
-**Status:** Design Document
+**Document Type:** Design
+**Review Status:** Draft
 **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md)
 
 ---

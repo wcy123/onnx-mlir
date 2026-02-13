@@ -403,7 +403,7 @@ See [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) for complete pi
 - System architecture diagrams show both possibilities
 - Runtime can potentially support either format
 
-**For detailed comparison:** See [NATIVE-VS-IR-COMPARISON.md](NATIVE-VS-IR-COMPARISON.md)
+**For detailed comparison:** See [NATIVE-VS-IR-COMPARISON.md](alternatives/NATIVE-VS-IR-COMPARISON.md)
 
 **Key Trade-offs:**
 
@@ -424,7 +424,7 @@ See [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) for complete pi
 ## References
 
 ### Architectural Decisions
-- [NATIVE-VS-IR-COMPARISON.md](NATIVE-VS-IR-COMPARISON.md) - Detailed comparison of Native DLL vs LLVM IR storage
+- [NATIVE-VS-IR-COMPARISON.md](alternatives/NATIVE-VS-IR-COMPARISON.md) - Detailed comparison of Native DLL vs LLVM IR storage
 - [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime design and zero-cost abstraction rationale
 
 ### Specifications

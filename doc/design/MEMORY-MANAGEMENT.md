@@ -5,7 +5,8 @@ Licensed under the MIT License.
 # Memory Management Strategy
 
 **Date:** 2026-02-09
-**Status:** Design Document
+**Document Type:** Design
+**Review Status:** Draft
 
 ---
 

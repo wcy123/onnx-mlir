@@ -4,6 +4,8 @@ Licensed under the MIT License.
 -->
 # HIP Dialect Design
 
+**Document Type:** Design
+**Review Status:** Draft
 **Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
 
 ---
@@ -223,4 +225,4 @@ These optimizations don't change wrapper signatures - backward compatible.
 - [MODULE-STRUCTURE.md](MODULE-STRUCTURE.md) - Where wrappers fit in module structure
 - [LOWERING-PIPELINE.md](LOWERING-PIPELINE.md) - Complete wrapper implementation examples
 - [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) - How dynamic shapes flow through wrappers
-- [../STATE-AND-CONTEXT.md](../STATE-AND-CONTEXT.md) - Context struct layout
+- [../STATE-AND-CONTEXT.md](../RUNTIME-ARCHITECTURE.md) - Context struct layout

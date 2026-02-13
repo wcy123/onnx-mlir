@@ -5,7 +5,8 @@ Licensed under the MIT License.
 # Constant Handling Design
 
 **Date:** 2026-02-13
-**Status:** Implemented (Self-Reviewed)
+**Document Type:** Design
+**Review Status:** Self-Reviewed
 **Related:** ARCHITECTURE.md, RUNTIME-ARCHITECTURE.md, mlir/passes/GenerateInterfacePass.md
 
 ---

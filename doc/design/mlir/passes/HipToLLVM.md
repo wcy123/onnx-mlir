@@ -4,6 +4,8 @@ Licensed under the MIT License.
 -->
 # HipToLLVM Pass
 
+**Document Type:** Design
+**Review Status:** Self-Reviewed
 **Location:** `lib/HipDialect/HipToLLVM.cpp`
 **Input:** HIP dialect module
 **Output:** LLVM dialect module with wrapper functions

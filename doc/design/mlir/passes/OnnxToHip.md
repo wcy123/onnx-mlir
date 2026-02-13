@@ -5,8 +5,8 @@ Licensed under the MIT License.
 # OnnxToHip Pass
 
 **Date:** 2026-02-13
-**Document Type:** Implementation
-**Status:** Implemented (Self-Reviewed)
+**Document Type:** Design
+**Review Status:** Self-Reviewed
 **Related:** HipToLLVM.md, CONSTANT-HANDLING-DESIGN.md, INTERFACE-DESIGN.md
 
 **Input:** ONNX-MLIR module

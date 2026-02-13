@@ -99,7 +99,7 @@ Before the `GenerateInterfacePass` can run, prior passes must establish certain 
 
 **CRITICAL REQUIREMENT: Dynamic Shape Support**
 
-All prerequisites MUST support **dynamic shapes from Day 1**. For complete dynamic shape design and rationale, see [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md).
+All prerequisites MUST support **dynamic shapes from Day 1**. For complete dynamic shape design and rationale, see [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md).
 
 Summary:
 - ✅ Tensor **rank** is compile-time known (e.g., 4D tensor)
@@ -802,7 +802,7 @@ int ret = init(&state);  // Must work without stack corruption
 
 **No interface changes needed** - same C API for static and dynamic shapes!
 
-See [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for complete flow.
+See [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) for complete flow.
 
 ---
 
@@ -853,7 +853,7 @@ class GenerateInterfacePass : public PassWrapper<GenerateInterfacePass, Operatio
 
 **Design:**
 - [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md) - What and why (design rationale, function contracts)
-- [../DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape architecture
+- [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) - Dynamic shape architecture
 
 **Prerequisites:**
 - [OnnxToHip.md](OnnxToHip.md) - Generates constant helpers and metadata

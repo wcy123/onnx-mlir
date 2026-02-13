@@ -147,4 +147,4 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture
 - [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state structure and lifecycle
-- [DEMO.md](DEMO.md) - End-to-end demo walkthrough
+- [DEMO.md](../guides/DEMO.md) - End-to-end demo walkthrough

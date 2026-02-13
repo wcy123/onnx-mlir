@@ -4,6 +4,9 @@ Licensed under the MIT License.
 -->
 # C Interface Design
 
+**Document Type:** Design
+**Review Status:** Draft
+
 **Note:** This document describes the **WHAT** and **WHY** of the C interface. For **HOW** to implement it (GenerateInterfacePass details), see [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md).
 
 **Related:** [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md)

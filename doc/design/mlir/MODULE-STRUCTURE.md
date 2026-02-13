@@ -4,6 +4,8 @@ Licensed under the MIT License.
 -->
 # MLIR Module Structure
 
+**Document Type:** Design
+**Review Status:** Draft
 **Related:** [../MLIR-COMPILATION-OVERVIEW.md](../MLIR-COMPILATION-OVERVIEW.md)
 
 ---

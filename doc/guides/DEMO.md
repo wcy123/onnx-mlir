@@ -99,8 +99,8 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 - Constant registry: `ConstantInfo` array + `get_constant_registry()` function
 
 **For design details**, see:
-- [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Constant discovery and registry design
-- [mlir/passes/OnnxToHip.md](mlir/passes/OnnxToHip.md) - ONNX to HIP dialect conversion
+- [CONSTANT-HANDLING-DESIGN.md](../design/CONSTANT-HANDLING-DESIGN.md) - Constant discovery and registry design
+- [mlir/passes/OnnxToHip.md](../design/mlir/passes/OnnxToHip.md) - ONNX to HIP dialect conversion
 
 ### Stage 2: HIP → LLVM IR
 
@@ -116,7 +116,7 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 - Two-function architecture: `@main` (wrapper) + `@main_internal` (computation)
 - Memref descriptor unpacking logic
 
-**For design details**, see [mlir/passes/HipToLLVM.md](mlir/passes/HipToLLVM.md).
+**For design details**, see [mlir/passes/HipToLLVM.md](../design/mlir/passes/HipToLLVM.md).
 
 ### Stage 3: Generate C Interface
 
@@ -143,7 +143,7 @@ The `--generate-interface` pass creates a **two-layer architecture** for the com
 
 The `--generate-interface` pass **wraps** @main and uses the constant registry to manage GPU memory lifecycle.
 
-**For complete interface specification**, see [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md).
+**For complete interface specification**, see [INTERFACE-DESIGN.md](../design/mlir/INTERFACE-DESIGN.md).
 
 ### Stage 4: Compile to Native DLL
 
@@ -382,7 +382,7 @@ The generated function delegates I/O management to runtime helper functions whil
 4. **`hipdnn_ep_tensor_finalize_output`** (runtime helper) - D2H transfer, stream synchronization
 5. **`hipdnn_ep_tensor_free_input`** (runtime helper) - Free temporary GPU buffers (constants stay in RuntimeState)
 
-**Design rationale**: Runtime helpers encapsulate parsing/validation/transfers, reducing generated code complexity. See [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) for design details.
+**Design rationale**: Runtime helpers encapsulate parsing/validation/transfers, reducing generated code complexity. See [mlir/passes/GenerateInterfacePass.md](../design/mlir/passes/GenerateInterfacePass.md) for design details.
 
 This design ensures **zero-copy for constants** (weights stay in RuntimeState) and **dynamic shape support** (helpers load dimensions from tensor_t.shape at runtime).
 
@@ -403,7 +403,7 @@ llvm.func @inference_init(%arg0: !llvm.ptr) -> i32
 }
 ```
 
-**Design Note**: This function is a simple wrapper that delegates to the runtime library. See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for the complete runtime design.
+**Design Note**: This function is a simple wrapper that delegates to the runtime library. See [RUNTIME-ARCHITECTURE.md](../design/RUNTIME-ARCHITECTURE.md) for the complete runtime design.
 
 ```mlir
 // ✅ EXPORT 2: Run inference (uses runtime helpers for I/O management)
@@ -461,7 +461,7 @@ llvm.func @inference_compute(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.pt
 }
 ```
 
-See [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) for the complete design.
+See [mlir/passes/GenerateInterfacePass.md](../design/mlir/passes/GenerateInterfacePass.md) for the complete design.
 
 ```mlir
 // ✅ EXPORT 3: Cleanup GPU state (delegates to runtime)
@@ -480,8 +480,8 @@ llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
 ---
 
 **For complete design details**, see:
-- [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) - Interface generation pass design
-- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime architecture
+- [mlir/passes/GenerateInterfacePass.md](../design/mlir/passes/GenerateInterfacePass.md) - Interface generation pass design
+- [RUNTIME-ARCHITECTURE.md](../design/RUNTIME-ARCHITECTURE.md) - Runtime architecture
 
 ---
 
@@ -673,10 +673,10 @@ mlir-hip-compiler input.mlir -o output.dll --from-onnx-mlir -v
 ### For Deep Dive
 
 **Architecture & Design Documents** (✅ = self-reviewed):
-- ✅ [ARCHITECTURE.md](ARCHITECTURE.md) - Complete system architecture, EPContext integration (v2.3)
-- ✅ [MLIR-COMPILATION-OVERVIEW.md](MLIR-COMPILATION-OVERVIEW.md) - MLIR compilation pipeline overview
-- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, naming conventions, static library design
-- [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Full constant handling design (6 phases)
+- ✅ [ARCHITECTURE.md](../design/ARCHITECTURE.md) - Complete system architecture, EPContext integration (v2.3)
+- ✅ [MLIR-COMPILATION-OVERVIEW.md](../design/MLIR-COMPILATION-OVERVIEW.md) - MLIR compilation pipeline overview
+- [RUNTIME-ARCHITECTURE.md](../design/RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, naming conventions, static library design
+- [CONSTANT-HANDLING-DESIGN.md](../design/CONSTANT-HANDLING-DESIGN.md) - Full constant handling design (6 phases)
 - [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) - C-ABI interface specification
 
 ### Full Code Examples

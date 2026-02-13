@@ -4,6 +4,8 @@ Licensed under the MIT License.
 -->
 # Why HipToLLVM Uses Wrapper Functions
 
+**Document Type:** Design
+**Review Status:** Draft
 **Context:** MLIR HipToLLVM pass - explains why we use wrapper functions (whether generated in MLIR or pre-existing in C++)
 
 **Current Implementation:** Phase 1 uses pre-existing C++ runtime functions (`lib/Runtime/hipdnn_ep_runtime_miopen.cpp`). Future Phase 2 may generate MLIR wrappers.

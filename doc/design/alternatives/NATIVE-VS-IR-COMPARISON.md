@@ -4,8 +4,9 @@ Licensed under the MIT License.
 -->
 # Native DLL vs LLVM IR Storage - Detailed Comparison
 
-**Status:** Under Evaluation
 **Date:** 2026-02-11
+**Document Type:** Design
+**Review Status:** Draft
 
 ---
 
