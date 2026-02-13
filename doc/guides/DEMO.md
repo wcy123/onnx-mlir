@@ -25,7 +25,7 @@ Compile ONNX models ahead-of-time to native DLLs:
 
 ## Demo Flow
 
-This demo shows the 4-stage compilation pipeline:
+This demo shows the 5-stage compilation and testing pipeline:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -61,11 +61,19 @@ This demo shows the 4-stage compilation pipeline:
               │  Stage 4: mlir-hip-compiler
               │  -o model.dll
               └──────────┬───────────────┘
+                         │ DLL with embedded weights
+                         │ • C interface exports
+                         │ • Linked runtime
+                         ▼
+              ┌──────────────────────┐
+              │  Stage 5: test-model-dll
+              │  model.dll
+              └──────────┬───────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Output: model.dll (Native DLL with embedded weights)           │
-│  Exports: inference_init, inference_compute, inference_cleanup  │
+│  Validation: Load DLL → Run inference → Verify output          │
+│  Mock runtime shows all GPU operations (no hardware needed)     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,9 +88,9 @@ This demo shows the 4-stage compilation pipeline:
 ```bash
 cd /path/to/onnx-hipdnn-ep
 
-# Build both tools in one step
+# Build tools and test executable
 cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
-cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler
+cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler test-model-dll
 ```
 
 ### Stage 1: ONNX → HIP Dialect
@@ -567,6 +575,55 @@ Generated IR + Runtime IR → merge → unified IR → optimize → compile → 
 
 ---
 
+## Stage 5: Test the Compiled DLL
+
+Test end-to-end execution with `test-model-dll`:
+
+```bash
+../../build/$(basename $PWD)/bin/Debug/test-model-dll.exe demo_two_layer.dll
+```
+
+**Output**:
+```
+=== Model DLL Test ===
+DLL: demo_two_layer.dll
+
+--- Loading DLL ---
+DLL loaded successfully
+
+--- Resolving Exports ---
+Found inference_init
+Found inference_compute
+Found inference_cleanup
+
+--- Running inference_init ---
+State initialized
+
+--- Preparing Test Data ---
+Input tensor: [1, 3, 224, 224] (150528 elements)
+Output tensor: [1, 64, 112, 112] (802816 elements)
+
+--- Running inference_compute ---
+Compute succeeded
+
+--- Running inference_cleanup ---
+Cleanup succeeded
+
+=== Test PASSED ===
+```
+
+With **mock runtime** (no GPU required), you'll see all GPU operations:
+```
+[MOCK] hipStreamCreate: Creating stream
+[MOCK] miopenCreate: Creating MIOpen handle
+[MOCK] hipMalloc: Allocating 256 bytes (constant 0)
+[MOCK] hipMemcpy: Copying 256 bytes H2D (constant upload)
+[MOCK] miopenConvolutionForward: input=[1,3,224,224] weights=[64,3,3,3] output=[1,64,224,224]
+...
+```
+
+---
+
 ## Try It Yourself
 
 ### Quick Start Commands
@@ -575,7 +632,7 @@ Generated IR + Runtime IR → merge → unified IR → optimize → compile → 
 # 1. Build the tools
 cd /path/to/onnx-hipdnn-ep
 cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
-cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler
+cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler test-model-dll
 
 # 2. Run Stage 1: ONNX → HIP
 ../../build/onnx-hipdnn-ep/bin/hip-opt.exe \
@@ -609,6 +666,9 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 
 # NOTE: Requires LLVM built with LLD support (-DLLVM_ENABLE_PROJECTS="mlir;lld")
 # For object file only: Use --mode object instead of --mode dll
+
+# 6. Run Stage 5: Test the compiled DLL
+../../build/onnx-hipdnn-ep/bin/Debug/test-model-dll.exe ../output/my_inference.dll
 ```
 
 ### Expected Output
@@ -631,6 +691,17 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
   - `@inference_compute`
   - `@inference_cleanup`
 - All 3 have `llvm.emit_c_interface` attribute
+
+**Stage 4** should show:
+- DLL compilation steps (parsing, passes, IR generation, optimization, linking)
+- Verified exports: `inference_init`, `inference_compute`, `inference_cleanup`
+- Generated files: `.dll`, `.lib`, `.ll`, `.obj` (with `--keep`)
+
+**Stage 5** should show:
+- DLL loading success
+- All 3 exports resolved
+- Test execution: init → compute → cleanup
+- Final status: `=== Test PASSED ===`
 
 ### Verification Commands
 
@@ -672,14 +743,23 @@ strings ../output/my_inference.dll | grep inference_
 - Usage: Production artifact generation, standalone testing
 - Dependencies: Links with HipDnnRuntime.lib, amdhip64.lib, MIOpen.lib, hipblaslt.lib
 
+**test-model-dll** (test/):
+- Purpose: End-to-end DLL testing and validation
+- Input: Compiled model DLL (from mlir-hip-compiler)
+- Output: Test results (PASSED/FAILED)
+- Validates: DLL loading, export resolution, inference execution
+- Usage: CI testing, manual verification of compiled models
+
 **Workflow:**
 ```bash
-# Two-step workflow (development)
+# Three-step workflow (development)
 hip-opt input.mlir --convert-onnx-to-hip --convert-hip-to-llvm --generate-interface -o transformed.mlir
 mlir-hip-compiler transformed.mlir -o output.dll -v
+test-model-dll output.dll
 
-# One-step workflow (production-like)
+# Two-step workflow (production-like)
 mlir-hip-compiler input.mlir -o output.dll --from-onnx-mlir -v
+test-model-dll output.dll
 ```
 
 ### For Deep Dive
