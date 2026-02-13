@@ -23,7 +23,53 @@ Compile ONNX models ahead-of-time to native DLLs:
 - Layer 2: 64 filters, 3×3 conv, stride=2 → 1×64×112×112
 - 4 constant tensors embedded in compiled code
 
-**Pipeline**: `ONNX → HIP Dialect → LLVM IR → C Interface → Native DLL`
+## Demo Flow
+
+This demo shows the 4-stage compilation pipeline:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Input: demo_two_layer_conv.mlir (ONNX dialect)                 │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │  Stage 1: hip-opt    │
+              │  --convert-onnx-to-hip
+              └──────────┬───────────┘
+                         │ HIP dialect MLIR
+                         │ • Constants hoisted to globals
+                         │ • Registry generated
+                         ▼
+              ┌──────────────────────┐
+              │  Stage 2: hip-opt    │
+              │  --convert-hip-to-llvm
+              └──────────┬───────────┘
+                         │ LLVM dialect MLIR
+                         │ • @main wrapper function
+                         │ • Runtime function calls
+                         ▼
+              ┌──────────────────────┐
+              │  Stage 3: hip-opt    │
+              │  --generate-interface
+              └──────────┬───────────┘
+                         │ LLVM dialect + C interface
+                         │ • inference_init/compute/cleanup
+                         │ • Public C-ABI exports
+                         ▼
+              ┌──────────────────────────┐
+              │  Stage 4: mlir-hip-compiler
+              │  -o model.dll
+              └──────────┬───────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Output: model.dll (Native DLL with embedded weights)           │
+│  Exports: inference_init, inference_compute, inference_cleanup  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**For complete architecture**, see [Architecture Reference](#architecture-reference-appendix).
 
 ---
 
