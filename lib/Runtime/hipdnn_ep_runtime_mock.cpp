@@ -65,7 +65,9 @@ extern "C" hipError_t hipStreamSynchronize(hipStream_t stream) {
 extern "C" hipError_t hipMalloc(void **ptr, size_t size) {
   *ptr = malloc(size);
   MOCK_PRINT("[MOCK] hipMalloc(%zu bytes) -> %p\n", size, *ptr);
-  return *ptr ? hipSuccess : -1;
+  int result = *ptr ? hipSuccess : -1;
+  MOCK_PRINT("[MOCK] hipMalloc returning %d\n", result);
+  return result;
 }
 
 extern "C" hipError_t hipFree(void *ptr) {

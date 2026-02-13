@@ -78,6 +78,10 @@ static size_t calculateTensorSize(const int64_t *shape, size_t rank) {
 int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
                                    size_t index, size_t expected_rank,
                                    TensorBuffer *out_buffer) {
+  fprintf(stderr, "[TENSOR-DEBUG] prepare_input: state=%p, inputs=%p, index=%zu, expected_rank=%zu, out_buffer=%p\n",
+          state, inputs, index, expected_rank, out_buffer);
+  fflush(stderr);
+
   // Validate arguments
   if (!state) {
     fprintf(stderr, "hipdnn_ep_tensor_prepare_input: null state\n");
@@ -165,6 +169,10 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
 int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
                                     size_t index, size_t expected_rank,
                                     TensorBuffer *out_buffer) {
+  fprintf(stderr, "[TENSOR-DEBUG] prepare_output: state=%p, outputs=%p, index=%zu, expected_rank=%zu, out_buffer=%p\n",
+          state, outputs, index, expected_rank, out_buffer);
+  fflush(stderr);
+
   // Validate arguments
   if (!state) {
     fprintf(stderr, "hipdnn_ep_tensor_prepare_output: null state\n");
@@ -190,6 +198,12 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
 
   // Extract tensor from span
   tensor_t *tensor = &outputs->data[index];
+
+  fprintf(stderr, "[TENSOR-DEBUG] outputs->data=%p, outputs->count=%zu\n",
+          outputs->data, outputs->count);
+  fprintf(stderr, "[TENSOR-DEBUG] tensor=%p, tensor->data=%p, tensor->shape=%p, tensor->rank=%zu\n",
+          tensor, tensor->data, tensor->shape, tensor->rank);
+  fflush(stderr);
 
   // Validate tensor pointers
   if (!tensor->data) {

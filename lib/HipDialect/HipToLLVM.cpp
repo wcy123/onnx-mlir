@@ -100,11 +100,13 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     if (!isConvertibleAndHasIdentityMaps(memRefType))
       return rewriter.notifyMatchFailure(op, "incompatible memref type");
 
-    // Declare hipMalloc(size: i64) -> ptr
+    // Declare hipMalloc with CORRECT signature: (ptr, i64) -> i32
+    // The real hipMalloc signature is: hipError_t hipMalloc(void **ptr, size_t size)
     Type indexType = getIndexType();
     Type ptrType = getPtrType();
+    Type i32Type = IntegerType::get(getContext(), 32);
     FailureOr<LLVM::LLVMFuncOp> mallocFn = LLVM::lookupOrCreateFn(
-        rewriter, module, kHipMalloc, indexType, ptrType);
+        rewriter, module, kHipMalloc, {ptrType, indexType}, i32Type);
     if (failed(mallocFn))
       return failure();
 
@@ -115,8 +117,22 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     getMemRefDescriptorSizes(loc, memRefType, adaptor.getDynamicSizes(),
                              rewriter, sizes, strides, sizeBytes, true);
 
-    Value allocatedPtr =
-        LLVM::CallOp::create(rewriter, loc, *mallocFn, sizeBytes).getResult();
+    // Allocate stack space for the returned pointer
+    Value one = rewriter.create<LLVM::ConstantOp>(loc, indexType,
+                                                    rewriter.getIndexAttr(1));
+    Value ptrStorage = rewriter.create<LLVM::AllocaOp>(
+        loc, ptrType, ptrType, one, /*alignment=*/8);
+
+    // Call hipMalloc(&ptrStorage, sizeBytes)
+    Value mallocResult =
+        LLVM::CallOp::create(rewriter, loc, *mallocFn, {ptrStorage, sizeBytes})
+            .getResult();
+
+    // TODO: Check mallocResult for errors (hipSuccess == 0)
+    // For now, assume success
+
+    // Load the allocated pointer from ptrStorage
+    Value allocatedPtr = rewriter.create<LLVM::LoadOp>(loc, ptrType, ptrStorage);
 
     // Cast to memref address space if needed
     Type elementPtrType = getElementPtrType(memRefType);

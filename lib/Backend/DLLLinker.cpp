@@ -105,6 +105,11 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   argStrings.push_back("/NOLOGO");
   argStrings.push_back("/MACHINE:X64");
 
+  // Add debug flags to prevent optimization and get clear backtraces
+  argStrings.push_back("/DEBUG");        // Generate debug info (.pdb)
+  argStrings.push_back("/OPT:NOREF");    // Don't remove unreferenced code
+  argStrings.push_back("/OPT:NOICF");    // Don't fold identical functions
+
   // Convert to C-style args for LLD
   std::vector<const char *> args;
   for (const auto &arg : argStrings) {
