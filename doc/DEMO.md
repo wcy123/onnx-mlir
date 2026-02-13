@@ -502,21 +502,30 @@ llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
 - Preserves all function declarations and C-ABI attributes
 - Output: `.ll` file (LLVM IR text format)
 
+**Step 1.5: Runtime Bitcode Merging** ✅
+- Merge runtime bitcode (embedded in EP DLL) with generated IR via `llvm::Linker`
+- Resolves runtime function calls: `hipdnn_ep_state_init`, `hipdnn_ep_get_stream`, etc.
+- Enables cross-module optimization (runtime functions inlined into generated code)
+- Result: Single unified LLVM module
+
 **Step 2: Optimize LLVM IR** ✅
 - Run LLVM optimization passes (default: -O2)
-- Function inlining, constant propagation, dead code elimination
+- Function inlining (including runtime accessors), constant propagation, dead code elimination
+- Achieves zero-cost abstraction (runtime function calls eliminated)
 - Output: Optimized LLVM IR
+
+**For runtime architecture details**, see [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md).
 
 **Step 3: Compile to Object File** ✅
 - Generate native machine code for target platform (x86-64 Windows)
 - Output: `.obj` file (PE/COFF format)
 
 **Step 4: Link to DLL** ✅ COMPLETE
-- Link object file with runtime libraries:
-  - **HipDnnRuntime.lib** - Custom runtime (GPU handles, constant management)
+- Link object file with ROCm libraries:
   - **amdhip64.lib** - AMD HIP runtime
   - **MIOpen.lib** - Convolution operations
   - **hipblaslt.lib** - BLAS operations
+- Note: HipDnnRuntime is **not linked** here - it was already merged at IR level (Step 1.5) and inlined during optimization (Step 2)
 - Use LLD-LINK (LLVM's linker) to create DLL
 - Verify exported symbols: `inference_init`, `inference_compute`, `inference_cleanup`
 - Output: `.dll` file (Windows) or `.so` (Linux)
