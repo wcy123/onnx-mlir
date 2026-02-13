@@ -502,11 +502,25 @@ llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
 - Preserves all function declarations and C-ABI attributes
 - Output: `.ll` file (LLVM IR text format)
 
-**Step 1.5: Runtime Bitcode Merging** ✅
-- Merge runtime bitcode (embedded in EP DLL) with generated IR via `llvm::Linker`
-- Resolves runtime function calls: `hipdnn_ep_state_init`, `hipdnn_ep_get_stream`, etc.
-- Enables cross-module optimization (runtime functions inlined into generated code)
-- Result: Single unified LLVM module
+**Step 1.5: Runtime Bitcode Merging** ✅ (Key Innovation)
+- **IR-level merge** (NOT traditional linking): Runtime bitcode merged with generated IR via `llvm::Linker` API
+- This happens **before compilation** (traditional linking happens after)
+- Creates single unified LLVM module where runtime functions are visible to optimizer
+- Enables cross-module optimization: runtime accessor functions can be inlined into generated code
+- Result: Zero-cost abstraction (no runtime library dependency in final DLL)
+
+**Traditional approach** (for comparison):
+```
+Generated code → compile → object.o  \
+Runtime library → compile → runtime.o  → link → final.dll (separate object files)
+```
+
+**Our approach** (IR merging):
+```
+Generated IR + Runtime IR → merge → unified IR → optimize → compile → final.dll (no runtime.o)
+```
+
+**For complete design rationale**, see [RUNTIME-ARCHITECTURE.md - Section 2](RUNTIME-ARCHITECTURE.md#2-design-decision-runtime-as-embedded-bitcode).
 
 **Step 2: Optimize LLVM IR** ✅
 - Run LLVM optimization passes (default: -O2)
@@ -514,7 +528,6 @@ llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
 - Achieves zero-cost abstraction (runtime function calls eliminated)
 - Output: Optimized LLVM IR
 
-**For runtime architecture details**, see [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md).
 
 **Step 3: Compile to Object File** ✅
 - Generate native machine code for target platform (x86-64 Windows)
