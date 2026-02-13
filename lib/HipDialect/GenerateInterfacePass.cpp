@@ -881,11 +881,10 @@ private:
                                    ValueRange{state, inputBuffers[i]});
     }
 
-    for (size_t i = 0; i < outputBuffers.size(); i++) {
-      // For outputs, use finalize even on error path (will handle cleanup)
-      builder.create<LLVM::CallOp>(loc, finalizeOutputFunc,
-                                   ValueRange{state, outputBuffers[i]});
-    }
+    // NOTE: Do NOT call finalize_output here to avoid double-finalize bug.
+    // If we reached Phase 5 (finalize), it was already attempted there.
+    // If we failed before Phase 5, outputs aren't ready to finalize.
+    // finalize_output should only be called once per output in the success path.
 
     // Return the error code
     builder.create<LLVM::ReturnOp>(loc, errorCode);

@@ -150,7 +150,7 @@ and cleanup paths. Examples focus on core data flow for clarity.
 ```bash
 # Complete MLIR → DLL compilation (real working example)
 export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
-../../build/onnx-hipdnn-ep.2/bin/Debug/mlir-hip-compiler.exe \
+../../build/$(basename $PWD)/bin/Debug/mlir-hip-compiler.exe \
   test/mlir/identity_llvm.mlir \
   -o identity_final.dll \
   --mode dll \
@@ -188,8 +188,8 @@ Compiled object file to: identity_final.obj
 ✓ Object file created: identity_final.obj
 
 --- Step 7: Linking to DLL ---
-Found runtime library: ../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug/HipDnnRuntime.lib
-LLD-LINK command (7 args): [0]='/DLL' [1]='/OUT:identity_final.dll' [2]='/DEF:identity_final.obj.def' [3]='identity_final.obj' [4]='../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug/HipDnnRuntime.lib' [5]='/NOLOGO' [6]='/MACHINE:X64'
+Found runtime library: ../../build/$(basename $PWD)/lib/Runtime/Debug/HipDnnRuntime.lib
+LLD-LINK command (7 args): [0]='/DLL' [1]='/OUT:identity_final.dll' [2]='/DEF:identity_final.obj.def' [3]='identity_final.obj' [4]='../../build/$(basename $PWD)/lib/Runtime/Debug/HipDnnRuntime.lib' [5]='/NOLOGO' [6]='/MACHINE:X64'
 ArrayRef size: 7
 Successfully linked DLL: identity_final.dll
 ✓ DLL created: identity_final.dll
@@ -370,86 +370,111 @@ This design ensures **zero-copy for constants** (weights stay on GPU) and **dyna
 (buffer sizes computed from runtime dimensions).
 
 ```mlir
-// ✅ EXPORT 1: Initialize GPU state
-llvm.func @inference_init(%state_ptr: !llvm.ptr) -> i32
+// ✅ EXPORT 1: Initialize GPU state (delegates to runtime)
+llvm.func @inference_init(%arg0: !llvm.ptr) -> i32
     attributes {llvm.emit_c_interface, sym_visibility = "public"} {
-  // Get constant metadata from module
-  %registry_ptr = llvm.call @get_constant_registry() : () -> !llvm.ptr
+  // Get constant metadata from generated code
+  %registry = llvm.call @get_constant_registry() : () -> !llvm.ptr
 
-  // Create state, GPU handles, and upload constants using registry
-  // (Inlined code: allocate state, hipStreamCreate, miopenCreate,
-  //  loop through registry to hipMalloc+hipMemcpy each constant)
+  // Delegate ALL initialization to runtime library
+  // (Handles: allocate state, create GPU stream, create MIOpen/hipBLAS handles,
+  //  upload constants to GPU, all error handling and cleanup)
+  %result = llvm.call @hipdnn_ep_state_init(%arg0, %registry)
+    : (!llvm.ptr, !llvm.ptr) -> i32
 
-  llvm.return %success : i32
-  // Returns: 0 (success), 1 (alloc failed), 2 (handle creation failed), 3 (constant upload failed)
-}
-
-// ✅ EXPORT 2: Run inference
-llvm.func @inference_compute(%state_ptr: !llvm.ptr, %inputs: !llvm.ptr,
-                              %outputs: !llvm.ptr) -> i32
-    attributes {llvm.emit_c_interface, sym_visibility = "public"} {
-  // Validate input count (parse span_t->count field)
-  %input_count_ptr = llvm.getelementptr %inputs[1] : (!llvm.ptr, i32) -> !llvm.ptr
-  %input_count = llvm.load %input_count_ptr : i64
-  %valid_in = llvm.icmp "eq" %input_count, 1 : i64
-
-  // Validate output count
-  %output_count_ptr = llvm.getelementptr %outputs[1] : (!llvm.ptr, i32) -> !llvm.ptr
-  %output_count = llvm.load %output_count_ptr : i64
-  %valid_out = llvm.icmp "eq" %output_count, 1 : i64
-
-  llvm.cond_br %valid_in, ^check_out, ^error
-^check_out:
-  llvm.cond_br %valid_out, ^success, ^error
-
-^success:
-  // Get GPU stream from runtime state
-  %stream = llvm.call @hipdnn_ep_get_stream(%state) : (!llvm.ptr) -> !llvm.ptr
-
-  // Load runtime dimensions from tensor_t.shape and calculate buffer size
-  %input_shape_ptr = /* GEP to access tensor_t.shape */
-  %dim0 = llvm.load %input_shape_ptr[0] : i64  // Batch size
-  // ... (load all dimensions)
-  %buffer_size = /* multiply dimensions × sizeof(element) */
-
-  // Allocate GPU input buffer
-  %gpu_input = llvm.call @wrap_hipMalloc(%buffer_size, %stream) : (i64, !llvm.ptr) -> !llvm.ptr
-
-  // H2D: Copy input from CPU to GPU
-  %cpu_input_data = /* GEP to access tensor_t.data */
-  llvm.call @wrap_hipMemcpyH2D(%gpu_input, %cpu_input_data, %buffer_size, %stream)
-
-  // Build memref descriptor (GPU pointer + runtime strides)
-  %input_memref = /* construct !llvm.struct<ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>> */
-
-  // Execute computation (uses pre-uploaded constants from state)
-  %status = llvm.call @main(%state, %input_memref, %output_memref) : (...) -> i32
-
-  // D2H: Copy output from GPU to CPU
-  llvm.call @wrap_hipMemcpyD2H(%cpu_output_data, %gpu_output, %output_size, %stream)
-
-  // Wait for GPU completion
-  llvm.call @wrap_hipStreamSynchronize(%stream)
-
-  // Free temporary GPU buffers
-  llvm.call @wrap_hipFree(%gpu_input, %stream)
-  llvm.call @wrap_hipFree(%gpu_output, %stream)
-
-  return 0 : i32  // Success
-
-^error:
-  return 5 : i32  // HIPDNN_ERROR_INVALID_INPUT
-}
-
-// ✅ EXPORT 3: Cleanup GPU state
-llvm.func @inference_cleanup(%state_ptr: !llvm.ptr) -> i32
-    attributes {llvm.emit_c_interface, sym_visibility = "public"} {
-  // Delegate to runtime library (destroys GPU handles, frees constants)
-  %result = llvm.call @hipdnn_ep_state_cleanup(%state_ptr) : (!llvm.ptr) -> i32
   llvm.return %result : i32
-  // Returns: 0 (success), 10+ (cleanup errors - stream/handle destruction)
 }
 ```
+
+**Design Note**: This function is a **simple wrapper** that delegates to the runtime library. Complex initialization logic (handle creation, error handling, LIFO cleanup) is implemented in C++ (`lib/Runtime/hipdnn_ep_runtime.cpp`), not in generated MLIR. The runtime library is merged via `llvm::Linker` - same final binary, zero overhead after LLVM optimization.
+
+```mlir
+// ✅ EXPORT 2: Run inference (uses runtime helpers for I/O management)
+llvm.func @inference_compute(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) -> i32
+    attributes {llvm.emit_c_interface, sym_visibility = "public"} {
+
+  // Data flow: CPU tensors → GPU buffers → @main → GPU results → CPU tensors
+  //
+  // 1. hipdnn_ep_tensor_prepare_input:  parse span_t, validate, alloc GPU, H2D
+  // 2. hipdnn_ep_tensor_prepare_output: parse span_t, validate, alloc GPU
+  // 3. @main: execute computation (uses pre-uploaded constants)
+  // 4. hipdnn_ep_tensor_finalize_output: D2H transfer, sync
+  // 5. hipdnn_ep_tensor_free_input: free temporary GPU buffers
+
+  %c0_i32 = llvm.mlir.constant(0 : i32) : i32
+  %c1_i64 = llvm.mlir.constant(1 : i64) : i64
+
+  // Allocate memref struct holders
+  %input_memref_ptr = llvm.alloca %c1_i64 x !llvm.struct<...> : (i64) -> !llvm.ptr
+  %output_memref_ptr = llvm.alloca %c1_i64 x !llvm.struct<...> : (i64) -> !llvm.ptr
+
+  // Prepare input tensor 0 (index=0, rank=4)
+  %status_in = llvm.call @hipdnn_ep_tensor_prepare_input(
+    %arg0,              // state (contains stream handle)
+    %arg1,              // inputs span_t*
+    %c0_i64,            // tensor index
+    %c4_i64,            // expected rank
+    %input_memref_ptr   // output: memref struct
+  ) : (!llvm.ptr, !llvm.ptr, i64, i64, !llvm.ptr) -> i32
+
+  // Error check and branch...
+  %failed = llvm.icmp "ne" %status_in, %c0_i32 : i32
+  llvm.cond_br %failed, ^cleanup, ^prepare_output
+
+^prepare_output:
+  // Prepare output tensor 0 (index=0, rank=4)
+  %status_out = llvm.call @hipdnn_ep_tensor_prepare_output(
+    %arg0, %arg2, %c0_i64, %c4_i64, %output_memref_ptr
+  ) : (!llvm.ptr, !llvm.ptr, i64, i64, !llvm.ptr) -> i32
+
+  // Error check, then call @main...
+  %result = llvm.call @main(%arg0, %input_memref_ptr, %output_memref_ptr)
+    : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+
+^cleanup:
+  // Finalize outputs (D2H transfer if success)
+  llvm.call @hipdnn_ep_tensor_finalize_output(%arg0, %output_memref_ptr)
+    : (!llvm.ptr, !llvm.ptr) -> i32
+
+  // Free temporary input GPU buffers
+  llvm.call @hipdnn_ep_tensor_free_input(%arg0, %input_memref_ptr)
+    : (!llvm.ptr, !llvm.ptr) -> ()
+
+  llvm.return %result : i32
+}
+```
+
+**Design Note**: The implementation uses runtime helper functions (`hipdnn_ep_tensor_prepare_input`, etc.) to encapsulate parsing, validation, allocation, and transfers. This reduces generated code by ~70% while adding better error handling. The helpers perform:
+
+- **prepare_input**: Parse tensor_t from span_t, validate count/rank, load runtime dimensions from shape pointer, allocate GPU buffer, H2D transfer, build memref struct
+- **prepare_output**: Same as input but without H2D (output buffer starts empty)
+- **finalize_output**: D2H transfer back to CPU, stream synchronize
+- **free_input**: Free temporary GPU buffers (model weights stay in state)
+
+See `lib/HipDialect/GenerateInterfacePass.cpp:generateInferenceCompute()` for complete implementation.
+
+```mlir
+// ✅ EXPORT 3: Cleanup GPU state (delegates to runtime)
+llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
+    attributes {llvm.emit_c_interface, sym_visibility = "public"} {
+  // Delegate ALL cleanup to runtime library
+  // (Handles: sync stream, free GPU constants, destroy handles in LIFO order,
+  //  free CPU memory, best-effort cleanup on errors)
+  %result = llvm.call @hipdnn_ep_state_cleanup(%arg0) : (!llvm.ptr) -> i32
+  llvm.return %result : i32
+}
+```
+
+**Design Note**: Like `inference_init`, this is a simple wrapper. The runtime library (`hipdnn_ep_state_cleanup`) handles all cleanup logic in reverse order of creation (LIFO), with best-effort error handling.
+
+---
+
+**For complete implementation details**, see:
+- [doc/mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) - Full MLIR implementation specification
+- [lib/HipDialect/GenerateInterfacePass.cpp](../lib/HipDialect/GenerateInterfacePass.cpp) - Actual code generation
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime library design
+
+---
 
 **Key features**:
 - **C calling convention**: `llvm.emit_c_interface` (no name mangling)
@@ -575,9 +600,10 @@ grep "llvm.func @" ../output/my_stage3.mlir | wc -l
 #   - 1 main + internal computation functions
 #   - Runtime function declarations (hipMalloc, hipMemcpy, miopenConvolutionForward, etc.)
 
-# Check exports
-grep "sym_visibility.*public" ../output/my_stage3.mlir
+# Check exports (search for attribute syntax)
+grep "attributes.*sym_visibility.*public" ../output/my_stage3.mlir
 # Expected: 3 lines (inference_init, inference_compute, inference_cleanup)
+# Alternative: grep "llvm.func @inference_" ../output/my_stage3.mlir
 
 # Check metadata
 grep "hipdnn\." ../output/my_stage1.mlir
