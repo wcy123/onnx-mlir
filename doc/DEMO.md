@@ -167,11 +167,45 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 
 **Note**: The `--from-onnx-mlir` flag runs all three passes (ONNX→HIP→LLVM→Interface) automatically before compilation, equivalent to piping Stages 1-3 output to the compiler.
 
-**What you'll see**:
-- 8-step compilation pipeline (parse, transform, optimize, compile, link, verify)
-- MLIR passes run automatically (ONNX→HIP→LLVM→Interface)
-- Runtime library linked (HipDnnRuntime.lib merged via LLD)
-- DLL exports verified (inference_init, inference_compute, inference_cleanup)
+**Output**:
+```
+=== MLIR to HIP DLL Compiler ===
+Input: tools/hip-opt/demo_two_layer_conv.mlir
+Output: demo_two_layer.dll
+Mode: dll
+
+--- Step 1: Parsing MLIR ---
+✓ MLIR parsed successfully
+
+--- Step 2: Running MLIR Passes ---
+Running pass: --convert-onnx-to-hip
+Running pass: --convert-hip-to-llvm
+Running pass: --generate-interface
+✓ MLIR passes completed
+
+--- Step 3: Translating to LLVM IR ---
+✓ LLVM IR generated
+
+--- Step 4: Optimizing LLVM IR (O2) ---
+✓ Optimization completed
+
+--- Step 5: Emitting LLVM IR ---
+✓ LLVM IR written to: demo_two_layer.ll
+
+--- Step 6: Compiling to Object File ---
+✓ Object file created: demo_two_layer.obj
+
+--- Step 7: Linking to DLL ---
+Found runtime library: HipDnnRuntime.lib
+✓ DLL created: demo_two_layer.dll
+
+--- Step 8: Verifying DLL Exports ---
+  ✓ inference_init
+  ✓ inference_compute
+  ✓ inference_cleanup
+
+=== Compilation Successful ===
+```
 
 **Generated files** (with `--keep` flag):
 ```bash
