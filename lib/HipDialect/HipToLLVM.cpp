@@ -186,31 +186,44 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
     Type ptrType = getPtrType();
     Type i32Type = rewriter.getI32Type();
 
-    // Phase 1: Simplified lowering
-    // For now, we generate a call to a runtime function that will handle
-    // the full MIOpen convolution setup (descriptors, workspace, etc.)
+    // Generate call to runtime wrapper following opaque RuntimeState pattern.
+    // The wrapper extracts handle/stream from state internally (no direct field access!).
     //
     // Signature:
-    // int miopenConvolutionForward(
-    //     void* handle,           // miopenHandle from state
-    //     void* input,            // input tensor data pointer
-    //     void* weights,          // weights tensor data pointer
-    //     void* bias,             // bias tensor data pointer (nullable)
-    //     void* output,           // output tensor data pointer (in-place)
-    //     int64_t kernel_h,       // kernel height
-    //     int64_t kernel_w,       // kernel width
-    //     int64_t stride_h,       // stride height
-    //     int64_t stride_w,       // stride width
-    //     int64_t pad_top,        // padding top
-    //     int64_t pad_left,       // padding left
-    //     int64_t pad_bottom,     // padding bottom
-    //     int64_t pad_right,      // padding right
-    //     int64_t dilation_h,     // dilation height
-    //     int64_t dilation_w,     // dilation width
-    //     int64_t group           // number of groups
+    // int wrap_miopenConvolutionForward(
+    //     RuntimeState* state,    // Opaque pointer - extracts handle/stream internally
+    //     void* input,            // Input tensor data pointer
+    //     int64_t input_n,        // Input batch size
+    //     int64_t input_c,        // Input channels
+    //     int64_t input_h,        // Input height
+    //     int64_t input_w,        // Input width
+    //     void* weights,          // Weights tensor data pointer
+    //     int64_t weights_k,      // Output channels (number of filters)
+    //     void* bias,             // Bias tensor data pointer (nullable)
+    //     void* output,           // Output tensor data pointer (in-place)
+    //     int64_t output_h,       // Output height
+    //     int64_t output_w,       // Output width
+    //     int64_t kernel_h,       // Kernel height
+    //     int64_t kernel_w,       // Kernel width
+    //     int64_t stride_h,       // Stride height
+    //     int64_t stride_w,       // Stride width
+    //     int64_t pad_top,        // Padding top
+    //     int64_t pad_left,       // Padding left
+    //     int64_t pad_bottom,     // Padding bottom
+    //     int64_t pad_right,      // Padding right
+    //     int64_t dilation_h,     // Dilation height
+    //     int64_t dilation_w,     // Dilation width
+    //     int64_t group           // Number of groups
     // );
     //
     // Returns: 0 on success, non-zero on error
+
+    // Helper to create i64 constants
+    Type i64Type = rewriter.getI64Type();
+    auto createI64Const = [&](int64_t value) -> Value {
+      return rewriter.create<LLVM::ConstantOp>(
+          loc, i64Type, rewriter.getI64IntegerAttr(value));
+    };
 
     // Extract memref pointers (aligned pointers from descriptors)
     auto getAlignedPtr = [&](Value memrefDesc) -> Value {
@@ -223,7 +236,7 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
       return ptr;
     };
 
-    Value handlePtr = adaptor.getHandle();
+    Value statePtr = adaptor.getHandle();  // RuntimeState* (opaque)
     Value inputPtr = getAlignedPtr(adaptor.getInput());
     Value weightsPtr = getAlignedPtr(adaptor.getWeights());
     Value outputPtr = getAlignedPtr(adaptor.getOutput());
@@ -237,19 +250,42 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
       biasPtr = rewriter.create<LLVM::ZeroOp>(loc, ptrType);
     }
 
+    // Extract shapes from memref types (static shapes known at compile time)
+    auto inputType = cast<MemRefType>(op.getInput().getType());
+    auto weightsType = cast<MemRefType>(op.getWeights().getType());
+    auto outputType = cast<MemRefType>(op.getOutput().getType());
+
+    // Input shape: [N, C, H, W]
+    auto inputShape = inputType.getShape();
+    if (inputShape.size() != 4) {
+      return op.emitError("Input must be rank-4 tensor [N, C, H, W]");
+    }
+    Value inputN = createI64Const(inputShape[0]);
+    Value inputC = createI64Const(inputShape[1]);
+    Value inputH = createI64Const(inputShape[2]);
+    Value inputW = createI64Const(inputShape[3]);
+
+    // Weights shape: [K, C, R, S] where K=output channels
+    auto weightsShape = weightsType.getShape();
+    if (weightsShape.size() != 4) {
+      return op.emitError("Weights must be rank-4 tensor [K, C, R, S]");
+    }
+    Value weightsK = createI64Const(weightsShape[0]);
+
+    // Output shape: [N, K, H', W']
+    auto outputShape = outputType.getShape();
+    if (outputShape.size() != 4) {
+      return op.emitError("Output must be rank-4 tensor [N, K, H', W']");
+    }
+    Value outputH = createI64Const(outputShape[2]);
+    Value outputW = createI64Const(outputShape[3]);
+
     // Extract attributes
     auto kernelShape = op.getKernelShape();
     auto strides = op.getStrides();
     auto pads = op.getPads();
     auto dilations = op.getDilations();
     auto group = op.getGroup();
-
-    // Convert attributes to i64 constants
-    Type i64Type = rewriter.getI64Type();
-    auto createI64Const = [&](int64_t value) -> Value {
-      return rewriter.create<LLVM::ConstantOp>(
-          loc, i64Type, rewriter.getI64IntegerAttr(value));
-    };
 
     // Extract integer values from attributes
     auto getI64 = [](mlir::Attribute attr) -> int64_t {
@@ -269,12 +305,19 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
     Value groupVal = createI64Const(group);
 
     // Build function signature
-    SmallVector<Type, 16> paramTypes = {
-        ptrType, // handle
+    SmallVector<Type, 24> paramTypes = {
+        ptrType, // state
         ptrType, // input
+        i64Type, // input_n
+        i64Type, // input_c
+        i64Type, // input_h
+        i64Type, // input_w
         ptrType, // weights
+        i64Type, // weights_k
         ptrType, // bias
         ptrType, // output
+        i64Type, // output_h
+        i64Type, // output_w
         i64Type, // kernel_h
         i64Type, // kernel_w
         i64Type, // stride_h
@@ -294,15 +337,14 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
     if (failed(funcOp))
       return failure();
 
-    // Build argument list
-    SmallVector<Value, 16> args = {handlePtr, inputPtr,  weightsPtr, biasPtr,
-                                   outputPtr, kernelH,   kernelW,    strideH,
-                                   strideW,   padTop,    padLeft,    padBottom,
-                                   padRight,  dilationH, dilationW,  groupVal};
+    // Build argument list matching the signature
+    SmallVector<Value, 24> args = {
+        statePtr,   inputPtr, inputN,    inputC,   inputH,   inputW,
+        weightsPtr, weightsK, biasPtr,   outputPtr, outputH,  outputW,
+        kernelH,    kernelW,  strideH,   strideW,  padTop,   padLeft,
+        padBottom,  padRight, dilationH, dilationW, groupVal};
 
     // Call the runtime function
-    // Note: We're ignoring the return value for now (Phase 1 simplification)
-    // Phase 2 TODO: Add error handling
     LLVM::CallOp::create(rewriter, loc, *funcOp, args);
 
     // Erase the HIP conv operation (it's in-place, no results)

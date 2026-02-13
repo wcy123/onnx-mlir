@@ -114,18 +114,22 @@
 // BENEFIT: Eliminates malloc/free from hot path.
 
 // MIOpen convolution forward implementation
+// Follows opaque RuntimeState pattern - extracts handle/stream from state
 int wrap_miopenConvolutionForward(
-    void *handle, void *stream, const void *input, const int64_t *input_shape,
-    const void *weights, const int64_t *weights_shape, void *output,
-    const int64_t *output_shape, int64_t pad_h, int64_t pad_w, int64_t stride_h,
-    int64_t stride_w, int64_t dilation_h, int64_t dilation_w) {
-  if (!handle || !stream || !input || !weights || !output) {
+    RuntimeState *state, const void *input, int64_t input_n, int64_t input_c,
+    int64_t input_h, int64_t input_w, const void *weights, int64_t weights_k,
+    const void *bias, void *output, int64_t output_h, int64_t output_w,
+    int64_t kernel_h, int64_t kernel_w, int64_t stride_h, int64_t stride_w,
+    int64_t pad_top, int64_t pad_left, int64_t pad_bottom, int64_t pad_right,
+    int64_t dilation_h, int64_t dilation_w, int64_t group) {
+  if (!state || !input || !weights || !output) {
     fprintf(stderr, "Invalid arguments to wrap_miopenConvolutionForward\n");
     return -1;
   }
 
-  miopenHandle_t miopen_handle = static_cast<miopenHandle_t>(handle);
-  hipStream_t hip_stream = static_cast<hipStream_t>(stream);
+  // Extract handle and stream from opaque RuntimeState (NO direct field access in generated code!)
+  miopenHandle_t miopen_handle = state->miopen_handle;
+  hipStream_t hip_stream = state->stream;
 
   // Create tensor descriptors
   miopenTensorDescriptor_t input_desc, weights_desc, output_desc;
@@ -134,24 +138,26 @@ int wrap_miopenConvolutionForward(
   MIOPEN_CHECK(miopenCreateTensorDescriptor(&output_desc));
 
   // Set tensor descriptors (assuming float32 data type)
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(input_desc, miopenFloat,
-                                           input_shape[0], input_shape[1],
-                                           input_shape[2], input_shape[3]));
+  // Input: [N, C, H, W]
+  MIOPEN_CHECK(miopenSet4dTensorDescriptor(input_desc, miopenFloat, input_n,
+                                           input_c, input_h, input_w));
 
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(weights_desc, miopenFloat,
-                                           weights_shape[0], weights_shape[1],
-                                           weights_shape[2], weights_shape[3]));
+  // Weights: [K, C, R, S] where K=output channels, C=input channels, R=kernel_h, S=kernel_w
+  MIOPEN_CHECK(miopenSet4dTensorDescriptor(weights_desc, miopenFloat, weights_k,
+                                           input_c, kernel_h, kernel_w));
 
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(output_desc, miopenFloat,
-                                           output_shape[0], output_shape[1],
-                                           output_shape[2], output_shape[3]));
+  // Output: [N, K, H', W']
+  MIOPEN_CHECK(miopenSet4dTensorDescriptor(output_desc, miopenFloat, input_n,
+                                           weights_k, output_h, output_w));
 
   // Create convolution descriptor
+  // Note: MIOpen padding is per-side, but if pad_top==pad_bottom and pad_left==pad_right,
+  // we use the symmetric version
   miopenConvolutionDescriptor_t conv_desc;
   MIOPEN_CHECK(miopenCreateConvolutionDescriptor(&conv_desc));
-  MIOPEN_CHECK(miopenInitConvolutionDescriptor(conv_desc, miopenConvolution,
-                                               pad_h, pad_w, stride_h, stride_w,
-                                               dilation_h, dilation_w));
+  MIOPEN_CHECK(miopenInitConvolutionDescriptor(
+      conv_desc, miopenConvolution, pad_top, pad_left, stride_h, stride_w,
+      dilation_h, dilation_w));
 
   // Find best algorithm
   miopenConvFwdAlgorithm_t algo;

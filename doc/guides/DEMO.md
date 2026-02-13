@@ -112,9 +112,10 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 ```
 
 **What you'll see**:
-- Runtime function declarations: `miopenConvolutionForward`, `hipMalloc`
+- Runtime function declarations: `@wrap_miopenConvolutionForward`, `@hipdnn_ep_constant_get`
 - Two-function architecture: `@main` (wrapper) + `@main_internal` (computation)
 - Memref descriptor unpacking logic
+- Opaque RuntimeState pattern (no direct field access)
 
 **For design details**, see [mlir/passes/HipToLLVM.md](../design/mlir/passes/HipToLLVM.md).
 
@@ -344,14 +345,24 @@ llvm.func private @main_internal(%ctx: !llvm.ptr, %in_ptr: !llvm.ptr<1>, %in_siz
   %d1 = llvm.insertvalue %in_ptr, %desc[0] : !llvm.struct<...>
   // ... (22 more insertvalue operations)
 
-  // Get constants from GPU
-  %weights = llvm.call @hip_get_constant(%ctx, 0) : (!llvm.ptr, i64) -> !llvm.ptr
+  // Get constants from RuntimeState (opaque access via accessor)
+  %c0 = llvm.mlir.constant(0 : i64) : i64
+  %weights = llvm.call @hipdnn_ep_constant_get(%ctx, %c0) : (!llvm.ptr, i64) -> !llvm.ptr
 
   // Allocate temp buffer
   %temp = llvm.call @hipMalloc(%size) : (i64) -> !llvm.ptr
 
-  // Call MIOpen
-  %status = llvm.call @miopenConvolutionForward(%ctx, %in_ptr, %weights, ...) : (...) -> i32
+  // Call runtime wrapper (passes opaque state + shapes)
+  %status = llvm.call @wrap_miopenConvolutionForward(
+    %ctx,                                     // state (opaque!)
+    %in_ptr, %in_n, %in_c, %in_h, %in_w,     // input + shapes
+    %weights, %weights_k,                     // weights + output channels
+    %bias,                                    // bias
+    %out_ptr, %out_h, %out_w,                // output + shapes
+    %kernel_h, %kernel_w, %stride_h, %stride_w,
+    %pad_t, %pad_l, %pad_b, %pad_r,
+    %dilation_h, %dilation_w, %group
+  ) : (...) -> i32
 
   // ... (layer 2 similar)
 
@@ -609,9 +620,10 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 - Constant registry: `@constant_info_array`, `@constant_registry`, `@get_constant_registry`
 
 **Stage 2** should show:
-- Runtime function declarations: `@miopenConvolutionForward`, `@hipMalloc`
+- Runtime function declarations: `@wrap_miopenConvolutionForward`, `@hipdnn_ep_constant_get`
 - `llvm.func @main` with 3 parameters (wrapper function)
 - `llvm.func @main_internal` with 23 parameters (computation function)
+- Opaque RuntimeState pattern (state passed as pointer, no field access)
 
 **Stage 3** should show:
 - 3 exported functions with `sym_visibility = "public"`:
