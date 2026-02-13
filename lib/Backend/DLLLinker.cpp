@@ -81,7 +81,7 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   // Build LLD-LINK command line arguments
   // Note: LLD's link() API doesn't need argv[0] (program name)
   std::vector<std::string> argStrings;
-  argStrings.push_back("/DLL");     // Create DLL
+  argStrings.push_back("/DLL"); // Create DLL
   argStrings.push_back("/OUT:" + outputDLL);
   argStrings.push_back("/DEF:" + defFile);
   argStrings.push_back(objectFile);

@@ -13,11 +13,12 @@ typedef int hipError_t;
 #define hipSuccess 0
 #define hipMemcpyHostToDevice 0
 
-// Forward declarations for mock HIP functions (defined in hipdnn_ep_runtime_mock.cpp)
+// Forward declarations for mock HIP functions (defined in
+// hipdnn_ep_runtime_mock.cpp)
 hipError_t hipMalloc(void **ptr, size_t size);
 hipError_t hipFree(void *ptr);
-hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
-                          int kind, hipStream_t stream);
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size, int kind,
+                          hipStream_t stream);
 #endif
 
 #include <cstdio>
@@ -52,7 +53,7 @@ struct RuntimeState {
 // Constant management implementation
 
 int hipdnn_ep_constant_upload(RuntimeState *state, int64_t index,
-                               const void *data, int64_t size) {
+                              const void *data, int64_t size) {
   if (!state || !data || size <= 0) {
     fprintf(stderr, "Invalid arguments to hipdnn_ep_constant_upload\n");
     return -1;

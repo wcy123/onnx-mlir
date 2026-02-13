@@ -12,11 +12,12 @@ typedef void *hipStream_t;
 typedef int hipError_t;
 #define hipSuccess 0
 
-// Forward declarations for mock HIP functions (defined in hipdnn_ep_runtime_mock.cpp)
+// Forward declarations for mock HIP functions (defined in
+// hipdnn_ep_runtime_mock.cpp)
 hipError_t hipMalloc(void **ptr, size_t size);
 hipError_t hipFree(void *ptr);
-hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
-                          int kind, hipStream_t stream);
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size, int kind,
+                          hipStream_t stream);
 hipError_t hipStreamSynchronize(hipStream_t stream);
 #define hipMemcpyHostToDevice 0
 #define hipMemcpyDeviceToHost 1
@@ -75,8 +76,8 @@ static size_t calculateTensorSize(const int64_t *shape, size_t rank) {
 
 // Prepare input tensor: parse, validate, allocate GPU buffer, H2D transfer
 int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
-                                    size_t index, size_t expected_rank,
-                                    TensorBuffer *out_buffer) {
+                                   size_t index, size_t expected_rank,
+                                   TensorBuffer *out_buffer) {
   // Validate arguments
   if (!state) {
     fprintf(stderr, "hipdnn_ep_tensor_prepare_input: null state\n");
@@ -93,9 +94,10 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
 
   // Validate index bounds
   if (index >= inputs->count) {
-    fprintf(stderr,
-            "hipdnn_ep_tensor_prepare_input: index %zu out of bounds (count=%zu)\n",
-            index, inputs->count);
+    fprintf(
+        stderr,
+        "hipdnn_ep_tensor_prepare_input: index %zu out of bounds (count=%zu)\n",
+        index, inputs->count);
     return HIPDNN_EP_ERR_INDEX_OUT_OF_BOUNDS;
   }
 
@@ -104,12 +106,14 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
 
   // Validate tensor pointers
   if (!tensor->data) {
-    fprintf(stderr, "hipdnn_ep_tensor_prepare_input: tensor[%zu].data is null\n",
+    fprintf(stderr,
+            "hipdnn_ep_tensor_prepare_input: tensor[%zu].data is null\n",
             index);
     return HIPDNN_EP_ERR_NULL_POINTER;
   }
   if (!tensor->shape) {
-    fprintf(stderr, "hipdnn_ep_tensor_prepare_input: tensor[%zu].shape is null\n",
+    fprintf(stderr,
+            "hipdnn_ep_tensor_prepare_input: tensor[%zu].shape is null\n",
             index);
     return HIPDNN_EP_ERR_NULL_POINTER;
   }
@@ -117,7 +121,8 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
   // Validate rank
   if (tensor->rank != expected_rank) {
     fprintf(stderr,
-            "hipdnn_ep_tensor_prepare_input: rank mismatch (expected %zu, got %zu)\n",
+            "hipdnn_ep_tensor_prepare_input: rank mismatch (expected %zu, got "
+            "%zu)\n",
             expected_rank, tensor->rank);
     return HIPDNN_EP_ERR_RANK_MISMATCH;
   }
@@ -158,8 +163,8 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
 
 // Prepare output tensor: parse, validate, allocate GPU buffer (no H2D)
 int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
-                                     size_t index, size_t expected_rank,
-                                     TensorBuffer *out_buffer) {
+                                    size_t index, size_t expected_rank,
+                                    TensorBuffer *out_buffer) {
   // Validate arguments
   if (!state) {
     fprintf(stderr, "hipdnn_ep_tensor_prepare_output: null state\n");
@@ -177,7 +182,8 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
   // Validate index bounds
   if (index >= outputs->count) {
     fprintf(stderr,
-            "hipdnn_ep_tensor_prepare_output: index %zu out of bounds (count=%zu)\n",
+            "hipdnn_ep_tensor_prepare_output: index %zu out of bounds "
+            "(count=%zu)\n",
             index, outputs->count);
     return HIPDNN_EP_ERR_INDEX_OUT_OF_BOUNDS;
   }
@@ -187,20 +193,23 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
 
   // Validate tensor pointers
   if (!tensor->data) {
-    fprintf(stderr, "hipdnn_ep_tensor_prepare_output: tensor[%zu].data is null\n",
+    fprintf(stderr,
+            "hipdnn_ep_tensor_prepare_output: tensor[%zu].data is null\n",
             index);
     return HIPDNN_EP_ERR_NULL_POINTER;
   }
   if (!tensor->shape) {
     fprintf(stderr,
-            "hipdnn_ep_tensor_prepare_output: tensor[%zu].shape is null\n", index);
+            "hipdnn_ep_tensor_prepare_output: tensor[%zu].shape is null\n",
+            index);
     return HIPDNN_EP_ERR_NULL_POINTER;
   }
 
   // Validate rank
   if (tensor->rank != expected_rank) {
     fprintf(stderr,
-            "hipdnn_ep_tensor_prepare_output: rank mismatch (expected %zu, got %zu)\n",
+            "hipdnn_ep_tensor_prepare_output: rank mismatch (expected %zu, got "
+            "%zu)\n",
             expected_rank, tensor->rank);
     return HIPDNN_EP_ERR_RANK_MISMATCH;
   }
@@ -235,7 +244,7 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
 
 // Finalize output tensor: D2H transfer, sync, release buffer
 int hipdnn_ep_tensor_finalize_output(RuntimeState *state,
-                                      TensorBuffer *buffer) {
+                                     TensorBuffer *buffer) {
   if (!state) {
     fprintf(stderr, "hipdnn_ep_tensor_finalize_output: null state\n");
     return HIPDNN_EP_ERR_NULL_POINTER;

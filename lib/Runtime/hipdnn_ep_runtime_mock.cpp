@@ -55,8 +55,8 @@ hipError_t hipFree(void *ptr) {
   return hipSuccess;
 }
 
-hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
-                          int kind, hipStream_t stream) {
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size, int kind,
+                          hipStream_t stream) {
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
@@ -307,12 +307,11 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
 
 // Mock wrapper implementations (called from generated MLIR code)
 
-int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
-                             const int64_t *input_shape, const void *weights,
-                             const int64_t *weights_shape, void *output,
-                             const int64_t *output_shape, int64_t pad_h,
-                             int64_t pad_w, int64_t stride_h, int64_t stride_w,
-                             int64_t dilation_h, int64_t dilation_w) {
+int wrap_miopenConvolutionForward(
+    void *handle, void *stream, const void *input, const int64_t *input_shape,
+    const void *weights, const int64_t *weights_shape, void *output,
+    const int64_t *output_shape, int64_t pad_h, int64_t pad_w, int64_t stride_h,
+    int64_t stride_w, int64_t dilation_h, int64_t dilation_w) {
   if (!handle || !stream || !input || !weights || !output) {
     fprintf(stderr, "Invalid arguments to wrap_miopenConvolutionForward\n");
     return -1;
@@ -406,8 +405,8 @@ int wrap_miopenConvolutionForward(void *handle, void *stream, const void *input,
 }
 
 int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
-                         int64_t k, const void *alpha, const void *A,
-                         const void *B, const void *beta, void *C) {
+                       int64_t k, const void *alpha, const void *A,
+                       const void *B, const void *beta, void *C) {
   if (!handle || !stream || !alpha || !A || !B || !beta || !C) {
     fprintf(stderr, "Invalid arguments to wrap_hipblasLtGemm\n");
     return -1;
@@ -457,15 +456,13 @@ int wrap_hipFree(void *ptr) {
   return 0;
 }
 
-int wrap_hipMemcpyH2D(void *dst, const void *src, int64_t size,
-                         void *stream) {
+int wrap_hipMemcpyH2D(void *dst, const void *src, int64_t size, void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyHostToDevice,
                            static_cast<hipStream_t>(stream)));
   return 0;
 }
 
-int wrap_hipMemcpyD2H(void *dst, const void *src, int64_t size,
-                         void *stream) {
+int wrap_hipMemcpyD2H(void *dst, const void *src, int64_t size, void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyDeviceToHost,
                            static_cast<hipStream_t>(stream)));
   return 0;

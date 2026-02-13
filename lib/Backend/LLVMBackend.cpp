@@ -231,16 +231,20 @@ bool LLVMBackend::linkRuntimeModule(llvm::Module *destModule) {
   }
 
   if (bcSize >= MAX_BC_SIZE) {
-    std::cerr << "Error: Runtime bitcode size exceeds safety limit (no null terminator found)\n";
+    std::cerr << "Error: Runtime bitcode size exceeds safety limit (no null "
+                 "terminator found)\n";
     return false;
   }
 
   if (bcSize == 0) {
     // Empty bitcode - this means Clang wasn't available during build
     // Runtime IR merging is disabled, skip linking
-    std::cerr << "Warning: Runtime bitcode is empty (Clang not available during build).\n";
-    std::cerr << "         Runtime IR merging disabled - accessor functions will have call overhead.\n";
-    std::cerr << "         To enable zero-cost abstraction, rebuild with Clang installed.\n";
+    std::cerr << "Warning: Runtime bitcode is empty (Clang not available "
+                 "during build).\n";
+    std::cerr << "         Runtime IR merging disabled - accessor functions "
+                 "will have call overhead.\n";
+    std::cerr << "         To enable zero-cost abstraction, rebuild with Clang "
+                 "installed.\n";
     return true; // Not an error, just a degraded mode
   }
 

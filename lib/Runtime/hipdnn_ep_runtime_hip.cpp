@@ -30,15 +30,13 @@ int wrap_hipFree(void *ptr) {
   return 0;
 }
 
-int wrap_hipMemcpyH2D(void *dst, const void *src, int64_t size,
-                         void *stream) {
+int wrap_hipMemcpyH2D(void *dst, const void *src, int64_t size, void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyHostToDevice,
                            static_cast<hipStream_t>(stream)));
   return 0;
 }
 
-int wrap_hipMemcpyD2H(void *dst, const void *src, int64_t size,
-                         void *stream) {
+int wrap_hipMemcpyD2H(void *dst, const void *src, int64_t size, void *stream) {
   HIP_CHECK(hipMemcpyAsync(dst, src, size, hipMemcpyDeviceToHost,
                            static_cast<hipStream_t>(stream)));
   return 0;

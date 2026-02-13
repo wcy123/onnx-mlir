@@ -70,8 +70,10 @@ public:
   }
 
 private:
-  /// Returns LLVM struct type for memref: (ptr, ptr, i64, array<rank x i64>, array<rank x i64>)
-  Type getMemRefStructType(OpBuilder &builder, int64_t rank, unsigned addrSpace) {
+  /// Returns LLVM struct type for memref: (ptr, ptr, i64, array<rank x i64>,
+  /// array<rank x i64>)
+  Type getMemRefStructType(OpBuilder &builder, int64_t rank,
+                           unsigned addrSpace) {
     MLIRContext *ctx = builder.getContext();
     Type ptrType = LLVM::LLVMPointerType::get(ctx, addrSpace);
     Type i64Type = builder.getI64Type();
@@ -204,17 +206,18 @@ private:
 
     // Declare high-level runtime state management functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init")) {
-      // int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *registry)
+      // int hipdnn_ep_state_init(RuntimeState **out_state, const
+      // ConstantRegistry *registry)
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType});
-      auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_init", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_init",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_cleanup")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_cleanup",
-                                                   funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "hipdnn_ep_state_cleanup", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
@@ -236,21 +239,20 @@ private:
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyH2D")) {
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyH2D",
-                                                   funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyH2D", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipMemcpyD2H")) {
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, ptrType, i64Type, ptrType});
-      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyD2H",
-                                                   funcType);
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "wrap_hipMemcpyD2H", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
-            "wrap_hipStreamSynchronize")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("wrap_hipStreamSynchronize")) {
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType});
       auto func = builder.create<LLVM::LLVMFuncOp>(
           loc, "wrap_hipStreamSynchronize", funcType);
@@ -261,13 +263,14 @@ private:
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_get_stream")) {
       // void* hipdnn_ep_state_get_stream(RuntimeState* state)
       auto funcType = LLVM::LLVMFunctionType::get(ptrType, {ptrType});
-      auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_state_get_stream", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "hipdnn_ep_state_get_stream", funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
     // Declare tensor preparation helpers
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_prepare_input")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
+            "hipdnn_ep_tensor_prepare_input")) {
       // int hipdnn_ep_tensor_prepare_input(RuntimeState* state, span_t* inputs,
       //                                     size_t index, size_t expected_rank,
       //                                     TensorBuffer* out_buffer)
@@ -279,10 +282,13 @@ private:
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_prepare_output")) {
-      // int hipdnn_ep_tensor_prepare_output(RuntimeState* state, span_t* outputs,
-      //                                      size_t index, size_t expected_rank,
-      //                                      TensorBuffer* out_buffer)
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
+            "hipdnn_ep_tensor_prepare_output")) {
+      // int hipdnn_ep_tensor_prepare_output(RuntimeState* state, span_t*
+      // outputs,
+      //                                      size_t index, size_t
+      //                                      expected_rank, TensorBuffer*
+      //                                      out_buffer)
       Type sizeTType = i64Type;
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, ptrType, sizeTType, sizeTType, ptrType});
@@ -291,8 +297,10 @@ private:
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_finalize_output")) {
-      // int hipdnn_ep_tensor_finalize_output(RuntimeState* state, TensorBuffer* buffer)
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
+            "hipdnn_ep_tensor_finalize_output")) {
+      // int hipdnn_ep_tensor_finalize_output(RuntimeState* state, TensorBuffer*
+      // buffer)
       auto funcType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType});
       auto func = builder.create<LLVM::LLVMFuncOp>(
           loc, "hipdnn_ep_tensor_finalize_output", funcType);
@@ -300,7 +308,8 @@ private:
     }
 
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_free_input")) {
-      // void hipdnn_ep_tensor_free_input(RuntimeState* state, TensorBuffer* buffer)
+      // void hipdnn_ep_tensor_free_input(RuntimeState* state, TensorBuffer*
+      // buffer)
       auto funcType = LLVM::LLVMFunctionType::get(
           LLVM::LLVMVoidType::get(builder.getContext()), {ptrType, ptrType});
       auto func = builder.create<LLVM::LLVMFuncOp>(
@@ -325,13 +334,15 @@ private:
       return failure();
     }
 
-    // 1. Check @main exists as llvm.func with correct signature: (ptr,ptr,ptr)->i32
+    // 1. Check @main exists as llvm.func with correct signature:
+    // (ptr,ptr,ptr)->i32
     auto mainFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("main");
     if (!mainFunc) {
       // Give helpful error if it's func.func
       if (module.lookupSymbol<func::FuncOp>("main")) {
-        llvm::errs() << "[GenerateInterface] @main is func.func, needs llvm.func.\n"
-                     << "Run --convert-hip-to-llvm first.\n";
+        llvm::errs()
+            << "[GenerateInterface] @main is func.func, needs llvm.func.\n"
+            << "Run --convert-hip-to-llvm first.\n";
         return failure();
       }
       llvm::errs() << "[GenerateInterface] @main (llvm.func) not found\n";
@@ -340,8 +351,7 @@ private:
 
     // Verify @main signature
     auto mainType = mainFunc.getFunctionType();
-    if (mainType.getNumParams() != 3 ||
-        mainType.getParamType(0) != ptrType ||
+    if (mainType.getNumParams() != 3 || mainType.getParamType(0) != ptrType ||
         mainType.getParamType(1) != ptrType ||
         mainType.getParamType(2) != ptrType ||
         mainType.getReturnType() != i32Type) {
@@ -351,42 +361,49 @@ private:
     }
 
     // 2. Check get_constant_registry: () -> ptr
-    auto getRegistryFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
+    auto getRegistryFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
     if (!getRegistryFunc) {
-      llvm::errs() << "[GenerateInterface] get_constant_registry (llvm.func) not found\n";
+      llvm::errs() << "[GenerateInterface] get_constant_registry (llvm.func) "
+                      "not found\n";
       return failure();
     }
     auto getRegistryType = getRegistryFunc.getFunctionType();
     if (getRegistryType.getNumParams() != 0 ||
         getRegistryType.getReturnType() != ptrType) {
-      llvm::errs() << "[GenerateInterface] get_constant_registry has wrong signature.\n"
-                   << "Expected: () -> ptr\n";
+      llvm::errs()
+          << "[GenerateInterface] get_constant_registry has wrong signature.\n"
+          << "Expected: () -> ptr\n";
       return failure();
     }
 
     // 3. Check all 4 metadata attributes exist
     if (!module->getAttr("hipdnn.input_count")) {
-      llvm::errs() << "[GenerateInterface] hipdnn.input_count attribute missing\n";
+      llvm::errs()
+          << "[GenerateInterface] hipdnn.input_count attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.input_ranks")) {
-      llvm::errs() << "[GenerateInterface] hipdnn.input_ranks attribute missing\n";
+      llvm::errs()
+          << "[GenerateInterface] hipdnn.input_ranks attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_count")) {
-      llvm::errs() << "[GenerateInterface] hipdnn.output_count attribute missing\n";
+      llvm::errs()
+          << "[GenerateInterface] hipdnn.output_count attribute missing\n";
       return failure();
     }
     if (!module->getAttr("hipdnn.output_ranks")) {
-      llvm::errs() << "[GenerateInterface] hipdnn.output_ranks attribute missing\n";
+      llvm::errs()
+          << "[GenerateInterface] hipdnn.output_ranks attribute missing\n";
       return failure();
     }
 
     return success();
   }
 
-  /// Generate inference_init function - simplified to call hipdnn_ep_state_init()
-  /// Signature: int inference_init(void** out_state);
+  /// Generate inference_init function - simplified to call
+  /// hipdnn_ep_state_init() Signature: int inference_init(void** out_state);
   ///
   /// This function is now a simple wrapper that delegates to
   /// hipdnn_ep_state_init() in the runtime library. All the complex
@@ -419,22 +436,25 @@ private:
     Value outStatePtr = entryBlock->getArgument(0);
 
     // Get constant registry by calling get_constant_registry()
-    auto getRegistryFunc = module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
-    Value registryPtr = builder.create<LLVM::CallOp>(
-        loc, getRegistryFunc, ValueRange{}).getResult();
+    auto getRegistryFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("get_constant_registry");
+    Value registryPtr =
+        builder.create<LLVM::CallOp>(loc, getRegistryFunc, ValueRange{})
+            .getResult();
 
     // Call hipdnn_ep_state_init(out_state, registry_ptr)
     auto runtimeInitFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init");
-    auto call = builder.create<LLVM::CallOp>(loc, runtimeInitFunc,
-                                             ValueRange{outStatePtr, registryPtr});
+    auto call = builder.create<LLVM::CallOp>(
+        loc, runtimeInitFunc, ValueRange{outStatePtr, registryPtr});
 
     // Return the result from hipdnn_ep_state_init
     builder.create<LLVM::ReturnOp>(loc, call.getResult());
   }
 
   /// Generate inference_compute function using tensor preparation helpers
-  /// Signature: int inference_compute(void* state, span_t* inputs, span_t* outputs);
+  /// Signature: int inference_compute(void* state, span_t* inputs, span_t*
+  /// outputs);
   ///
   /// Refactored to use runtime helpers for:
   /// - Tensor parsing/validation (hipdnn_ep_tensor_prepare_input/output)
@@ -447,7 +467,8 @@ private:
   /// - Call @main with memref arguments
   /// - Call finalize helpers for D2H and cleanup
   ///
-  /// Supports multiple input/output tensors with different ranks via array-of-pointers pattern.
+  /// Supports multiple input/output tensors with different ranks via
+  /// array-of-pointers pattern.
   void generateInferenceCompute(ModuleOp module, IntegerAttr inputCount,
                                 DenseI64ArrayAttr inputRanks,
                                 IntegerAttr outputCount,
@@ -493,20 +514,21 @@ private:
     Type tensorBufferType = getTensorBufferStructType(builder);
 
     // Get helper function references
-    auto prepareInputFunc = module.lookupSymbol<LLVM::LLVMFuncOp>(
-        "hipdnn_ep_tensor_prepare_input");
+    auto prepareInputFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_prepare_input");
     auto prepareOutputFunc = module.lookupSymbol<LLVM::LLVMFuncOp>(
         "hipdnn_ep_tensor_prepare_output");
     auto finalizeOutputFunc = module.lookupSymbol<LLVM::LLVMFuncOp>(
         "hipdnn_ep_tensor_finalize_output");
-    auto freeInputFunc = module.lookupSymbol<LLVM::LLVMFuncOp>(
-        "hipdnn_ep_tensor_free_input");
+    auto freeInputFunc =
+        module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_tensor_free_input");
 
     // Allocate stack variable for error code (used in error paths)
-    Value errorCodePtr = builder.create<LLVM::AllocaOp>(
-        loc, ptrType, i32Type, c1_i64, 0);
+    Value errorCodePtr =
+        builder.create<LLVM::AllocaOp>(loc, ptrType, i32Type, c1_i64, 0);
 
-    // Allocate all TensorBuffer structs upfront in entry block so they dominate all uses
+    // Allocate all TensorBuffer structs upfront in entry block so they dominate
+    // all uses
     SmallVector<Value> inputBuffers;
     SmallVector<Value> outputBuffers;
     for (size_t i = 0; i < numInputs; i++) {
@@ -541,14 +563,16 @@ private:
           loc, i64Type, builder.getI64IntegerAttr(inputRanksArray[i]));
 
       // Call hipdnn_ep_tensor_prepare_input(state, inputs, index, rank, buffer)
-      Value retVal = builder.create<LLVM::CallOp>(
-          loc, prepareInputFunc,
-          ValueRange{state, inputsSpanPtr, indexVal, rankVal, bufferPtr})
-          .getResult();
+      Value retVal =
+          builder
+              .create<LLVM::CallOp>(loc, prepareInputFunc,
+                                    ValueRange{state, inputsSpanPtr, indexVal,
+                                               rankVal, bufferPtr})
+              .getResult();
 
       // Check for error (non-zero return)
-      Value failed = builder.create<LLVM::ICmpOp>(
-          loc, LLVM::ICmpPredicate::ne, retVal, c0_i32);
+      Value failed = builder.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::ne,
+                                                  retVal, c0_i32);
 
       // Create blocks for error path
       Block *continueBlock = funcOp.addBlock();
@@ -584,15 +608,18 @@ private:
       Value rankVal = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(outputRanksArray[i]));
 
-      // Call hipdnn_ep_tensor_prepare_output(state, outputs, index, rank, buffer)
-      Value retVal = builder.create<LLVM::CallOp>(
-          loc, prepareOutputFunc,
-          ValueRange{state, outputsSpanPtr, indexVal, rankVal, bufferPtr})
-          .getResult();
+      // Call hipdnn_ep_tensor_prepare_output(state, outputs, index, rank,
+      // buffer)
+      Value retVal =
+          builder
+              .create<LLVM::CallOp>(loc, prepareOutputFunc,
+                                    ValueRange{state, outputsSpanPtr, indexVal,
+                                               rankVal, bufferPtr})
+              .getResult();
 
       // Check for error
-      Value failed = builder.create<LLVM::ICmpOp>(
-          loc, LLVM::ICmpPredicate::ne, retVal, c0_i32);
+      Value failed = builder.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::ne,
+                                                  retVal, c0_i32);
 
       // Create blocks for error path
       Block *continueBlock = funcOp.addBlock();
@@ -618,48 +645,52 @@ private:
     // Allocate array of pointers for input memrefs
     Value numInputsVal = builder.create<LLVM::ConstantOp>(
         loc, i64Type, builder.getI64IntegerAttr(numInputs));
-    Value inputMemrefArray = builder.create<LLVM::AllocaOp>(
-        loc, ptrType, ptrType, numInputsVal, 0);
+    Value inputMemrefArray =
+        builder.create<LLVM::AllocaOp>(loc, ptrType, ptrType, numInputsVal, 0);
 
     for (size_t i = 0; i < numInputs; i++) {
       int64_t rank = inputRanksArray[i];
-      Type memrefType = getMemRefStructType(builder, rank, 1); // GPU address space = 1
+      Type memrefType =
+          getMemRefStructType(builder, rank, 1); // GPU address space = 1
 
       // Load TensorBuffer fields
       Value bufferPtr = inputBuffers[i];
 
       // Load gpu_ptr (field 0)
-      Value gpuPtrFieldPtr = builder.create<LLVM::GEPOp>(
-          loc, ptrType, tensorBufferType, bufferPtr,
-          ArrayRef<LLVM::GEPArg>{0, 0});
-      Value gpuPtrRaw = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+      Value gpuPtrFieldPtr =
+          builder.create<LLVM::GEPOp>(loc, ptrType, tensorBufferType, bufferPtr,
+                                      ArrayRef<LLVM::GEPArg>{0, 0});
+      Value gpuPtrRaw =
+          builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
 
       // Cast to GPU address space (address space 1)
       Type gpuPtrType = LLVM::LLVMPointerType::get(builder.getContext(), 1);
-      Value gpuPtr = builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
+      Value gpuPtr =
+          builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
 
       // Load shape_ptr (field 2)
-      Value shapePtrFieldPtr = builder.create<LLVM::GEPOp>(
-          loc, ptrType, tensorBufferType, bufferPtr,
-          ArrayRef<LLVM::GEPArg>{0, 2});
-      Value shapePtr = builder.create<LLVM::LoadOp>(loc, ptrType, shapePtrFieldPtr);
+      Value shapePtrFieldPtr =
+          builder.create<LLVM::GEPOp>(loc, ptrType, tensorBufferType, bufferPtr,
+                                      ArrayRef<LLVM::GEPArg>{0, 2});
+      Value shapePtr =
+          builder.create<LLVM::LoadOp>(loc, ptrType, shapePtrFieldPtr);
 
       // Build memref struct
       Value memref = builder.create<LLVM::UndefOp>(loc, memrefType);
 
       // Set allocated pointer (field 0)
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, gpuPtr, ArrayRef<int64_t>{0});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, gpuPtr,
+                                                   ArrayRef<int64_t>{0});
 
       // Set aligned pointer (field 1)
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, gpuPtr, ArrayRef<int64_t>{1});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, gpuPtr,
+                                                   ArrayRef<int64_t>{1});
 
       // Set offset (field 2) - always 0
       Value c0_i64 = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(0));
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, c0_i64, ArrayRef<int64_t>{2});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, c0_i64,
+                                                   ArrayRef<int64_t>{2});
 
       // Build sizes array (field 3)
       Value sizesArray = builder.create<LLVM::UndefOp>(
@@ -667,15 +698,15 @@ private:
       for (int64_t dim = 0; dim < rank; dim++) {
         Value dimIndexVal = builder.create<LLVM::ConstantOp>(
             loc, i64Type, builder.getI64IntegerAttr(dim));
-        Value dimPtr = builder.create<LLVM::GEPOp>(
-            loc, ptrType, ptrType, shapePtr,
-            ArrayRef<LLVM::GEPArg>{dimIndexVal});
+        Value dimPtr =
+            builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, shapePtr,
+                                        ArrayRef<LLVM::GEPArg>{dimIndexVal});
         Value dimValue = builder.create<LLVM::LoadOp>(loc, i64Type, dimPtr);
         sizesArray = builder.create<LLVM::InsertValueOp>(
             loc, sizesArray, dimValue, ArrayRef<int64_t>{dim});
       }
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, sizesArray, ArrayRef<int64_t>{3});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, sizesArray,
+                                                   ArrayRef<int64_t>{3});
 
       // Build strides array (field 4) - row-major
       Value stridesArray = builder.create<LLVM::UndefOp>(
@@ -687,35 +718,35 @@ private:
         if (dim > 0) {
           Value dimIndexVal = builder.create<LLVM::ConstantOp>(
               loc, i64Type, builder.getI64IntegerAttr(dim));
-          Value dimPtr = builder.create<LLVM::GEPOp>(
-              loc, ptrType, ptrType, shapePtr,
-              ArrayRef<LLVM::GEPArg>{dimIndexVal});
+          Value dimPtr =
+              builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, shapePtr,
+                                          ArrayRef<LLVM::GEPArg>{dimIndexVal});
           Value dimSize = builder.create<LLVM::LoadOp>(loc, i64Type, dimPtr);
           strideAccum = builder.create<LLVM::MulOp>(loc, strideAccum, dimSize);
         }
       }
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, stridesArray, ArrayRef<int64_t>{4});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, stridesArray,
+                                                   ArrayRef<int64_t>{4});
 
       // Allocate space for this memref on stack
-      Value memrefPtr = builder.create<LLVM::AllocaOp>(
-          loc, ptrType, memrefType, c1_i64, 0);
+      Value memrefPtr =
+          builder.create<LLVM::AllocaOp>(loc, ptrType, memrefType, c1_i64, 0);
       builder.create<LLVM::StoreOp>(loc, memref, memrefPtr);
 
       // Store pointer in array
       Value indexVal = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(i));
-      Value arraySlot = builder.create<LLVM::GEPOp>(
-          loc, ptrType, ptrType, inputMemrefArray,
-          ArrayRef<LLVM::GEPArg>{indexVal});
+      Value arraySlot =
+          builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, inputMemrefArray,
+                                      ArrayRef<LLVM::GEPArg>{indexVal});
       builder.create<LLVM::StoreOp>(loc, memrefPtr, arraySlot);
     }
 
     // Build output memref array similarly
     Value numOutputsVal = builder.create<LLVM::ConstantOp>(
         loc, i64Type, builder.getI64IntegerAttr(numOutputs));
-    Value outputMemrefArray = builder.create<LLVM::AllocaOp>(
-        loc, ptrType, ptrType, numOutputsVal, 0);
+    Value outputMemrefArray =
+        builder.create<LLVM::AllocaOp>(loc, ptrType, ptrType, numOutputsVal, 0);
 
     for (size_t i = 0; i < numOutputs; i++) {
       int64_t rank = outputRanksArray[i];
@@ -724,31 +755,34 @@ private:
       Value bufferPtr = outputBuffers[i];
 
       // Load gpu_ptr
-      Value gpuPtrFieldPtr = builder.create<LLVM::GEPOp>(
-          loc, ptrType, tensorBufferType, bufferPtr,
-          ArrayRef<LLVM::GEPArg>{0, 0});
-      Value gpuPtrRaw = builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
+      Value gpuPtrFieldPtr =
+          builder.create<LLVM::GEPOp>(loc, ptrType, tensorBufferType, bufferPtr,
+                                      ArrayRef<LLVM::GEPArg>{0, 0});
+      Value gpuPtrRaw =
+          builder.create<LLVM::LoadOp>(loc, ptrType, gpuPtrFieldPtr);
 
       // Cast to GPU address space (address space 1)
       Type gpuPtrType = LLVM::LLVMPointerType::get(builder.getContext(), 1);
-      Value gpuPtr = builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
+      Value gpuPtr =
+          builder.create<LLVM::AddrSpaceCastOp>(loc, gpuPtrType, gpuPtrRaw);
 
       // Load shape_ptr
-      Value shapePtrFieldPtr = builder.create<LLVM::GEPOp>(
-          loc, ptrType, tensorBufferType, bufferPtr,
-          ArrayRef<LLVM::GEPArg>{0, 2});
-      Value shapePtr = builder.create<LLVM::LoadOp>(loc, ptrType, shapePtrFieldPtr);
+      Value shapePtrFieldPtr =
+          builder.create<LLVM::GEPOp>(loc, ptrType, tensorBufferType, bufferPtr,
+                                      ArrayRef<LLVM::GEPArg>{0, 2});
+      Value shapePtr =
+          builder.create<LLVM::LoadOp>(loc, ptrType, shapePtrFieldPtr);
 
       // Build memref struct (same as input logic)
       Value memref = builder.create<LLVM::UndefOp>(loc, memrefType);
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, gpuPtr, ArrayRef<int64_t>{0});
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, gpuPtr, ArrayRef<int64_t>{1});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, gpuPtr,
+                                                   ArrayRef<int64_t>{0});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, gpuPtr,
+                                                   ArrayRef<int64_t>{1});
       Value c0_i64 = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(0));
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, c0_i64, ArrayRef<int64_t>{2});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, c0_i64,
+                                                   ArrayRef<int64_t>{2});
 
       // Sizes
       Value sizesArray = builder.create<LLVM::UndefOp>(
@@ -756,15 +790,15 @@ private:
       for (int64_t dim = 0; dim < rank; dim++) {
         Value dimIndexVal = builder.create<LLVM::ConstantOp>(
             loc, i64Type, builder.getI64IntegerAttr(dim));
-        Value dimPtr = builder.create<LLVM::GEPOp>(
-            loc, ptrType, ptrType, shapePtr,
-            ArrayRef<LLVM::GEPArg>{dimIndexVal});
+        Value dimPtr =
+            builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, shapePtr,
+                                        ArrayRef<LLVM::GEPArg>{dimIndexVal});
         Value dimValue = builder.create<LLVM::LoadOp>(loc, i64Type, dimPtr);
         sizesArray = builder.create<LLVM::InsertValueOp>(
             loc, sizesArray, dimValue, ArrayRef<int64_t>{dim});
       }
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, sizesArray, ArrayRef<int64_t>{3});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, sizesArray,
+                                                   ArrayRef<int64_t>{3});
 
       // Strides
       Value stridesArray = builder.create<LLVM::UndefOp>(
@@ -776,25 +810,25 @@ private:
         if (dim > 0) {
           Value dimIndexVal = builder.create<LLVM::ConstantOp>(
               loc, i64Type, builder.getI64IntegerAttr(dim));
-          Value dimPtr = builder.create<LLVM::GEPOp>(
-              loc, ptrType, ptrType, shapePtr,
-              ArrayRef<LLVM::GEPArg>{dimIndexVal});
+          Value dimPtr =
+              builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, shapePtr,
+                                          ArrayRef<LLVM::GEPArg>{dimIndexVal});
           Value dimSize = builder.create<LLVM::LoadOp>(loc, i64Type, dimPtr);
           strideAccum = builder.create<LLVM::MulOp>(loc, strideAccum, dimSize);
         }
       }
-      memref = builder.create<LLVM::InsertValueOp>(
-          loc, memref, stridesArray, ArrayRef<int64_t>{4});
+      memref = builder.create<LLVM::InsertValueOp>(loc, memref, stridesArray,
+                                                   ArrayRef<int64_t>{4});
 
-      Value memrefPtr = builder.create<LLVM::AllocaOp>(
-          loc, ptrType, memrefType, c1_i64, 0);
+      Value memrefPtr =
+          builder.create<LLVM::AllocaOp>(loc, ptrType, memrefType, c1_i64, 0);
       builder.create<LLVM::StoreOp>(loc, memref, memrefPtr);
 
       Value indexVal = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(i));
-      Value arraySlot = builder.create<LLVM::GEPOp>(
-          loc, ptrType, ptrType, outputMemrefArray,
-          ArrayRef<LLVM::GEPArg>{indexVal});
+      Value arraySlot =
+          builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, outputMemrefArray,
+                                      ArrayRef<LLVM::GEPArg>{indexVal});
       builder.create<LLVM::StoreOp>(loc, memrefPtr, arraySlot);
     }
 
@@ -808,9 +842,12 @@ private:
       llvm::errs() << "[GenerateInterface] Warning: @main not found\n";
       builder.create<LLVM::BrOp>(loc, mainSuccessBlock);
     } else {
-      Value mainRet = builder.create<LLVM::CallOp>(
-          loc, mainFunc,
-          ValueRange{state, inputMemrefArray, outputMemrefArray}).getResult();
+      Value mainRet =
+          builder
+              .create<LLVM::CallOp>(
+                  loc, mainFunc,
+                  ValueRange{state, inputMemrefArray, outputMemrefArray})
+              .getResult();
 
       // Check for error
       Value mainFailed = builder.create<LLVM::ICmpOp>(
@@ -834,12 +871,14 @@ private:
       Value bufferPtr = outputBuffers[i];
 
       // Call hipdnn_ep_tensor_finalize_output(state, buffer)
-      Value retVal = builder.create<LLVM::CallOp>(
-          loc, finalizeOutputFunc, ValueRange{state, bufferPtr}).getResult();
+      Value retVal = builder
+                         .create<LLVM::CallOp>(loc, finalizeOutputFunc,
+                                               ValueRange{state, bufferPtr})
+                         .getResult();
 
       // Check for error
-      Value failed = builder.create<LLVM::ICmpOp>(
-          loc, LLVM::ICmpPredicate::ne, retVal, c0_i32);
+      Value failed = builder.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::ne,
+                                                  retVal, c0_i32);
 
       Block *continueBlock = funcOp.addBlock();
 
@@ -884,7 +923,8 @@ private:
     // NOTE: Do NOT call finalize_output here to avoid double-finalize bug.
     // If we reached Phase 5 (finalize), it was already attempted there.
     // If we failed before Phase 5, outputs aren't ready to finalize.
-    // finalize_output should only be called once per output in the success path.
+    // finalize_output should only be called once per output in the success
+    // path.
 
     // Return the error code
     builder.create<LLVM::ReturnOp>(loc, errorCode);

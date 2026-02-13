@@ -22,8 +22,8 @@
 // hipBLASLt GEMM wrapper implementation
 
 int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
-                         int64_t k, const void *alpha, const void *A,
-                         const void *B, const void *beta, void *C) {
+                       int64_t k, const void *alpha, const void *A,
+                       const void *B, const void *beta, void *C) {
   if (!handle || !stream || !alpha || !A || !B || !beta || !C) {
     fprintf(stderr, "Invalid arguments to wrap_hipblasLtGemm\n");
     return -1;

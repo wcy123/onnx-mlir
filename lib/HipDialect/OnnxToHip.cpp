@@ -40,11 +40,13 @@ struct ConstantInfo {
   std::string name;              // Debug name (from operation location)
 
   // Default constructor (required by DenseMap)
-  ConstantInfo() : globalIndex(-1), sizeInBytes(0), elementSizeInBytes(0), numElements(0) {}
+  ConstantInfo()
+      : globalIndex(-1), sizeInBytes(0), elementSizeInBytes(0), numElements(0) {
+  }
 
   ConstantInfo(int64_t idx, ElementsAttr val, Type elemType,
-               ArrayRef<int64_t> shp, size_t size, size_t elemSize, size_t numElems,
-               StringRef debugName)
+               ArrayRef<int64_t> shp, size_t size, size_t elemSize,
+               size_t numElems, StringRef debugName)
       : globalIndex(idx), value(val), elementType(elemType),
         shape(shp.begin(), shp.end()), sizeInBytes(size),
         elementSizeInBytes(elemSize), numElements(numElems),
@@ -809,26 +811,26 @@ private:
     llvm::errs() << "[ONNX→HIP] Generating constant registry\n";
 
     // Define LLVM types for ConstantInfo and ConstantRegistry structs
-    // struct ConstantInfo { void* cpu_data; i64 size_bytes; i64 element_size; i64 num_elements; }
+    // struct ConstantInfo { void* cpu_data; i64 size_bytes; i64 element_size;
+    // i64 num_elements; }
     auto ptrType = LLVM::LLVMPointerType::get(context);
     auto i64Type = builder.getI64Type();
     auto constantInfoType = LLVM::LLVMStructType::getLiteral(
         context, {ptrType, i64Type, i64Type, i64Type});
 
     // struct ConstantRegistry { ConstantInfo* constants; i64 count; }
-    auto constantRegistryType = LLVM::LLVMStructType::getLiteral(
-        context, {ptrType, i64Type});
+    auto constantRegistryType =
+        LLVM::LLVMStructType::getLiteral(context, {ptrType, i64Type});
 
     // 1. Generate ConstantInfo array as global
     builder.setInsertionPointToStart(module.getBody());
 
-    auto constantInfoArrayType = LLVM::LLVMArrayType::get(
-        constantInfoType, constantRegistry_.size());
+    auto constantInfoArrayType =
+        LLVM::LLVMArrayType::get(constantInfoType, constantRegistry_.size());
 
     auto constantInfoArrayGlobal = builder.create<LLVM::GlobalOp>(
         loc, constantInfoArrayType, /*isConstant=*/true,
-        LLVM::Linkage::Internal, "constant_info_array",
-        Attribute());
+        LLVM::Linkage::Internal, "constant_info_array", Attribute());
 
     // Initialize the ConstantInfo array
     Region &initRegion = constantInfoArrayGlobal.getInitializerRegion();
@@ -845,27 +847,33 @@ private:
       Value constInfo = builder.create<LLVM::UndefOp>(loc, constantInfoType);
 
       // Field 0: cpu_data (pointer to LLVM global)
-      Value dataPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, info.name);
-      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, dataPtr, 0);
+      Value dataPtr =
+          builder.create<LLVM::AddressOfOp>(loc, ptrType, info.name);
+      constInfo =
+          builder.create<LLVM::InsertValueOp>(loc, constInfo, dataPtr, 0);
 
       // Field 1: size_bytes
       Value sizeBytes = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(info.sizeInBytes));
-      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, sizeBytes, 1);
+      constInfo =
+          builder.create<LLVM::InsertValueOp>(loc, constInfo, sizeBytes, 1);
 
       // Field 2: element_size (sizeof(element type))
       Value elemSize = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(info.elementSizeInBytes));
-      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, elemSize, 2);
+      constInfo =
+          builder.create<LLVM::InsertValueOp>(loc, constInfo, elemSize, 2);
 
       // Field 3: num_elements
       Value numElems = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(info.numElements));
-      constInfo = builder.create<LLVM::InsertValueOp>(loc, constInfo, numElems, 3);
+      constInfo =
+          builder.create<LLVM::InsertValueOp>(loc, constInfo, numElems, 3);
 
       // Insert into array
       arrayInit = builder.create<LLVM::InsertValueOp>(
-          loc, arrayInit, constInfo, ArrayRef<int64_t>{static_cast<int64_t>(index)});
+          loc, arrayInit, constInfo,
+          ArrayRef<int64_t>{static_cast<int64_t>(index)});
 
       index++;
     }
@@ -876,25 +884,28 @@ private:
     builder.setInsertionPointToEnd(module.getBody());
 
     auto constantRegistryGlobal = builder.create<LLVM::GlobalOp>(
-        loc, constantRegistryType, /*isConstant=*/true,
-        LLVM::Linkage::Internal, "constant_registry",
-        Attribute());
+        loc, constantRegistryType, /*isConstant=*/true, LLVM::Linkage::Internal,
+        "constant_registry", Attribute());
 
     // Initialize the ConstantRegistry struct
     Region &regInitRegion = constantRegistryGlobal.getInitializerRegion();
     Block *regInitBlock = builder.createBlock(&regInitRegion);
     builder.setInsertionPointToStart(regInitBlock);
 
-    Value registryInit = builder.create<LLVM::UndefOp>(loc, constantRegistryType);
+    Value registryInit =
+        builder.create<LLVM::UndefOp>(loc, constantRegistryType);
 
     // Field 0: constants (pointer to ConstantInfo array)
-    Value arrayPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_info_array");
-    registryInit = builder.create<LLVM::InsertValueOp>(loc, registryInit, arrayPtr, 0);
+    Value arrayPtr =
+        builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_info_array");
+    registryInit =
+        builder.create<LLVM::InsertValueOp>(loc, registryInit, arrayPtr, 0);
 
     // Field 1: count
     Value count = builder.create<LLVM::ConstantOp>(
         loc, i64Type, builder.getI64IntegerAttr(constantRegistry_.size()));
-    registryInit = builder.create<LLVM::InsertValueOp>(loc, registryInit, count, 1);
+    registryInit =
+        builder.create<LLVM::InsertValueOp>(loc, registryInit, count, 1);
 
     builder.create<LLVM::ReturnOp>(loc, registryInit);
 
@@ -909,7 +920,8 @@ private:
     builder.setInsertionPointToStart(entryBlock);
 
     // Return pointer to constant_registry global
-    Value registryPtr = builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_registry");
+    Value registryPtr =
+        builder.create<LLVM::AddressOfOp>(loc, ptrType, "constant_registry");
     builder.create<LLVM::ReturnOp>(loc, registryPtr);
 
     llvm::errs() << "  Generated: get_constant_registry() with "

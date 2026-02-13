@@ -20,7 +20,8 @@ typedef int hipblasStatus_t;
 #define miopenStatusSuccess 0
 #define HIPBLAS_STATUS_SUCCESS 0
 
-// Forward declarations for mock functions (defined in hipdnn_ep_runtime_mock.cpp)
+// Forward declarations for mock functions (defined in
+// hipdnn_ep_runtime_mock.cpp)
 extern "C" hipError_t hipStreamCreate(hipStream_t *stream);
 extern "C" hipError_t hipStreamDestroy(hipStream_t stream);
 extern "C" hipError_t hipStreamSynchronize(hipStream_t stream);
@@ -30,7 +31,8 @@ hipError_t hipMemcpy(void *dst, const void *src, size_t size, int kind);
 #define hipMemcpyHostToDevice 0
 extern "C" miopenStatus_t miopenCreate(miopenHandle_t *handle);
 extern "C" miopenStatus_t miopenDestroy(miopenHandle_t handle);
-extern "C" miopenStatus_t miopenSetStream(miopenHandle_t handle, hipStream_t stream);
+extern "C" miopenStatus_t miopenSetStream(miopenHandle_t handle,
+                                          hipStream_t stream);
 extern "C" hipblasStatus_t hipblasLtCreate(hipblasLtHandle_t *handle);
 extern "C" hipblasStatus_t hipblasLtDestroy(hipblasLtHandle_t handle);
 #endif
@@ -51,7 +53,8 @@ struct RuntimeState {
 
 // Runtime state management implementation
 
-int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *registry) {
+int hipdnn_ep_state_init(RuntimeState **out_state,
+                         const ConstantRegistry *registry) {
   if (!out_state) {
     fprintf(stderr, "Invalid output parameter to hipdnn_ep_state_init\n");
     return 1;
@@ -73,7 +76,8 @@ int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *regis
 
   // Allocate constants array (initialized to NULL)
   if (state->num_constants > 0) {
-    state->gpu_constants = (void **)calloc(state->num_constants, sizeof(void *));
+    state->gpu_constants =
+        (void **)calloc(state->num_constants, sizeof(void *));
     if (!state->gpu_constants) {
       fprintf(stderr, "Failed to allocate constants array\n");
       free(state);
@@ -143,7 +147,8 @@ int hipdnn_ep_state_init(RuntimeState **out_state, const ConstantRegistry *regis
       }
 
       // Copy constant data from CPU to GPU
-      if (hipMemcpy(gpu_ptr, info->cpu_data, info->size_bytes, hipMemcpyHostToDevice) != hipSuccess) {
+      if (hipMemcpy(gpu_ptr, info->cpu_data, info->size_bytes,
+                    hipMemcpyHostToDevice) != hipSuccess) {
         fprintf(stderr, "Failed to copy constant %zu to GPU\n", i);
         hipFree(gpu_ptr);
         // Cleanup already uploaded constants
@@ -230,7 +235,8 @@ extern "C" {
 // Legacy wrapper: runtime_state_init -> hipdnn_ep_state_init
 int runtime_state_init(void **out_state) {
   // Legacy interface assumes 0 constants (old test MLIR doesn't use constants)
-  return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state), nullptr);
+  return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state),
+                              nullptr);
 }
 
 // Legacy wrapper: runtime_state_cleanup -> hipdnn_ep_state_cleanup
@@ -241,11 +247,11 @@ int runtime_state_cleanup(void *state) {
 // Legacy wrapper: runtime_prepare_inference
 // Simple implementation: allocates temporary inference data structure
 int runtime_prepare_inference(void *state, void *inputs_ptr, void *outputs_ptr,
-                               void **out_data) {
+                              void **out_data) {
   // For now, just return a dummy pointer
   // Real implementation would allocate InferenceData and prepare GPU buffers
   *out_data = malloc(8); // Dummy allocation
-  return 0; // Success
+  return 0;              // Success
 }
 
 // Legacy wrapper: runtime_cleanup_inference

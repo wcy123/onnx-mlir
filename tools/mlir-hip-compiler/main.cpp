@@ -56,7 +56,8 @@ static bool fileExists(const std::string &path) {
   return !EC && llvm::sys::fs::exists(status);
 }
 
-// Command line options (manual parsing to avoid conflicts with LLD's CommandLine usage)
+// Command line options (manual parsing to avoid conflicts with LLD's
+// CommandLine usage)
 struct Options {
   std::string inputFilename;
   std::string outputFilename = "output.dll";
@@ -94,21 +95,23 @@ struct Options {
   }
 
   void printHelp() const {
-    std::cout << "MLIR to HIP DLL Compiler\n\n"
-              << "Usage: mlir-hip-compiler [options] <input.mlir>\n\n"
-              << "Options:\n"
-              << "  -o <file>          Output DLL filename (default: output.dll)\n"
-              << "  --mode <mode>      Output mode: ir, object, dll (default: dll)\n"
-              << "  -O <level>         Optimization level 0-3 (default: 2)\n"
-              << "  -v, --verbose      Enable verbose output\n"
-              << "  --keep             Keep intermediate files (.ll, .obj)\n"
-              << "  --from-onnx-mlir   Process ONNX MLIR dialect\n"
-              << "  -h, --help         Show this help\n";
+    std::cout
+        << "MLIR to HIP DLL Compiler\n\n"
+        << "Usage: mlir-hip-compiler [options] <input.mlir>\n\n"
+        << "Options:\n"
+        << "  -o <file>          Output DLL filename (default: output.dll)\n"
+        << "  --mode <mode>      Output mode: ir, object, dll (default: dll)\n"
+        << "  -O <level>         Optimization level 0-3 (default: 2)\n"
+        << "  -v, --verbose      Enable verbose output\n"
+        << "  --keep             Keep intermediate files (.ll, .obj)\n"
+        << "  --from-onnx-mlir   Process ONNX MLIR dialect\n"
+        << "  -h, --help         Show this help\n";
   }
 };
 
 int main(int argc, char **argv) {
-  // Parse command line options BEFORE InitLLVM to avoid CommandLine conflicts with LLD
+  // Parse command line options BEFORE InitLLVM to avoid CommandLine conflicts
+  // with LLD
   Options opts;
   if (!opts.parse(argc, argv)) {
     opts.printHelp();
@@ -226,7 +229,8 @@ int main(int argc, char **argv) {
   // }
   //
   // if (opts.verbose)
-  //   std::cout << "✓ Runtime module linked (enables cross-module inlining)\n\n";
+  //   std::cout << "✓ Runtime module linked (enables cross-module
+  //   inlining)\n\n";
 
   // Optimize LLVM IR
   if (opts.verbose)

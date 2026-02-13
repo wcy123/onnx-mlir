@@ -420,7 +420,8 @@ struct ConvertHipToLLVMPass
     // Add HIP-specific conversion patterns
     patterns
         .add<CreateHandleOpLowering, DestroyHandleOpLowering, AllocOpLowering,
-             FreeOpLowering, ConvOpLowering, GetConstantOpLowering>(typeConverter);
+             FreeOpLowering, ConvOpLowering, GetConstantOpLowering>(
+            typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);
