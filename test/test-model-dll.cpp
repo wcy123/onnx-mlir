@@ -300,9 +300,11 @@ int main(int argc, char **argv) {
   // Prepare test data
   std::cout << "--- Preparing Test Data ---\n";
 
-  // Default test shapes (model-agnostic)
-  std::vector<int64_t> inputShape = {4, 4};
-  std::vector<int64_t> outputShape = {4, 4};
+  // Test shapes for demo_two_layer_conv model
+  // Input: tensor<1x3x224x224xf32> = 150528 elements
+  // Output: tensor<1x64x112x112xf32> = 802816 elements
+  std::vector<int64_t> inputShape = {1, 3, 224, 224};
+  std::vector<int64_t> outputShape = {1, 64, 112, 112};
 
   size_t inputElements = getTensorSize(inputShape);
   size_t outputElements = getTensorSize(outputShape);
@@ -312,8 +314,30 @@ int main(int argc, char **argv) {
     printTensorInfo("Output", outputShape, outputElements);
   }
 
-  std::vector<float> inputData = generateTestInput(inputShape);
-  std::vector<float> outputData(outputElements, 0.0f);
+  std::cout << "Allocating input data (" << inputElements * sizeof(float) << " bytes = "
+            << (inputElements * sizeof(float) / 1024) << " KB)...\n";
+  std::vector<float> inputData;
+  try {
+    inputData = generateTestInput(inputShape);
+  } catch (const std::exception& e) {
+    std::cerr << "ERROR: Failed to allocate input data: " << e.what() << "\n";
+    cleanup(state);
+    FREE_LIB(lib);
+    return 1;
+  }
+
+  std::cout << "Allocating output data (" << outputElements * sizeof(float) << " bytes = "
+            << (outputElements * sizeof(float) / 1024) << " KB)...\n";
+  std::vector<float> outputData;
+  try {
+    outputData.resize(outputElements, 0.0f);
+  } catch (const std::exception& e) {
+    std::cerr << "ERROR: Failed to allocate output data: " << e.what() << "\n";
+    cleanup(state);
+    FREE_LIB(lib);
+    return 1;
+  }
+  std::cout << "Data allocated successfully\n";
 
   tensor_t inputTensor = {inputData.data(), inputShape.data(), inputShape.size()};
   tensor_t outputTensor = {outputData.data(), outputShape.data(),
