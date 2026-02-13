@@ -33,10 +33,9 @@ set(MLIR_LIBS
 
 # Our backend libraries
 set(BACKEND_LIBS
-    LLVMBackend
+    LLVMBackend      # Contains runtime_bc_data (from runtime_ir_data.cpp)
     DLLLinker
     HipDialect
-    HipDnnEpRuntime  # Required for runtime_bc_data symbol
 )
 
 # Create executable

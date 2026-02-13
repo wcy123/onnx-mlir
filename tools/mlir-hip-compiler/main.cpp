@@ -217,20 +217,17 @@ int main(int argc, char **argv) {
   if (opts.verbose)
     std::cout << "✓ LLVM IR generated\n\n";
 
-  // Note: Runtime IR merging temporarily disabled due to linking issues
-  // TODO: Re-enable once Clang bitcode generation is working
   // Link Runtime module for zero-cost abstraction
-  // if (opts.verbose)
-  //   std::cout << "--- Step 3.5: Linking Runtime Module ---\n";
-  //
-  // if (!backend.linkRuntimeModule(llvmModule.get())) {
-  //   std::cerr << "Error linking Runtime module\n";
-  //   return 1;
-  // }
-  //
-  // if (opts.verbose)
-  //   std::cout << "✓ Runtime module linked (enables cross-module
-  //   inlining)\n\n";
+  if (opts.verbose)
+    std::cout << "--- Step 3.5: Linking Runtime Module ---\n";
+
+  if (!backend.linkRuntimeModule(llvmModule.get())) {
+    std::cerr << "Error linking Runtime module\n";
+    return 1;
+  }
+
+  if (opts.verbose)
+    std::cout << "✓ Runtime module linked (enables cross-module inlining)\n\n";
 
   // Optimize LLVM IR
   if (opts.verbose)
@@ -302,41 +299,11 @@ int main(int argc, char **argv) {
   std::vector<std::string> exports = {"inference_init", "inference_compute",
                                       "inference_cleanup"};
 
-  // Link with runtime library
-  // Note: Need to find HipDnnRuntime.lib in build directory
-  std::vector<std::string> libraries;
-
-  // Try to find runtime library
-  std::vector<std::string> searchPaths = {
-      "../../build/onnx-hipdnn-ep.2/lib/Runtime/Debug",
-      "../../build/onnx-hipdnn-ep.2/lib/Runtime/Release",
-      "../../lib/Runtime/build/Debug",
-      "../../lib/Runtime/build/Release",
-      "../../test/runtime/build_standalone/Debug",
-      "../../test/runtime/build_standalone/Release",
-      "../../build/Debug",
-      "../../build/Release",
-      "../build/Debug",
-      "../build/Release",
-      "./Debug",
-      "./Release"};
-
-  for (const auto &path : searchPaths) {
-    std::string libPath = path + std::string("/HipDnnRuntime.lib");
-    if (fileExists(libPath)) {
-      libraries.push_back(libPath);
-      if (opts.verbose)
-        std::cout << "Found runtime library: " << libPath << "\n";
-      break;
-    }
-  }
-
-  if (libraries.empty() && opts.verbose) {
-    std::cout << "Warning: Runtime library not found, DLL may have unresolved "
-                 "symbols\n";
-  }
-
-  std::vector<std::string> libraryPaths; // Empty for now
+  // NOTE: No need to link HipDnnRuntime.lib
+  // Runtime functions were merged at IR level (Step 3.5) and inlined during optimization (Step 4)
+  // The object file already contains all runtime code
+  std::vector<std::string> libraries;       // Empty - no runtime lib needed
+  std::vector<std::string> libraryPaths;    // Empty
 
   if (!linker.linkDLL(objFilename, opts.outputFilename, libraries, libraryPaths,
                       exports)) {

@@ -43,20 +43,31 @@ extern "C" hipError_t hipStreamSynchronize(hipStream_t stream) {
 }
 
 // Mock HIP memory functions (non-static for cross-module linking)
-hipError_t hipMalloc(void **ptr, size_t size) {
+extern "C" hipError_t hipMalloc(void **ptr, size_t size) {
   *ptr = malloc(size);
   printf("[MOCK] hipMalloc(%zu bytes) -> %p\n", size, *ptr);
   return *ptr ? hipSuccess : -1;
 }
 
-hipError_t hipFree(void *ptr) {
+extern "C" hipError_t hipFree(void *ptr) {
   printf("[MOCK] hipFree(%p)\n", ptr);
   free(ptr);
   return hipSuccess;
 }
 
-hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size, int kind,
-                          hipStream_t stream) {
+extern "C" hipError_t hipMemcpy(void *dst, const void *src, size_t size,
+                                int kind) {
+  const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
+                         : (kind == hipMemcpyDeviceToHost) ? "D2H"
+                                                           : "D2D";
+  printf("[MOCK] hipMemcpy(dst=%p, src=%p, size=%zu, %s)\n",
+         dst, src, size, kind_str);
+  memcpy(dst, src, size);
+  return hipSuccess;
+}
+
+extern "C" hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
+                                     int kind, hipStream_t stream) {
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";

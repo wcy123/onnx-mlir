@@ -66,7 +66,6 @@ if(NOT CLANG_EXECUTABLE)
 endif()
 
 message(STATUS "Found Clang for bitcode generation: ${CLANG_EXECUTABLE}")
-set(ENABLE_RUNTIME_IR_MERGING ON)
 
 # llvm-link REQUIRED for combining multiple bitcode files
 find_program(LLVM_LINK_EXECUTABLE NAMES llvm-link
@@ -191,173 +190,41 @@ add_custom_command(
 )
 
 # ============================================================================
-# STEP 5: Embed Bitcode as C Array
+# STEP 5: Create Custom Target for Runtime Bitcode
 # ============================================================================
 
-# WHY EMBED AS C ARRAY:
-# The LLVM bitcode needs to be available at model compilation time (not just
-# build time). By embedding it as a C array in the EP DLL, it's always available
-# when the model compiler runs.
-#
-# Alternative approaches considered and rejected:
-#   - External .bc file: Deployment complexity, file path management
-#   - Resource embedding: Platform-specific, complex extraction
-#   - Base64 string: Larger size, decode overhead
-#
-# C array approach:
-#   - Cross-platform (works on Windows, Linux, macOS)
-#   - Zero runtime overhead (just a pointer dereference)
-#   - Simple to use (extern const unsigned char runtime_bc_data[])
+# Runtime library's responsibility ends at runtime.bc generation.
+# The Backend project will consume runtime.bc and convert it to C array as needed.
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp
-
-    # Convert binary bitcode to C array using xxd.py
-    # Input:  runtime.bc (binary LLVM bitcode)
-    # Output: runtime_ir_data.cpp containing:
-    #           extern "C" const unsigned char runtime_bc_data[] = { 0x42, 0x43, ... };
-    #           extern "C" const size_t runtime_bc_data_size = 12345;
-
-    # Step 1: Generate C array with xxd.py
-    COMMAND ${Python3_EXECUTABLE}
-            ${PROJECT_SOURCE_DIR}/3rd-party/morphizen/tools/xxd.py
-            --var runtime_bc_data                                    # Variable name
-            --output ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp # Temp output
-            ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc                  # Input bitcode
-
-    # Step 2: Post-process to export symbol (static const -> extern "C" const)
-    # xxd.py generates: static const unsigned char runtime_bc_data[]
-    # We need:          extern "C" const unsigned char runtime_bc_data[]
-    # This ensures the symbol is exported from HipDnnEpRuntime.lib for linking
-    COMMAND ${CMAKE_COMMAND} -E echo "Post-processing runtime_ir_data.cpp to export symbol..."
-    COMMAND ${Python3_EXECUTABLE} -c
-            "import sys; data = open('${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp', 'r').read(); open('${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp', 'w').write(data.replace('static const unsigned char', 'extern \"C\" const unsigned char'))"
-    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp
-
-    # Regenerate if bitcode changes
+add_custom_target(RuntimeBitcode
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc
-
-    COMMENT "Stage 2: Embedding Runtime bitcode as C array (runtime_ir_data.cpp)"
-    VERBATIM
 )
 
-# Track generated source for build system
-set(RUNTIME_IR_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp)
+# Export runtime.bc path for consumers (Backend project)
+set(RUNTIME_BC_PATH ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc PARENT_SCOPE)
 
 # ============================================================================
-# STEP 6: Create Runtime Static Library
-# ============================================================================
-
-# CRITICAL: hipdnn_ep_runtime.cpp is NOT compiled to native code here (tricky!)
-#
-# This library contains only embedded LLVM bitcode data, not native runtime functions.
-#
-# Why native runtime functions are not needed:
-#
-#   The EP DLL never calls runtime functions directly. Runtime functions are only
-#   called by model DLLs, and they get the code through LLVM IR merging, not linking.
-#
-# How runtime code reaches model DLLs:
-#
-#   Build time (once):
-#     hipdnn_ep_runtime.cpp → [Clang -emit-llvm] → runtime.bc
-#                           → [xxd.py embed] → runtime_ir_data.cpp (C array)
-#                           → [compile] → libHipDnnEpRuntime.a (embedded bitcode)
-#
-#   Model compilation (per model):
-#     1. Model compiler reads runtime_bc_data[] from EP DLL memory
-#     2. Parses LLVM bitcode into runtime IR module
-#     3. Merges runtime IR with generated model IR (llvm::Linker)
-#     4. LLVM optimizer inlines runtime functions into model code
-#     5. Result: model.dll contains inlined runtime code (zero overhead)
-#
-# Why hipdnn_ep_runtime.cpp was previously listed here:
-#
-#   It appeared to be needed because "libraries need source files", but this is wrong.
-#   The runtime source is already compiled to bitcode at STEP 3 (line 113).
-#   Compiling it again to native code creates dead code that's never called.
-#
-# What this library actually contains:
-#
-#   - runtime_ir_data.cpp: Embedded LLVM bitcode as C array
-#   - No native runtime functions (they're inlined into each model.dll from bitcode)
-#
-# See: ARCHITECTURE.md Design Decision #7 for the full IR merging explanation
-
-add_library(HipDnnEpRuntime STATIC
-    ${RUNTIME_IR_SOURCES}    # runtime_ir_data.cpp - Embedded bitcode as C array
-)
-
-target_include_directories(HipDnnEpRuntime
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}    # Export hipdnn_ep_runtime.h
-)
-
-# ============================================================================
-# STEP 7: No ROCm Linking Required
-# ============================================================================
-
-# Why no target_link_libraries() for HIP/MIOpen/hipBLASLt:
-#
-# 1. HipDnnEpRuntime only contains embedded bitcode data (runtime_ir_data.cpp), not native code
-# 2. Real/mock choice is already baked into runtime.bc at STEP 3/4 (via -DBUILD_MOCK_RUNTIME)
-# 3. EP DLL never calls runtime functions - confirmed by codebase exploration
-# 4. Model DLLs get runtime code through IR merging, not CMake linking
-#
-# The runtime functions (with HIP/MIOpen calls) are inlined into each model DLL
-# during model compilation via llvm::Linker. Model DLLs link ROCm libraries at
-# their own compilation time (in LLVMBackend), not through this CMake target.
-
-# ============================================================================
-# STEP 8: Compiler Settings
-# ============================================================================
-
-include(CompilerFlags)
-set_project_warnings(HipDnnEpRuntime)
-
-# ============================================================================
-# STEP 9: Install Rules - NOT NEEDED (Static Linking)
-# ============================================================================
-
-# NOTE: Install rules are intentionally omitted for HipDnnEpRuntime
-#
-# Why install is NOT needed:
-#   1. libHipDnnEpRuntime.a is STATICALLY linked into the EP DLL at build time
-#   2. The embedded bitcode is accessed from EP DLL's own memory (not external file)
-#   3. External consumers only need:
-#      - EP DLL (onnxruntime_morphizen_ep.dll) - contains Runtime + bitcode
-#      - Model DLLs (generated, also contain inlined Runtime code)
-#   4. No one needs to link against libHipDnnEpRuntime.a separately
-#
-# If install is needed (for custom tooling or testing):
-#   Uncomment the following:
-#
-# install(TARGETS HipDnnEpRuntime
-#     ARCHIVE DESTINATION lib
-# )
-# install(FILES hipdnn_ep_runtime.h
-#     DESTINATION include
-# )
-
-# ============================================================================
-# SUMMARY OF BUILD ARTIFACTS
+# SUMMARY OF BUILD ARTIFACTS AND PIPELINE
 # ============================================================================
 #
-# Build-time outputs:
-#   1. runtime.bc                  - LLVM bitcode (intermediate)
-#   2. runtime_ir_data.cpp         - Embedded bitcode as C array (intermediate)
-#   3. libHipDnnEpRuntime.a        - Static library (linked into EP DLL)
+# Runtime project output:
+#   - runtime.bc                   - LLVM bitcode (final artifact)
 #
-# What gets embedded in EP DLL:
-#   - Runtime implementation (native code from hipdnn_ep_runtime.cpp)
-#   - Embedded bitcode (data from runtime_ir_data.cpp)
+# How runtime.bc is consumed (by Backend project):
+#   1. Backend/CMakeLists.txt runs xxd.py to convert runtime.bc → runtime_ir_data.cpp
+#   2. runtime_ir_data.cpp contains: runtime_bc_data[] array + runtime_bc_data_size
+#   3. Backend/LLVMBackend.cpp includes runtime_ir_data.cpp as source file
+#   4. LLVMBackend.lib (containing runtime_bc_data) is linked into mlir-hip-compiler.exe
 #
-# What happens at model compilation:
-#   1. Model compiler extracts runtime_bc_data from EP DLL memory
-#   2. Parses it to LLVM IR using llvm::parseBitcodeFile()
-#   3. Merges with generated IR using llvm::Linker::linkInModule()
-#   4. LLVM optimizer inlines Runtime functions
-#   5. Result: Zero-overhead abstraction in final model.dll
+# What happens at model compilation (mlir-hip-compiler):
+#   1. LLVMBackend::linkRuntimeModule() reads runtime_bc_data from its own memory
+#   2. Parses bitcode to LLVM IR using llvm::parseBitcodeFile()
+#   3. Merges runtime IR with generated model IR using llvm::Linker::linkInModule()
+#   4. LLVM optimizer inlines runtime functions into model code (zero-cost abstraction)
+#   5. Result: model.dll contains inlined runtime code, no separate runtime library needed
 #
-# See: doc/RUNTIME-ARCHITECTURE.md for detailed pipeline diagram
+# Key insight: Runtime code flows through LLVM IR, not through traditional linking:
+#   C++ source → bitcode → IR merge → optimization → model.dll
+#
+# See: doc/RUNTIME-ARCHITECTURE.md for detailed architecture explanation
 # ============================================================================

@@ -14,9 +14,7 @@
 #include <sstream>
 
 // LLD linker driver entry points
-// These are declared in LLD headers but we declare them here to avoid complex
-// includes NOTE: LLD is optional - only needed for Native mode compilation
-#ifdef HAVE_LLD
+// These are declared in LLD headers but we declare them here to avoid complex includes
 namespace lld {
 namespace coff {
 bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
@@ -27,7 +25,6 @@ bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
           llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
 }
 } // namespace lld
-#endif
 
 namespace hipdnn {
 
@@ -71,7 +68,6 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
                                 const std::vector<std::string> &libraries,
                                 const std::vector<std::string> &libraryPaths,
                                 const std::vector<std::string> &exportSymbols) {
-#ifdef HAVE_LLD
   // Create temporary .def file for exports
   std::string defFile = objectFile + ".def";
   if (!createModuleDefinitionFile(defFile, exportSymbols)) {
@@ -100,6 +96,14 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
       argStrings.push_back(lib + ".lib");
     }
   }
+
+  // Add Windows system libraries (C Runtime, entry point, etc.)
+  // These provide malloc, free, printf, _DllMainCRTStartup, etc.
+  argStrings.push_back("ucrtd.lib");      // Universal CRT (Debug)
+  argStrings.push_back("msvcrtd.lib");    // Microsoft C Runtime (Debug)
+  argStrings.push_back("oldnames.lib");   // Compatibility names
+  argStrings.push_back("kernel32.lib");   // Windows kernel
+  argStrings.push_back("user32.lib");     // Windows user API
 
   // Add default libraries and flags
   argStrings.push_back("/NOLOGO");
@@ -154,14 +158,6 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   llvm::sys::fs::remove(defFile);
 
   return true;
-#else
-  std::cerr << "ERROR: LLD library not available. Native mode requires LLVM "
-               "built with LLD.\n";
-  std::cerr
-      << "       Rebuild LLVM with: -DLLVM_ENABLE_PROJECTS=\"mlir;lld\"\n";
-  std::cerr << "       For now, use IR mode: export COMPILATION_MODE=ir\n";
-  return false;
-#endif
 }
 
 #else // Linux
@@ -170,7 +166,6 @@ bool DLLLinker::linkDLL_Linux(const std::string &objectFile,
                               const std::string &outputDLL,
                               const std::vector<std::string> &libraries,
                               const std::vector<std::string> &libraryPaths) {
-#ifdef HAVE_LLD
   // Build LLD-ELF command line arguments for shared library
   std::vector<std::string> argStrings;
   argStrings.push_back("ld.lld");  // Program name (required by LLD)
@@ -229,14 +224,6 @@ bool DLLLinker::linkDLL_Linux(const std::string &objectFile,
 
   std::cout << "Successfully linked shared library: " << outputDLL << "\n";
   return true;
-#else
-  std::cerr << "ERROR: LLD library not available. Native mode requires LLVM "
-               "built with LLD.\n";
-  std::cerr
-      << "       Rebuild LLVM with: -DLLVM_ENABLE_PROJECTS=\"mlir;lld\"\n";
-  std::cerr << "       For now, use IR mode: export COMPILATION_MODE=ir\n";
-  return false;
-#endif
 }
 
 #endif
