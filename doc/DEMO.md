@@ -52,6 +52,10 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 - `hip.conv` operations with GPU memory types
 - Constant registry: `ConstantInfo` array + `get_constant_registry()` function
 
+**For design details**, see:
+- [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) - Constant discovery and registry design
+- [mlir/passes/OnnxToHip.md](mlir/passes/OnnxToHip.md) - ONNX to HIP dialect conversion
+
 ### Stage 2: HIP → LLVM IR
 
 ```bash
@@ -65,6 +69,8 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 - Runtime function declarations: `miopenConvolutionForward`, `hipMalloc`
 - Two-function architecture: `@main` (wrapper) + `@main_internal` (computation)
 - Memref descriptor unpacking logic
+
+**For design details**, see [mlir/passes/HipToLLVM.md](mlir/passes/HipToLLVM.md).
 
 ### Stage 3: Generate C Interface
 
@@ -91,53 +97,7 @@ The `--generate-interface` pass creates a **two-layer architecture** for the com
 
 The `--generate-interface` pass **wraps** @main and uses the constant registry to manage GPU memory lifecycle.
 
-**Key Design Features**:
-
-1. **Opaque RuntimeState Design**
-   - External code sees: `void* state` (opaque pointer)
-   - Internal code owns: `hipStream_t`, `miopenHandle_t`, `hipblasLtHandle_t`, GPU constant array
-   - Enables runtime evolution without breaking generated code
-
-2. **Dynamic Shape Support**
-   - `tensor_t` structure with `int64_t* shape` pointer
-   - Same DLL handles different batch sizes (no recompilation needed)
-   - Runtime dimensions loaded from `tensor_t.shape` during `inference_compute`
-
-3. **C-ABI Compatibility**
-   - Cross-language DLL loading (C, C++, C#, Python, etc.)
-   - No C++ name mangling (uses `extern "C"`)
-   - Standard calling conventions
-
-4. **Data Structures**:
-   ```c
-   typedef struct {
-       void* data;        // Pointer to tensor data (CPU memory)
-       int64_t* shape;    // Pointer to shape array (runtime dimensions)
-       int rank;          // Number of dimensions (compile-time known)
-       int data_type;     // Element type (0=FLOAT32, 1=FLOAT16, 2=INT8)
-   } tensor_t;
-
-   typedef struct {
-       tensor_t* data;    // Pointer to array of tensors
-       size_t count;      // Number of tensors
-   } span_t;
-   ```
-
-5. **Error Code Handling**:
-   - `0` = Success
-   - `1-3` = Init errors (allocation, handle creation, constant upload)
-   - `5`, `8-9` = Compute errors (invalid input, computation failed, memory transfer)
-   - `10-14` = Cleanup errors (stream/handle destruction, synchronization)
-
-   For complete error code specification, see [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md#error-codes).
-
-**Implementation Note**: The generated LLVM IR is more complex than the simplified examples shown
-below. The actual `inference_compute` includes detailed error handling, dynamic stride calculations,
-and cleanup paths. Examples focus on core data flow for clarity.
-
-**For complete interface specification and design rationale**, see:
-- [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) - C interface specification
-- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime integration pipeline
+**For complete interface specification**, see [INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md).
 
 ### Stage 4: Compile to Native DLL
 
@@ -396,7 +356,7 @@ The generated function delegates I/O management to runtime helper functions whil
 4. **`hipdnn_ep_tensor_finalize_output`** (runtime helper) - D2H transfer, stream synchronization
 5. **`hipdnn_ep_tensor_free_input`** (runtime helper) - Free temporary GPU buffers (constants stay in RuntimeState)
 
-**Design rationale**: Runtime helpers reduce generated code size by ~70% while adding validation and error handling. Generated code only needs to allocate memref holders, call helpers, call @main, and manage control flow. See `lib/HipDialect/GenerateInterfacePass.cpp:generateInferenceCompute()` for implementation.
+**Design rationale**: Runtime helpers encapsulate parsing/validation/transfers, reducing generated code complexity. See [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) for design details.
 
 This design ensures **zero-copy for constants** (weights stay in RuntimeState) and **dynamic shape support** (helpers load dimensions from tensor_t.shape at runtime).
 
@@ -417,7 +377,7 @@ llvm.func @inference_init(%arg0: !llvm.ptr) -> i32
 }
 ```
 
-**Design Note**: This function is a **simple wrapper** that delegates to the runtime library. Complex initialization logic (handle creation, error handling, LIFO cleanup) is implemented in C++ (`lib/Runtime/hipdnn_ep_runtime.cpp`), not in generated MLIR. The runtime library is merged via `llvm::Linker` - same final binary, zero overhead after LLVM optimization.
+**Design Note**: This function is a simple wrapper that delegates to the runtime library. See [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) for the complete runtime design.
 
 ```mlir
 // ✅ EXPORT 2: Run inference (uses runtime helpers for I/O management)
@@ -475,14 +435,7 @@ llvm.func @inference_compute(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.pt
 }
 ```
 
-**Design Note**: The implementation uses runtime helper functions (`hipdnn_ep_tensor_prepare_input`, etc.) to encapsulate parsing, validation, allocation, and transfers. This reduces generated code by ~70% while adding better error handling. The helpers perform:
-
-- **prepare_input**: Parse tensor_t from span_t, validate count/rank, load runtime dimensions from shape pointer, allocate GPU buffer, H2D transfer, build memref struct
-- **prepare_output**: Same as input but without H2D (output buffer starts empty)
-- **finalize_output**: D2H transfer back to CPU, stream synchronize
-- **free_input**: Free temporary GPU buffers (model weights stay in state)
-
-See `lib/HipDialect/GenerateInterfacePass.cpp:generateInferenceCompute()` for complete implementation.
+See [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) for the complete design.
 
 ```mlir
 // ✅ EXPORT 3: Cleanup GPU state (delegates to runtime)
@@ -500,10 +453,9 @@ llvm.func @inference_cleanup(%arg0: !llvm.ptr) -> i32
 
 ---
 
-**For complete implementation details**, see:
-- [doc/mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) - Full MLIR implementation specification
-- [lib/HipDialect/GenerateInterfacePass.cpp](../lib/HipDialect/GenerateInterfacePass.cpp) - Actual code generation
-- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime library design
+**For complete design details**, see:
+- [mlir/passes/GenerateInterfacePass.md](mlir/passes/GenerateInterfacePass.md) - Interface generation pass design
+- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime architecture
 
 ---
 
@@ -623,30 +575,21 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ### Verification Commands
 
 ```bash
-# Count LLVM functions (varies by model complexity)
+# Count LLVM functions
 grep "llvm.func @" ../output/my_stage3.mlir | wc -l
-# Typical for simple model: ~10 functions
-#   - 3 interface exports (inference_init, inference_compute, inference_cleanup)
-#   - 1 constant helper (get_constant_registry)
-#   - 1 main + internal computation functions
-#   - Runtime function declarations (hipMalloc, hipMemcpy, miopenConvolutionForward, etc.)
 
-# Check exports (search for attribute syntax)
+# Check exports
 grep "attributes.*sym_visibility.*public" ../output/my_stage3.mlir
-# Expected: 3 lines (inference_init, inference_compute, inference_cleanup)
-# Alternative: grep "llvm.func @inference_" ../output/my_stage3.mlir
+# Or: grep "llvm.func @inference_" ../output/my_stage3.mlir
 
 # Check metadata
 grep "hipdnn\." ../output/my_stage1.mlir
-# Expected: 4 attributes (input_count, input_ranks, output_count, output_ranks)
 
 # Verify DLL and intermediate files generated
 ls -lh ../output/my_inference.*
-# Expected: .dll (final DLL), .lib (import library), .ll (LLVM IR), .obj (object file)
 
 # Verify DLL exports
 strings ../output/my_inference.dll | grep inference_
-# Expected: inference_init, inference_compute, inference_cleanup
 ```
 
 ---
@@ -694,7 +637,7 @@ strings ../output/my_inference.dll | grep inference_
                      │
                 ┌────▼────────────────────────────────┐
                 │  RUNTIME (Custom Op)                 │
-                │  Dependencies: HIP, MIOpen (~5MB)    │
+                │  Dependencies: HIP, MIOpen           │
                 │  NO LLVM/MLIR!                       │
                 ├─────────────────────────────────────┤
                 │  1. Load DLL from EPContext memory   │
@@ -747,7 +690,7 @@ mlir-hip-compiler input.mlir -o output.dll --from-onnx-mlir -v
 
 ### Full Code Examples
 
-**Input ONNX Model** (115 lines):
+**Input ONNX Model**:
 ```mlir
 // Two conv layers with embedded constant weights/biases
 func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
