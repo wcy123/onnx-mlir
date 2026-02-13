@@ -764,12 +764,14 @@ test-model-dll output.dll
 
 ### For Deep Dive
 
-**Architecture & Design Documents** (✅ = self-reviewed):
-- ✅ [ARCHITECTURE.md](../design/ARCHITECTURE.md) - Complete system architecture, EPContext integration (v2.3)
-- ✅ [MLIR-COMPILATION-OVERVIEW.md](../design/MLIR-COMPILATION-OVERVIEW.md) - MLIR compilation pipeline overview
-- [RUNTIME-ARCHITECTURE.md](../design/RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, naming conventions, static library design
-- [CONSTANT-HANDLING-DESIGN.md](../design/CONSTANT-HANDLING-DESIGN.md) - Full constant handling design (6 phases)
-- [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) - C-ABI interface specification
+**Architecture & Design Documents**:
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md) - Complete system architecture
+- [MLIR-COMPILATION-OVERVIEW.md](../design/MLIR-COMPILATION-OVERVIEW.md) - MLIR compilation pipeline overview
+- [RUNTIME-ARCHITECTURE.md](../design/RUNTIME-ARCHITECTURE.md) - Runtime state lifecycle, IR merging design
+- [CONSTANT-HANDLING-DESIGN.md](../design/CONSTANT-HANDLING-DESIGN.md) - Constant discovery and registry design
+- [INTERFACE-DESIGN.md](../design/mlir/INTERFACE-DESIGN.md) - C-ABI interface specification
+- [HIP-DIALECT-DESIGN.md](../design/mlir/HIP-DIALECT-DESIGN.md) - HIP dialect operations
+- [LOWERING-PIPELINE.md](../design/mlir/LOWERING-PIPELINE.md) - MLIR lowering passes
 
 ### Full Code Examples
 
