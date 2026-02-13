@@ -4,8 +4,11 @@ Licensed under the MIT License.
 -->
 # OnnxToHip Pass
 
-**Location:** `lib/HipDialect/OnnxToHip.cpp` (to be implemented)
-**Input:** ONNX-MLIR module (from MorphiZen)
+**Date:** 2026-02-13
+**Status:** Implemented (Self-Reviewed)
+**Related:** HipToLLVM.md, CONSTANT-HANDLING-DESIGN.md, INTERFACE-DESIGN.md
+
+**Input:** ONNX-MLIR module
 **Output:** HIP dialect module
 
 ---
@@ -240,82 +243,6 @@ See [../../CONSTANT-HANDLING-DESIGN.md](../../CONSTANT-HANDLING-DESIGN.md) for d
 
 ---
 
-## Implementation Strategy
-
-### Pattern-Based Conversion
-
-```cpp
-// lib/HipDialect/OnnxToHip.cpp
-
-class OnnxToHipPass : public PassWrapper<OnnxToHipPass, OperationPass<ModuleOp>> {
-  void runOnOperation() override {
-    ModuleOp module = getOperation();
-    MLIRContext *context = &getContext();
-
-    // 1. Extract constants to globals
-    extractConstantsToGlobals(module);
-
-    // 2. Add module metadata
-    addModuleMetadata(module);
-
-    // 3. Convert operations using patterns
-    ConversionTarget target(*context);
-    target.addLegalDialect<HipDialect, func::FuncDialect, memref::MemRefDialect>();
-    target.addIllegalDialect<ONNXDialect>();
-
-    RewritePatternSet patterns(context);
-    populateOnnxToHipPatterns(patterns);
-
-    if (failed(applyPartialConversion(module, target, std::move(patterns))))
-      signalPassFailure();
-
-    // 4. Generate constant registry
-    generateConstantRegistry(module);
-  }
-};
-
-// Conversion patterns
-void populateOnnxToHipPatterns(RewritePatternSet &patterns) {
-  patterns.add<ConvOpConversion>(patterns.getContext());
-  patterns.add<ReluOpConversion>(patterns.getContext());
-  patterns.add<MaxPoolOpConversion>(patterns.getContext());
-  // ... more patterns
-}
-
-struct ConvOpConversion : public OpConversionPattern<ONNXConvOp> {
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(
-      ONNXConvOp op, OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
-
-    // Get context from function arguments
-    auto funcOp = op->getParentOfType<func::FuncOp>();
-    Value ctx = funcOp.getArgument(0);  // First arg is context
-
-    // Allocate output buffer
-    auto outputType = convertToMemRef(op.getType());
-    Value output = rewriter.create<hip::AllocOp>(
-        op.getLoc(), outputType, ctx);
-
-    // Create hip.conv
-    rewriter.create<hip::ConvOp>(
-        op.getLoc(),
-        ctx,
-        adaptor.getInput(),
-        adaptor.getWeights(),
-        adaptor.getBias(),
-        output,
-        op->getAttrs());
-
-    rewriter.replaceOp(op, output);
-    return success();
-  }
-};
-```
-
----
-
 ## Prerequisites Met
 
 This pass satisfies prerequisites for [GenerateInterfacePass.md](GenerateInterfacePass.md):
@@ -324,8 +251,6 @@ This pass satisfies prerequisites for [GenerateInterfacePass.md](GenerateInterfa
 ✅ **Prerequisite 3:** Adds module metadata (hipdnn.input_count, hipdnn.input_ranks, etc.) - see [GenerateInterfacePass.md - Prerequisite 3](GenerateInterfacePass.md#prerequisite-3-module-metadata-attributes)
 ✅ Generates @main with signature: `(context, input, output) -> i32`
 ✅ Uses memref types (ready for struct-by-value in later passes)
-
-**Note:** This pass generates single-input, single-output @main. Multi-I/O support will be added in Phase 2.
 
 For complete interface design, see [../INTERFACE-DESIGN.md](../INTERFACE-DESIGN.md).
 
