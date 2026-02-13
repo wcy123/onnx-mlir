@@ -94,8 +94,9 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
 
   // Add Windows system libraries (C Runtime, entry point, etc.)
   // These provide malloc, free, printf, _DllMainCRTStartup, etc.
-  argStrings.push_back("ucrtd.lib");      // Universal CRT (Debug)
-  argStrings.push_back("msvcrtd.lib");    // Microsoft C Runtime (Debug)
+  // Use STATIC CRT (/MTd) to match project build settings
+  argStrings.push_back("libucrtd.lib");   // Universal CRT (Static, Debug)
+  argStrings.push_back("libcmtd.lib");    // Microsoft C Runtime (Static, Debug)
   argStrings.push_back("oldnames.lib");   // Compatibility names
   argStrings.push_back("kernel32.lib");   // Windows kernel
   argStrings.push_back("user32.lib");     // Windows user API

@@ -8,6 +8,25 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>
+// On Windows with static CRT, each DLL has its own stdout
+// Use OutputDebugString so output appears in DebugView/debugger
+// and fprintf(stderr) to try to reach the parent process
+#define MOCK_PRINT(...) do { \
+  char buf[512]; \
+  snprintf(buf, sizeof(buf), __VA_ARGS__); \
+  OutputDebugStringA(buf); \
+  fprintf(stderr, "%s", buf); \
+  fflush(stderr); \
+} while(0)
+#else
+#define MOCK_PRINT(...) do { \
+  printf(__VA_ARGS__); \
+  fflush(stdout); \
+} while(0)
+#endif
+
 // Mock definitions when ROCm is not available
 typedef void *hipStream_t;
 typedef void *miopenHandle_t;
@@ -27,30 +46,30 @@ typedef int hipblasStatus_t;
 // Mock HIP stream functions (non-static so test can link against them)
 extern "C" hipError_t hipStreamCreate(hipStream_t *stream) {
   *stream = malloc(8); // Fake handle
-  printf("[MOCK] hipStreamCreate() -> %p\n", *stream);
+  MOCK_PRINT("[MOCK] hipStreamCreate() -> %p\n", *stream);
   return hipSuccess;
 }
 
 extern "C" hipError_t hipStreamDestroy(hipStream_t stream) {
-  printf("[MOCK] hipStreamDestroy(%p)\n", stream);
+  MOCK_PRINT("[MOCK] hipStreamDestroy(%p)\n", stream);
   free(stream);
   return hipSuccess;
 }
 
 extern "C" hipError_t hipStreamSynchronize(hipStream_t stream) {
-  printf("[MOCK] hipStreamSynchronize(%p)\n", stream);
+  MOCK_PRINT("[MOCK] hipStreamSynchronize(%p)\n", stream);
   return hipSuccess;
 }
 
 // Mock HIP memory functions (non-static for cross-module linking)
 extern "C" hipError_t hipMalloc(void **ptr, size_t size) {
   *ptr = malloc(size);
-  printf("[MOCK] hipMalloc(%zu bytes) -> %p\n", size, *ptr);
+  MOCK_PRINT("[MOCK] hipMalloc(%zu bytes) -> %p\n", size, *ptr);
   return *ptr ? hipSuccess : -1;
 }
 
 extern "C" hipError_t hipFree(void *ptr) {
-  printf("[MOCK] hipFree(%p)\n", ptr);
+  MOCK_PRINT("[MOCK] hipFree(%p)\n", ptr);
   free(ptr);
   return hipSuccess;
 }
@@ -60,7 +79,7 @@ extern "C" hipError_t hipMemcpy(void *dst, const void *src, size_t size,
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
-  printf("[MOCK] hipMemcpy(dst=%p, src=%p, size=%zu, %s)\n",
+  MOCK_PRINT("[MOCK] hipMemcpy(dst=%p, src=%p, size=%zu, %s)\n",
          dst, src, size, kind_str);
   memcpy(dst, src, size);
   return hipSuccess;
@@ -71,7 +90,7 @@ extern "C" hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
-  printf("[MOCK] hipMemcpyAsync(dst=%p, src=%p, size=%zu, %s, stream=%p)\n",
+  MOCK_PRINT("[MOCK] hipMemcpyAsync(dst=%p, src=%p, size=%zu, %s, stream=%p)\n",
          dst, src, size, kind_str, stream);
   memcpy(dst, src, size);
   return hipSuccess;
@@ -87,19 +106,19 @@ typedef enum { miopenConvolutionFwdAlgoGEMM = 0 } miopenConvFwdAlgorithm_t;
 // Mock MIOpen handle functions (non-static so test can link against them)
 extern "C" miopenStatus_t miopenCreate(miopenHandle_t *handle) {
   *handle = malloc(8); // Fake handle
-  printf("[MOCK] miopenCreate() -> %p\n", *handle);
+  MOCK_PRINT("[MOCK] miopenCreate() -> %p\n", *handle);
   return miopenStatusSuccess;
 }
 
 extern "C" miopenStatus_t miopenDestroy(miopenHandle_t handle) {
-  printf("[MOCK] miopenDestroy(%p)\n", handle);
+  MOCK_PRINT("[MOCK] miopenDestroy(%p)\n", handle);
   free(handle);
   return miopenStatusSuccess;
 }
 
 extern "C" miopenStatus_t miopenSetStream(miopenHandle_t handle,
                                           hipStream_t stream) {
-  printf("[MOCK] miopenSetStream(handle=%p, stream=%p)\n", handle, stream);
+  MOCK_PRINT("[MOCK] miopenSetStream(handle=%p, stream=%p)\n", handle, stream);
   return miopenStatusSuccess;
 }
 
@@ -122,7 +141,7 @@ static miopenStatus_t miopenSet4dTensorDescriptor(miopenTensorDescriptor_t desc,
   (void)desc;
   (void)dataType;
   // Print tensor shape for verification
-  printf("[MOCK]   Tensor descriptor set: [%d, %d, %d, %d]\n", n, c, h, w);
+  MOCK_PRINT("[MOCK]   Tensor descriptor set: [%d, %d, %d, %d]\n", n, c, h, w);
   return miopenStatusSuccess;
 }
 
@@ -144,7 +163,7 @@ static miopenStatus_t miopenInitConvolutionDescriptor(
     int pad_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
   (void)desc;
   (void)mode;
-  printf("[MOCK]   Convolution params: pad=[%d,%d], stride=[%d,%d], "
+  MOCK_PRINT("[MOCK]   Convolution params: pad=[%d,%d], stride=[%d,%d], "
          "dilation=[%d,%d]\n",
          pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w);
   return miopenStatusSuccess;
@@ -173,7 +192,7 @@ static miopenStatus_t miopenFindConvolutionForwardAlgorithm(
   (void)workspaceSize;
   (void)exhaustiveSearch;
 
-  printf("[MOCK]   Finding convolution algorithm...\n");
+  MOCK_PRINT("[MOCK]   Finding convolution algorithm...\n");
   if (algo)
     *algo = miopenConvolutionFwdAlgoGEMM;
   return miopenStatusSuccess;
@@ -214,7 +233,7 @@ static miopenStatus_t miopenConvolutionForward(
   (void)workspace;
   (void)workspaceSize;
 
-  printf("[MOCK]   Executing convolution forward pass\n");
+  MOCK_PRINT("[MOCK]   Executing convolution forward pass\n");
   return miopenStatusSuccess;
 }
 
@@ -227,12 +246,12 @@ typedef enum { HIPBLAS_COMPUTE_32F = 0 } hipblasComputeType_t;
 // Mock hipBLASLt handle functions (non-static so test can link against them)
 extern "C" hipblasStatus_t hipblasLtCreate(hipblasLtHandle_t *handle) {
   *handle = malloc(8); // Fake handle
-  printf("[MOCK] hipblasLtCreate() -> %p\n", *handle);
+  MOCK_PRINT("[MOCK] hipblasLtCreate() -> %p\n", *handle);
   return HIPBLAS_STATUS_SUCCESS;
 }
 
 extern "C" hipblasStatus_t hipblasLtDestroy(hipblasLtHandle_t handle) {
-  printf("[MOCK] hipblasLtDestroy(%p)\n", handle);
+  MOCK_PRINT("[MOCK] hipblasLtDestroy(%p)\n", handle);
   free(handle);
   return HIPBLAS_STATUS_SUCCESS;
 }
@@ -245,7 +264,7 @@ hipblasLtMatrixLayoutCreate(hipblasLtMatrixLayout_t *layout,
   (void)type;
   (void)ld;
   *layout = malloc(8); // Fake layout
-  printf("[MOCK]   Matrix layout: [%llu x %llu]\n", (unsigned long long)rows,
+  MOCK_PRINT("[MOCK]   Matrix layout: [%llu x %llu]\n", (unsigned long long)rows,
          (unsigned long long)cols);
   return HIPBLAS_STATUS_SUCCESS;
 }
@@ -297,7 +316,7 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
   (void)workspaceSize;
   (void)stream;
 
-  printf("[MOCK]   Executing GEMM operation\n");
+  MOCK_PRINT("[MOCK]   Executing GEMM operation\n");
   return HIPBLAS_STATUS_SUCCESS;
 }
 
@@ -332,17 +351,17 @@ int wrap_miopenConvolutionForward(
     return -1;
   }
 
-  printf("[MOCK] wrap_miopenConvolutionForward(\n");
-  printf("[MOCK]   input=[%lld,%lld,%lld,%lld],\n",
+  MOCK_PRINT("[MOCK] wrap_miopenConvolutionForward(\n");
+  MOCK_PRINT("[MOCK]   input=[%lld,%lld,%lld,%lld],\n",
          (long long)input_n, (long long)input_c,
          (long long)input_h, (long long)input_w);
-  printf("[MOCK]   weights=[%lld,%lld,%lld,%lld],\n",
+  MOCK_PRINT("[MOCK]   weights=[%lld,%lld,%lld,%lld],\n",
          (long long)weights_k, (long long)input_c,
          (long long)kernel_h, (long long)kernel_w);
-  printf("[MOCK]   output=[%lld,%lld,%lld,%lld],\n",
+  MOCK_PRINT("[MOCK]   output=[%lld,%lld,%lld,%lld],\n",
          (long long)input_n, (long long)weights_k,
          (long long)output_h, (long long)output_w);
-  printf("[MOCK]   stride=[%lld,%lld], pad=[%lld,%lld,%lld,%lld], dilation=[%lld,%lld], group=%lld)\n",
+  MOCK_PRINT("[MOCK]   stride=[%lld,%lld], pad=[%lld,%lld,%lld,%lld], dilation=[%lld,%lld], group=%lld)\n",
          (long long)stride_h, (long long)stride_w,
          (long long)pad_top, (long long)pad_left, (long long)pad_bottom, (long long)pad_right,
          (long long)dilation_h, (long long)dilation_w, (long long)group);
@@ -363,7 +382,7 @@ int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
     return -1;
   }
 
-  printf("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n", (long long)m,
+  MOCK_PRINT("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n", (long long)m,
          (long long)n, (long long)k);
 
   hipblasLtHandle_t hipblas_handle = static_cast<hipblasLtHandle_t>(handle);
