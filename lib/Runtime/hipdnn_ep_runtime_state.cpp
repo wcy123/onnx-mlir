@@ -25,9 +25,9 @@ typedef int hipblasStatus_t;
 extern "C" hipError_t hipStreamCreate(hipStream_t *stream);
 extern "C" hipError_t hipStreamDestroy(hipStream_t stream);
 extern "C" hipError_t hipStreamSynchronize(hipStream_t stream);
-hipError_t hipMalloc(void **ptr, size_t size);
-hipError_t hipFree(void *ptr);
-hipError_t hipMemcpy(void *dst, const void *src, size_t size, int kind);
+extern "C" hipError_t hipMalloc(void **ptr, size_t size);
+extern "C" hipError_t hipFree(void *ptr);
+extern "C" hipError_t hipMemcpy(void *dst, const void *src, size_t size, int kind);
 #define hipMemcpyHostToDevice 0
 extern "C" miopenStatus_t miopenCreate(miopenHandle_t *handle);
 extern "C" miopenStatus_t miopenDestroy(miopenHandle_t handle);

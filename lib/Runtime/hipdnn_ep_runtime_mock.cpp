@@ -318,99 +318,39 @@ hipblasLtMatmul(hipblasLtHandle_t handle, hipblasLtMatmulDesc_t matmul_desc,
 
 // Mock wrapper implementations (called from generated MLIR code)
 
+// Mock implementation - simplified version without actual MIOpen calls
+// Just logs the operation and returns success
 int wrap_miopenConvolutionForward(
-    void *handle, void *stream, const void *input, const int64_t *input_shape,
-    const void *weights, const int64_t *weights_shape, void *output,
-    const int64_t *output_shape, int64_t pad_h, int64_t pad_w, int64_t stride_h,
-    int64_t stride_w, int64_t dilation_h, int64_t dilation_w) {
-  if (!handle || !stream || !input || !weights || !output) {
+    RuntimeState *state, const void *input, int64_t input_n, int64_t input_c,
+    int64_t input_h, int64_t input_w, const void *weights, int64_t weights_k,
+    const void *bias, void *output, int64_t output_h, int64_t output_w,
+    int64_t kernel_h, int64_t kernel_w, int64_t stride_h, int64_t stride_w,
+    int64_t pad_top, int64_t pad_left, int64_t pad_bottom, int64_t pad_right,
+    int64_t dilation_h, int64_t dilation_w, int64_t group) {
+  if (!state || !input || !weights || !output) {
     fprintf(stderr, "Invalid arguments to wrap_miopenConvolutionForward\n");
     return -1;
   }
 
   printf("[MOCK] wrap_miopenConvolutionForward(\n");
-  printf("[MOCK]   input_shape=[%lld,%lld,%lld,%lld],\n",
-         (long long)input_shape[0], (long long)input_shape[1],
-         (long long)input_shape[2], (long long)input_shape[3]);
-  printf("[MOCK]   weights_shape=[%lld,%lld,%lld,%lld],\n",
-         (long long)weights_shape[0], (long long)weights_shape[1],
-         (long long)weights_shape[2], (long long)weights_shape[3]);
-  printf("[MOCK]   output_shape=[%lld,%lld,%lld,%lld],\n",
-         (long long)output_shape[0], (long long)output_shape[1],
-         (long long)output_shape[2], (long long)output_shape[3]);
-  printf(
-      "[MOCK]   pad=[%lld,%lld], stride=[%lld,%lld], dilation=[%lld,%lld])\n",
-      (long long)pad_h, (long long)pad_w, (long long)stride_h,
-      (long long)stride_w, (long long)dilation_h, (long long)dilation_w);
+  printf("[MOCK]   input=[%lld,%lld,%lld,%lld],\n",
+         (long long)input_n, (long long)input_c,
+         (long long)input_h, (long long)input_w);
+  printf("[MOCK]   weights=[%lld,%lld,%lld,%lld],\n",
+         (long long)weights_k, (long long)input_c,
+         (long long)kernel_h, (long long)kernel_w);
+  printf("[MOCK]   output=[%lld,%lld,%lld,%lld],\n",
+         (long long)input_n, (long long)weights_k,
+         (long long)output_h, (long long)output_w);
+  printf("[MOCK]   stride=[%lld,%lld], pad=[%lld,%lld,%lld,%lld], dilation=[%lld,%lld], group=%lld)\n",
+         (long long)stride_h, (long long)stride_w,
+         (long long)pad_top, (long long)pad_left, (long long)pad_bottom, (long long)pad_right,
+         (long long)dilation_h, (long long)dilation_w, (long long)group);
 
-  miopenHandle_t miopen_handle = static_cast<miopenHandle_t>(handle);
-  hipStream_t hip_stream = static_cast<hipStream_t>(stream);
-
-  // Create tensor descriptors
-  miopenTensorDescriptor_t input_desc, weights_desc, output_desc;
-  MIOPEN_CHECK(miopenCreateTensorDescriptor(&input_desc));
-  MIOPEN_CHECK(miopenCreateTensorDescriptor(&weights_desc));
-  MIOPEN_CHECK(miopenCreateTensorDescriptor(&output_desc));
-
-  // Set tensor descriptors (assuming float32 data type)
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(input_desc, miopenFloat,
-                                           input_shape[0], input_shape[1],
-                                           input_shape[2], input_shape[3]));
-
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(weights_desc, miopenFloat,
-                                           weights_shape[0], weights_shape[1],
-                                           weights_shape[2], weights_shape[3]));
-
-  MIOPEN_CHECK(miopenSet4dTensorDescriptor(output_desc, miopenFloat,
-                                           output_shape[0], output_shape[1],
-                                           output_shape[2], output_shape[3]));
-
-  // Create convolution descriptor
-  miopenConvolutionDescriptor_t conv_desc;
-  MIOPEN_CHECK(miopenCreateConvolutionDescriptor(&conv_desc));
-  MIOPEN_CHECK(miopenInitConvolutionDescriptor(conv_desc, miopenConvolution,
-                                               pad_h, pad_w, stride_h, stride_w,
-                                               dilation_h, dilation_w));
-
-  // Find best algorithm
-  miopenConvFwdAlgorithm_t algo;
-  MIOPEN_CHECK(miopenFindConvolutionForwardAlgorithm(
-      miopen_handle, input_desc, input, weights_desc, weights, conv_desc,
-      output_desc, output,
-      1, // requestAlgoCount
-      &algo,
-      nullptr, // returnedAlgoCount
-      nullptr, // workspace (nullptr to query size)
-      0,       // workspaceSize
-      false)); // exhaustiveSearch
-
-  // Get workspace size
-  size_t workspace_size = 0;
-  MIOPEN_CHECK(miopenConvolutionForwardGetWorkSpaceSize(
-      miopen_handle, weights_desc, input_desc, conv_desc, output_desc,
-      &workspace_size));
-
-  // Allocate workspace
-  void *workspace = nullptr;
-  if (workspace_size > 0) {
-    HIP_CHECK(hipMalloc(&workspace, workspace_size));
-  }
-
-  // Perform convolution
-  float alpha = 1.0f;
-  float beta = 0.0f;
-  MIOPEN_CHECK(miopenConvolutionForward(
-      miopen_handle, &alpha, input_desc, input, weights_desc, weights,
-      conv_desc, algo, &beta, output_desc, output, workspace, workspace_size));
-
-  // Cleanup
-  if (workspace) {
-    hipFree(workspace);
-  }
-  miopenDestroyTensorDescriptor(input_desc);
-  miopenDestroyTensorDescriptor(weights_desc);
-  miopenDestroyTensorDescriptor(output_desc);
-  miopenDestroyConvolutionDescriptor(conv_desc);
+  // Mock: Fill output with dummy data (zeros in this case)
+  // In a real implementation, this would call MIOpen
+  size_t output_size = input_n * weights_k * output_h * output_w * sizeof(float);
+  memset(output, 0, output_size);
 
   return 0;
 }
