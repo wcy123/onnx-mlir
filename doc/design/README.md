@@ -19,7 +19,7 @@ All documents in this directory (including subdirectories) have **Document Type:
 | [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) | Draft | 2026-02-09 | GPU memory allocation strategy |
 | [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) | Draft | 2026-02-10 | Runtime-determined tensor dimensions |
 | [EPCONTEXT-MEMORY-OPTIMIZATION.md](EPCONTEXT-MEMORY-OPTIMIZATION.md) | Draft | 2026-02-13 | EP context memory optimization |
-| [alternatives/NATIVE-VS-IR-COMPARISON.md](alternatives/NATIVE-VS-IR-COMPARISON.md) | Draft | 2026-02-11 | Native DLL vs LLVM IR storage |
+| [alternatives/NATIVE-VS-IR-COMPARISON.md](alternatives/NATIVE-VS-IR-COMPARISON.md) | Self-Reviewed | 2026-02-13 | Native DLL vs LLVM IR storage |
 | [mlir/MODULE-STRUCTURE.md](mlir/MODULE-STRUCTURE.md) | Draft | - | MLIR module organization |
 | [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) | Self-Reviewed | 2026-02-12 | Transformation stages |
 | [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) | Draft | - | C interface and prerequisites |
