@@ -36,8 +36,6 @@ static constexpr const char *kHipMalloc = "hipMalloc";
 static constexpr const char *kHipFree = "hipFree";
 static constexpr const char *kMiopenConvolutionForward =
     "wrap_miopenConvolutionForward";
-static constexpr const char *kHipUploadConstant = "hipdnn_ep_constant_upload";
-static constexpr const char *kHipReleaseConstant = "hipdnn_ep_constant_release";
 static constexpr const char *kHipGetConstant = "hipdnn_ep_constant_get";
 
 // --- CreateHandleOp: hip.create_handle() -> llvm.call @hipCreateHandle()
@@ -317,79 +315,6 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
 // Constant Management Operations Lowering
 //===----------------------------------------------------------------------===//
 
-// --- UploadConstantOp: hip.upload_constant(%ctx, %index, %data, %size)
-//     -> hip_upload_constant(%ctx, %index, %data, %size)
-struct UploadConstantOpLowering
-    : public ConvertOpToLLVMPattern<UploadConstantOp> {
-  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
-
-  LogicalResult
-  matchAndRewrite(UploadConstantOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    ModuleOp module = op->getParentOfType<ModuleOp>();
-    Type voidType = getVoidType();
-    Type ptrType = getPtrType();
-    Type i64Type = IntegerType::get(rewriter.getContext(), 64);
-
-    // Function signature: void hip_upload_constant(void* state, i64 index,
-    // void* data, i64 size)
-    SmallVector<Type, 4> paramTypes = {ptrType, i64Type, ptrType, i64Type};
-
-    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
-        rewriter, module, kHipUploadConstant, paramTypes, voidType);
-    if (failed(funcOp))
-      return failure();
-
-    // Call runtime function
-    SmallVector<Value, 4> args = {
-        adaptor.getCtx(),   // state pointer
-        adaptor.getIndex(), // constant index
-        adaptor.getData(),  // host data pointer
-        adaptor.getSize()   // size in bytes
-    };
-
-    LLVM::CallOp::create(rewriter, loc, *funcOp, args);
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// --- ReleaseConstantOp: hip.release_constant(%ctx, %index)
-//     -> hip_release_constant(%ctx, %index)
-struct ReleaseConstantOpLowering
-    : public ConvertOpToLLVMPattern<ReleaseConstantOp> {
-  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
-
-  LogicalResult
-  matchAndRewrite(ReleaseConstantOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    ModuleOp module = op->getParentOfType<ModuleOp>();
-    Type voidType = getVoidType();
-    Type ptrType = getPtrType();
-    Type i64Type = IntegerType::get(rewriter.getContext(), 64);
-
-    // Function signature: void hip_release_constant(void* state, i64 index)
-    SmallVector<Type, 2> paramTypes = {ptrType, i64Type};
-
-    FailureOr<LLVM::LLVMFuncOp> funcOp = LLVM::lookupOrCreateFn(
-        rewriter, module, kHipReleaseConstant, paramTypes, voidType);
-    if (failed(funcOp))
-      return failure();
-
-    // Call runtime function
-    SmallVector<Value, 2> args = {
-        adaptor.getCtx(),  // state pointer
-        adaptor.getIndex() // constant index
-    };
-
-    LLVM::CallOp::create(rewriter, loc, *funcOp, args);
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 // --- GetConstantOp: %mem = hip.get_constant(%ctx, %index) : memref<...>
 //     -> %ptr = hip_get_constant(%ctx, %index) + build memref descriptor
 struct GetConstantOpLowering : public ConvertOpToLLVMPattern<GetConstantOp> {
@@ -495,8 +420,7 @@ struct ConvertHipToLLVMPass
     // Add HIP-specific conversion patterns
     patterns
         .add<CreateHandleOpLowering, DestroyHandleOpLowering, AllocOpLowering,
-             FreeOpLowering, ConvOpLowering, UploadConstantOpLowering,
-             ReleaseConstantOpLowering, GetConstantOpLowering>(typeConverter);
+             FreeOpLowering, ConvOpLowering, GetConstantOpLowering>(typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);
