@@ -281,9 +281,43 @@ module attributes {hipdnn.input_count = 1, hipdnn.input_ranks = array<i64: 4>, .
   }
 
   // ✅ Constant registry generated automatically
-  llvm.mlir.global constant @constant_info_array() : !llvm.array<4 x !llvm.struct<...>> { ... }
-  llvm.mlir.global constant @constant_registry() : !llvm.struct<...> { ... }
-  llvm.func @get_constant_registry() -> !llvm.ptr { ... }
+  // Provides metadata for runtime to manage GPU memory lifecycle
+  // Runtime owns: GPU allocation/upload/cleanup strategy
+  // DLL provides: CPU data pointers and size information
+
+  // Step 1: ConstantInfo array with metadata for each constant
+  llvm.mlir.global constant @constant_info_array() : !llvm.array<4 x !llvm.struct<(ptr, i64, i64, i64)>> {
+    %arr = llvm.mlir.undef : !llvm.array<4 x !llvm.struct<(ptr, i64, i64, i64)>>
+
+    // Entry 0: weights1 (64x3x3x3xf32 = 6912 elements * 4 bytes = 27648 bytes)
+    %data_0 = llvm.mlir.addressof @constant_0 : !llvm.ptr         // CPU pointer to DLL .data section
+    %size_0 = llvm.mlir.constant(27648 : i64) : i64               // Total bytes
+    %elem_size_0 = llvm.mlir.constant(4 : i64) : i64              // sizeof(float32)
+    %num_elem_0 = llvm.mlir.constant(6912 : i64) : i64            // Element count
+    %info_0 = ... [build struct with above 4 fields] ...
+    %arr_1 = llvm.insertvalue %info_0, %arr[0] : ...
+
+    // Entry 1: bias1 (64xf32 = 64 elements * 4 bytes = 256 bytes)
+    %data_1 = llvm.mlir.addressof @constant_1 : !llvm.ptr
+    %size_1 = llvm.mlir.constant(256 : i64) : i64
+    ... [similar for remaining 2 constants] ...
+
+    llvm.return %arr_4 : !llvm.array<4 x !llvm.struct<(ptr, i64, i64, i64)>>
+  }
+
+  // Step 2: ConstantRegistry struct linking to the array
+  llvm.mlir.global constant @constant_registry() : !llvm.struct<(ptr, i64)> {
+    %info_ptr = llvm.mlir.addressof @constant_info_array : !llvm.ptr  // Pointer to array
+    %count = llvm.mlir.constant(4 : i64) : i64                        // Number of constants
+    %registry = ... [build struct {info_ptr, count}] ...
+    llvm.return %registry : !llvm.struct<(ptr, i64)>
+  }
+
+  // Step 3: Accessor function (called by runtime in inference_init)
+  llvm.func @get_constant_registry() -> !llvm.ptr {
+    %registry_ptr = llvm.mlir.addressof @constant_registry : !llvm.ptr
+    llvm.return %registry_ptr : !llvm.ptr
+  }
 }
 ```
 
@@ -354,20 +388,17 @@ llvm.func private @main_internal(%ctx: !llvm.ptr, %in_ptr: !llvm.ptr<1>, %in_siz
 
 **Data Flow in `inference_compute`**:
 
-The generated function implements a complete CPU↔GPU data transfer pipeline:
+The generated function delegates I/O management to runtime helper functions while directly calling `@main`:
 
-1. **Validate** - Parse `span_t` structures, verify input/output counts and ranks match metadata
-2. **Load Runtime Dimensions** - Read actual tensor shapes from `tensor_t.shape` pointers
-3. **Allocate GPU Buffers** - Create device memory based on runtime dimensions
-4. **H2D Transfer** - Copy input data from CPU → GPU (`hipMemcpyH2D`)
-5. **Build Memref Descriptors** - Construct MLIR structs with GPU pointers + runtime strides
-6. **Execute** - Call `@main` with GPU memref descriptors (uses pre-uploaded constants)
-7. **D2H Transfer** - Copy results from GPU → CPU (`hipMemcpyD2H`)
-8. **Synchronize** - Wait for GPU completion (`hipStreamSynchronize`)
-9. **Free Buffers** - Release temporary GPU memory (I/O only, not constants)
+1. **`hipdnn_ep_tensor_prepare_input`** (runtime helper) - Parse span_t, validate count/rank, load runtime dimensions from tensor_t.shape, allocate GPU buffer, H2D transfer, build memref struct
+2. **`hipdnn_ep_tensor_prepare_output`** (runtime helper) - Same as input but without H2D (output buffer starts empty)
+3. **`@main`** (generated code) - Execute computation using pre-uploaded constants from RuntimeState
+4. **`hipdnn_ep_tensor_finalize_output`** (runtime helper) - D2H transfer, stream synchronization
+5. **`hipdnn_ep_tensor_free_input`** (runtime helper) - Free temporary GPU buffers (constants stay in RuntimeState)
 
-This design ensures **zero-copy for constants** (weights stay on GPU) and **dynamic shape support**
-(buffer sizes computed from runtime dimensions).
+**Design rationale**: Runtime helpers reduce generated code size by ~70% while adding validation and error handling. Generated code only needs to allocate memref holders, call helpers, call @main, and manage control flow. See `lib/HipDialect/GenerateInterfacePass.cpp:generateInferenceCompute()` for implementation.
+
+This design ensures **zero-copy for constants** (weights stay in RuntimeState) and **dynamic shape support** (helpers load dimensions from tensor_t.shape at runtime).
 
 ```mlir
 // ✅ EXPORT 1: Initialize GPU state (delegates to runtime)
