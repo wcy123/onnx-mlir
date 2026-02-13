@@ -5,11 +5,28 @@ Licensed under the MIT License.
 # OnnxToHip Pass
 
 **Date:** 2026-02-13
+**Document Type:** Implementation
 **Status:** Implemented (Self-Reviewed)
 **Related:** HipToLLVM.md, CONSTANT-HANDLING-DESIGN.md, INTERFACE-DESIGN.md
 
 **Input:** ONNX-MLIR module
 **Output:** HIP dialect module
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Input Format](#input-format)
+- [Output Format (HIP Dialect)](#output-format-hip-dialect)
+- [Key Transformations](#key-transformations)
+  - [1. Add Module Metadata Attributes](#1-add-module-metadata-attributes)
+  - [2. Extract Constants to Globals](#2-extract-constants-to-globals)
+  - [3. Change @main Signature](#3-change-main-signature)
+  - [4. Convert Operations](#4-convert-operations)
+  - [5. Generate Constant Registry](#5-generate-constant-registry)
+- [Prerequisites Met](#prerequisites-met)
+- [Related Documents](#related-documents)
 
 ---
 
@@ -26,7 +43,7 @@ The OnnxToHip pass transforms ONNX operations into HIP dialect operations. This 
 
 ---
 
-## Input Format (from MorphiZen)
+## Input Format
 
 ```mlir
 module {
@@ -129,7 +146,7 @@ module attributes {
 
 ### 1. Add Module Metadata Attributes
 
-**NEW: Critical for GenerateInterfacePass**
+**Critical for GenerateInterfacePass**
 
 ```mlir
 module attributes {
