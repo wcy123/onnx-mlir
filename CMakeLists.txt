@@ -47,4 +47,5 @@ if(BUILD_MLIR_HIP_COMPILER)
   add_subdirectory(tools/mlir-hip-compiler)
 endif()
 
+enable_testing()
 add_subdirectory(test)

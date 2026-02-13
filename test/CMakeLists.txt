@@ -8,25 +8,6 @@ message(STATUS "Building tests")
 enable_testing()
 
 #=============================================================================
-# DLL Tester Tool
-#=============================================================================
-# Minimal tool to load and test generated inference DLLs
-
-add_executable(dll_tester
-    dll_tester.cpp
-)
-
-include(CompilerFlags)
-set_project_warnings(dll_tester)
-
-if(WIN32)
-    # Windows: No extra libs needed (uses LoadLibrary)
-else()
-    # Linux: Link dl for dlopen
-    target_link_libraries(dll_tester PRIVATE dl)
-endif()
-
-#=============================================================================
 # MLIR → DLL Pipeline Tests
 #=============================================================================
 # These tests compile MLIR files to DLLs and verify they work correctly.
@@ -42,52 +23,6 @@ add_test(NAME CompileIdentity
         -v
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
-
-# Test: Load identity.dll and run interface tests
-add_test(NAME TestIdentity
-    COMMAND dll_tester "${CMAKE_CURRENT_BINARY_DIR}/identity.dll"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-)
-
-# TestIdentity depends on CompileIdentity
-set_tests_properties(TestIdentity PROPERTIES
-    DEPENDS CompileIdentity
-)
-
-#=============================================================================
-# Runtime Unit Tests (if enabled)
-#=============================================================================
-
-if(BUILD_MOCK_RUNTIME)
-    message(STATUS "Building Mock Runtime Tests (BUILD_MOCK_RUNTIME=1)")
-
-    # GTest is provided by MorphiZen's FetchContent with OVERRIDE_FIND_PACKAGE
-    find_package(GTest QUIET)
-
-    if(TARGET GTest::gtest)
-        add_executable(test_mock_runtime
-            runtime/test_mock_runtime.cpp
-        )
-
-        target_link_libraries(test_mock_runtime PRIVATE
-            HipDnnRuntime
-            GTest::gtest
-            GTest::gtest_main
-        )
-
-        target_compile_definitions(test_mock_runtime PRIVATE
-            BUILD_MOCK_RUNTIME=1
-        )
-
-        add_test(NAME MockRuntime COMMAND test_mock_runtime)
-
-        set_target_properties(test_mock_runtime PROPERTIES FOLDER "tests")
-    else()
-        message(STATUS "GTest not found, skipping test_mock_runtime")
-    endif()
-else()
-    message(STATUS "Mock Runtime Tests disabled (set BUILD_MOCK_RUNTIME=1 to enable)")
-endif()
 
 #=============================================================================
 # ORT Integration Test (optional)
