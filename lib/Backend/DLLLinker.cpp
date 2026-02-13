@@ -13,18 +13,12 @@
 #include <iostream>
 #include <sstream>
 
-// LLD linker driver entry points
-// These are declared in LLD headers but we declare them here to avoid complex includes
-namespace lld {
-namespace coff {
-bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
-          llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
-}
-namespace elf {
-bool link(llvm::ArrayRef<const char *> args, llvm::raw_ostream &stdoutOS,
-          llvm::raw_ostream &stderrOS, bool exitEarly, bool disableOutput);
-}
-} // namespace lld
+// LLD linker driver - use lldMain for crash recovery
+#include "lld/Common/Driver.h"
+
+// Still need to declare the link functions for driver registration
+LLD_HAS_DRIVER(coff)
+LLD_HAS_DRIVER(elf)
 
 namespace hipdnn {
 
@@ -75,9 +69,10 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   }
 
   // Build LLD-LINK command line arguments
-  // Note: LLD's link() API doesn't need argv[0] (program name)
+  // Note: lldMain() requires argv[0] to be the program name
   std::vector<std::string> argStrings;
-  argStrings.push_back("/DLL"); // Create DLL
+  argStrings.push_back("lld-link"); // argv[0] - program name
+  argStrings.push_back("/DLL");     // Create DLL
   argStrings.push_back("/OUT:" + outputDLL);
   argStrings.push_back("/DEF:" + defFile);
   argStrings.push_back(objectFile);
@@ -131,13 +126,15 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   llvm::ArrayRef<const char *> argsRef(args);
   std::cout << "ArrayRef size: " << argsRef.size() << "\n";
 
-  // Reset command line parser state before calling LLD
-  // LLD has its own command line options that might conflict
-  llvm::cl::ResetAllOptionOccurrences();
-
-  bool success = lld::coff::link(argsRef, stdoutOS, stderrOS,
-                                 /*exitEarly=*/false,
-                                 /*disableOutput=*/false);
+  // Use lldMain for crash recovery instead of direct link() call
+  // lldMain provides:
+  // - CrashRecoveryContext for handling fatal() calls
+  // - Proper cleanup via CommonLinkerContext::destroy()
+  // - Safe for re-entry
+  lld::Result result = lld::lldMain(
+      argsRef, stdoutOS, stderrOS,
+      {{lld::WinLink, &lld::coff::link}}  // Register COFF driver
+  );
 
   // Print linker output
   if (!stdoutStr.empty()) {
@@ -147,8 +144,11 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
     std::cerr << stderrStr;
   }
 
-  if (!success) {
-    std::cerr << "LLD-LINK failed to link DLL\n";
+  if (result.retCode != 0) {
+    std::cerr << "LLD-LINK failed with exit code: " << result.retCode << "\n";
+    if (!result.canRunAgain) {
+      std::cerr << "  Warning: Linker crashed, cannot run again\n";
+    }
     return false;
   }
 
@@ -205,9 +205,11 @@ bool DLLLinker::linkDLL_Linux(const std::string &objectFile,
   llvm::raw_string_ostream stdoutOS(stdoutStr);
   llvm::raw_string_ostream stderrOS(stderrStr);
 
-  bool success = lld::elf::link(args, stdoutOS, stderrOS,
-                                /*exitEarly=*/false,
-                                /*disableOutput=*/false);
+  // Use lldMain for crash recovery instead of direct link() call
+  lld::Result result = lld::lldMain(
+      args, stdoutOS, stderrOS,
+      {{lld::Gnu, &lld::elf::link}}  // Register ELF driver
+  );
 
   // Print linker output
   if (!stdoutStr.empty()) {
@@ -217,8 +219,11 @@ bool DLLLinker::linkDLL_Linux(const std::string &objectFile,
     std::cerr << stderrStr;
   }
 
-  if (!success) {
-    std::cerr << "LLD-ELF failed to link shared library\n";
+  if (result.retCode != 0) {
+    std::cerr << "LLD-ELF failed with exit code: " << result.retCode << "\n";
+    if (!result.canRunAgain) {
+      std::cerr << "  Warning: Linker crashed, cannot run again\n";
+    }
     return false;
   }
 
