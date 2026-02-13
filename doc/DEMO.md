@@ -154,95 +154,41 @@ The `--generate-interface` pass **wraps** @main and uses the constant registry t
 - LLD libraries automatically detected by CMake (lldCOFF, lldELF, lldCommon)
 
 ```bash
-# Complete MLIR → DLL compilation (real working example)
+# Complete MLIR → DLL compilation (continuing from demo_two_layer_conv.mlir)
 export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 ../../build/$(basename $PWD)/bin/Debug/mlir-hip-compiler.exe \
-  test/mlir/identity_llvm.mlir \
-  -o identity_final.dll \
+  tools/hip-opt/demo_two_layer_conv.mlir \
+  --from-onnx-mlir \
+  -o demo_two_layer.dll \
   --mode dll \
   -v \
   --keep
 ```
 
-**Real Output** (from successful compilation, 2026-02-12):
-```
-=== MLIR to HIP DLL Compiler ===
-Input: test/mlir/identity_llvm.mlir
-Output: identity_final.dll
-Mode: dll
-Optimization: O2
+**Note**: The `--from-onnx-mlir` flag runs all three passes (ONNX→HIP→LLVM→Interface) automatically before compilation, equivalent to piping Stages 1-3 output to the compiler.
 
---- Step 1: Parsing MLIR ---
-✓ MLIR parsed successfully
+**What you'll see**:
+- 8-step compilation pipeline (parse, transform, optimize, compile, link, verify)
+- MLIR passes run automatically (ONNX→HIP→LLVM→Interface)
+- Runtime library linked (HipDnnRuntime.lib merged via LLD)
+- DLL exports verified (inference_init, inference_compute, inference_cleanup)
 
---- Step 2: Running MLIR Passes ---
-Skipping passes - assuming input is already in LLVM dialect
-✓ MLIR passes completed
-
---- Step 3: Translating to LLVM IR ---
-✓ LLVM IR generated
-
---- Step 4: Optimizing LLVM IR (O2) ---
-✓ Optimization completed (Runtime calls inlined)
-
---- Step 5: Emitting LLVM IR ---
-Emitted LLVM IR to: identity_final.ll
-✓ LLVM IR written to: identity_final.ll
-
---- Step 6: Compiling to Object File ---
-Compiled object file to: identity_final.obj
-✓ Object file created: identity_final.obj
-
---- Step 7: Linking to DLL ---
-Found runtime library: ../../build/$(basename $PWD)/lib/Runtime/Debug/HipDnnRuntime.lib
-LLD-LINK command (7 args): [0]='/DLL' [1]='/OUT:identity_final.dll' [2]='/DEF:identity_final.obj.def' [3]='identity_final.obj' [4]='../../build/$(basename $PWD)/lib/Runtime/Debug/HipDnnRuntime.lib' [5]='/NOLOGO' [6]='/MACHINE:X64'
-ArrayRef size: 7
-Successfully linked DLL: identity_final.dll
-✓ DLL created: identity_final.dll
-
---- Step 8: Verifying DLL Exports ---
-Verifying DLL exports for: identity_final.dll
-  Required symbol: inference_init
-  Required symbol: inference_compute
-  Required symbol: inference_cleanup
-✓ All expected exports present
-
-=== Compilation Successful ===
-Output: identity_final.dll
-```
-
-**Generated Files**:
+**Generated files** (with `--keep` flag):
 ```bash
-$ ls -lh identity_final.*
--rwxr-xr-x 1 user 1049089 478K Feb 12 07:19 identity_final.dll*    # Final DLL
--rw-r--r-- 1 user 1049089 1.9K Feb 12 07:19 identity_final.lib     # Import library
--rw-r--r-- 1 user 1049089 2.1K Feb 12 07:19 identity_final.ll      # LLVM IR (text)
--rw-r--r-- 1 user 1049089 1.1K Feb 12 07:19 identity_final.obj     # Object file (PE/COFF)
+$ ls -lh demo_two_layer.*
+demo_two_layer.dll    # Final DLL with exported C interface
+demo_two_layer.lib    # Import library
+demo_two_layer.ll     # LLVM IR (text, optimized)
+demo_two_layer.obj    # Object file (PE/COFF)
 ```
 
-**DLL Exports Verified**:
+**Verify exports**:
 ```bash
-$ strings identity_final.dll | grep inference_
+$ strings demo_two_layer.dll | grep inference_
 inference_cleanup
 inference_compute
 inference_init
 ```
-
-**Complete Pipeline Success**:
-- ✅ MLIR parsing and passes
-- ✅ LLVM IR translation and optimization (O2)
-- ✅ Object file compilation (PE/COFF format)
-- ✅ Runtime library linking (HipDnnRuntime.lib found and linked)
-- ✅ LLD library integration (no subprocess calls, no CommandLine conflicts)
-- ✅ DLL creation (478 KB, all exports present)
-- ✅ Export verification (inference_init, inference_compute, inference_cleanup)
-
-**Technical Achievement**:
-Full end-to-end MLIR → DLL compilation pipeline working with:
-- LLD as library (not external tool)
-- Runtime backward compatibility wrappers
-- Complete 8-step pipeline with verification
-- Real working DLL output
 
 ---
 
