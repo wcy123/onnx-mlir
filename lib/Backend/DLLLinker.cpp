@@ -95,20 +95,20 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   // Add Windows system libraries (C Runtime, entry point, etc.)
   // These provide malloc, free, printf, _DllMainCRTStartup, etc.
   // Use STATIC CRT (/MTd) to match project build settings
-  argStrings.push_back("libucrtd.lib");   // Universal CRT (Static, Debug)
-  argStrings.push_back("libcmtd.lib");    // Microsoft C Runtime (Static, Debug)
-  argStrings.push_back("oldnames.lib");   // Compatibility names
-  argStrings.push_back("kernel32.lib");   // Windows kernel
-  argStrings.push_back("user32.lib");     // Windows user API
+  argStrings.push_back("libucrtd.lib"); // Universal CRT (Static, Debug)
+  argStrings.push_back("libcmtd.lib");  // Microsoft C Runtime (Static, Debug)
+  argStrings.push_back("oldnames.lib"); // Compatibility names
+  argStrings.push_back("kernel32.lib"); // Windows kernel
+  argStrings.push_back("user32.lib");   // Windows user API
 
   // Add default libraries and flags
   argStrings.push_back("/NOLOGO");
   argStrings.push_back("/MACHINE:X64");
 
   // Add debug flags to prevent optimization and get clear backtraces
-  argStrings.push_back("/DEBUG");        // Generate debug info (.pdb)
-  argStrings.push_back("/OPT:NOREF");    // Don't remove unreferenced code
-  argStrings.push_back("/OPT:NOICF");    // Don't fold identical functions
+  argStrings.push_back("/DEBUG");     // Generate debug info (.pdb)
+  argStrings.push_back("/OPT:NOREF"); // Don't remove unreferenced code
+  argStrings.push_back("/OPT:NOICF"); // Don't fold identical functions
 
   // Convert to C-style args for LLD
   std::vector<const char *> args;
@@ -137,10 +137,10 @@ bool DLLLinker::linkDLL_Windows(const std::string &objectFile,
   // - CrashRecoveryContext for handling fatal() calls
   // - Proper cleanup via CommonLinkerContext::destroy()
   // - Safe for re-entry
-  lld::Result result = lld::lldMain(
-      argsRef, stdoutOS, stderrOS,
-      {{lld::WinLink, &lld::coff::link}}  // Register COFF driver
-  );
+  lld::Result result =
+      lld::lldMain(argsRef, stdoutOS, stderrOS,
+                   {{lld::WinLink, &lld::coff::link}} // Register COFF driver
+      );
 
   // Print linker output
   if (!stdoutStr.empty()) {
@@ -212,10 +212,10 @@ bool DLLLinker::linkDLL_Linux(const std::string &objectFile,
   llvm::raw_string_ostream stderrOS(stderrStr);
 
   // Use lldMain for crash recovery instead of direct link() call
-  lld::Result result = lld::lldMain(
-      args, stdoutOS, stderrOS,
-      {{lld::Gnu, &lld::elf::link}}  // Register ELF driver
-  );
+  lld::Result result =
+      lld::lldMain(args, stdoutOS, stderrOS, {{lld::Gnu, &lld::elf::link}}
+                   // Register ELF driver
+      );
 
   // Print linker output
   if (!stdoutStr.empty()) {

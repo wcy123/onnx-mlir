@@ -16,8 +16,8 @@ typedef int hipError_t;
 // hipdnn_ep_runtime_mock.cpp)
 extern "C" hipError_t hipMalloc(void **ptr, size_t size);
 extern "C" hipError_t hipFree(void *ptr);
-extern "C" hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size, int kind,
-                          hipStream_t stream);
+extern "C" hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
+                                     int kind, hipStream_t stream);
 extern "C" hipError_t hipStreamSynchronize(hipStream_t stream);
 #define hipMemcpyHostToDevice 0
 #define hipMemcpyDeviceToHost 1

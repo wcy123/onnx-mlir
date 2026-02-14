@@ -8,37 +8,14 @@ message(STATUS "Building tests")
 enable_testing()
 
 #=============================================================================
-# test-model-dll Tool
-#=============================================================================
-# End-to-end test tool for compiled model DLLs
-
-add_executable(test-model-dll
-    test-model-dll.cpp
-)
-
-target_compile_features(test-model-dll PRIVATE cxx_std_17)
-
-if(WIN32)
-    # Windows: No extra libs needed (uses LoadLibrary)
-else()
-    # Linux: Link dl for dlopen
-    target_link_libraries(test-model-dll PRIVATE dl)
-endif()
-
-if(MSVC)
-    target_compile_options(test-model-dll PRIVATE /W4)
-else()
-    target_compile_options(test-model-dll PRIVATE -Wall -Wextra)
-endif()
-
-# Install to bin directory
-install(TARGETS test-model-dll DESTINATION bin)
-
-#=============================================================================
 # MLIR → DLL Pipeline Tests
 #=============================================================================
 # E2E test: Compile demo model from DEMO.md and verify it works correctly.
 # All outputs go to CMAKE_CURRENT_BINARY_DIR (build directory).
+#
+# Note: test-model-dll executable is now built in tools/test-model-dll/
+# but is still used by tests here. The executable is installed to bin/
+# so tests find it in the same location as before.
 
 # Test 1: Compile demo_two_layer_conv.mlir → demo_two_layer.dll
 add_test(NAME CompileDemoConvDLL

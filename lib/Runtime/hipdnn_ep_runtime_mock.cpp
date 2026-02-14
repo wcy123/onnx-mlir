@@ -13,18 +13,20 @@
 // On Windows with static CRT, each DLL has its own stdout
 // Use OutputDebugString so output appears in DebugView/debugger
 // and fprintf(stderr) to try to reach the parent process
-#define MOCK_PRINT(...) do { \
-  char buf[512]; \
-  snprintf(buf, sizeof(buf), __VA_ARGS__); \
-  OutputDebugStringA(buf); \
-  fprintf(stderr, "%s", buf); \
-  fflush(stderr); \
-} while(0)
+#define MOCK_PRINT(...)                                                        \
+  do {                                                                         \
+    char buf[512];                                                             \
+    snprintf(buf, sizeof(buf), __VA_ARGS__);                                   \
+    OutputDebugStringA(buf);                                                   \
+    fprintf(stderr, "%s", buf);                                                \
+    fflush(stderr);                                                            \
+  } while (0)
 #else
-#define MOCK_PRINT(...) do { \
-  printf(__VA_ARGS__); \
-  fflush(stdout); \
-} while(0)
+#define MOCK_PRINT(...)                                                        \
+  do {                                                                         \
+    printf(__VA_ARGS__);                                                       \
+    fflush(stdout);                                                            \
+  } while (0)
 #endif
 
 // Mock definitions when ROCm is not available
@@ -79,8 +81,8 @@ extern "C" hipError_t hipMemcpy(void *dst, const void *src, size_t size,
   const char *kind_str = (kind == hipMemcpyHostToDevice)   ? "H2D"
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
-  MOCK_PRINT("[MOCK] hipMemcpy(dst=%p, src=%p, size=%zu, %s)\n",
-         dst, src, size, kind_str);
+  MOCK_PRINT("[MOCK] hipMemcpy(dst=%p, src=%p, size=%zu, %s)\n", dst, src, size,
+             kind_str);
   memcpy(dst, src, size);
   return hipSuccess;
 }
@@ -91,7 +93,7 @@ extern "C" hipError_t hipMemcpyAsync(void *dst, const void *src, size_t size,
                          : (kind == hipMemcpyDeviceToHost) ? "D2H"
                                                            : "D2D";
   MOCK_PRINT("[MOCK] hipMemcpyAsync(dst=%p, src=%p, size=%zu, %s, stream=%p)\n",
-         dst, src, size, kind_str, stream);
+             dst, src, size, kind_str, stream);
   memcpy(dst, src, size);
   return hipSuccess;
 }
@@ -164,8 +166,8 @@ static miopenStatus_t miopenInitConvolutionDescriptor(
   (void)desc;
   (void)mode;
   MOCK_PRINT("[MOCK]   Convolution params: pad=[%d,%d], stride=[%d,%d], "
-         "dilation=[%d,%d]\n",
-         pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w);
+             "dilation=[%d,%d]\n",
+             pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w);
   return miopenStatusSuccess;
 }
 
@@ -264,8 +266,8 @@ hipblasLtMatrixLayoutCreate(hipblasLtMatrixLayout_t *layout,
   (void)type;
   (void)ld;
   *layout = malloc(8); // Fake layout
-  MOCK_PRINT("[MOCK]   Matrix layout: [%llu x %llu]\n", (unsigned long long)rows,
-         (unsigned long long)cols);
+  MOCK_PRINT("[MOCK]   Matrix layout: [%llu x %llu]\n",
+             (unsigned long long)rows, (unsigned long long)cols);
   return HIPBLAS_STATUS_SUCCESS;
 }
 
@@ -352,23 +354,22 @@ int wrap_miopenConvolutionForward(
   }
 
   MOCK_PRINT("[MOCK] wrap_miopenConvolutionForward(\n");
-  MOCK_PRINT("[MOCK]   input=[%lld,%lld,%lld,%lld],\n",
-         (long long)input_n, (long long)input_c,
-         (long long)input_h, (long long)input_w);
-  MOCK_PRINT("[MOCK]   weights=[%lld,%lld,%lld,%lld],\n",
-         (long long)weights_k, (long long)input_c,
-         (long long)kernel_h, (long long)kernel_w);
-  MOCK_PRINT("[MOCK]   output=[%lld,%lld,%lld,%lld],\n",
-         (long long)input_n, (long long)weights_k,
-         (long long)output_h, (long long)output_w);
-  MOCK_PRINT("[MOCK]   stride=[%lld,%lld], pad=[%lld,%lld,%lld,%lld], dilation=[%lld,%lld], group=%lld)\n",
-         (long long)stride_h, (long long)stride_w,
-         (long long)pad_top, (long long)pad_left, (long long)pad_bottom, (long long)pad_right,
-         (long long)dilation_h, (long long)dilation_w, (long long)group);
+  MOCK_PRINT("[MOCK]   input=[%lld,%lld,%lld,%lld],\n", (long long)input_n,
+             (long long)input_c, (long long)input_h, (long long)input_w);
+  MOCK_PRINT("[MOCK]   weights=[%lld,%lld,%lld,%lld],\n", (long long)weights_k,
+             (long long)input_c, (long long)kernel_h, (long long)kernel_w);
+  MOCK_PRINT("[MOCK]   output=[%lld,%lld,%lld,%lld],\n", (long long)input_n,
+             (long long)weights_k, (long long)output_h, (long long)output_w);
+  MOCK_PRINT("[MOCK]   stride=[%lld,%lld], pad=[%lld,%lld,%lld,%lld], "
+             "dilation=[%lld,%lld], group=%lld)\n",
+             (long long)stride_h, (long long)stride_w, (long long)pad_top,
+             (long long)pad_left, (long long)pad_bottom, (long long)pad_right,
+             (long long)dilation_h, (long long)dilation_w, (long long)group);
 
   // Mock: Fill output with dummy data (zeros in this case)
   // In a real implementation, this would call MIOpen
-  size_t output_size = input_n * weights_k * output_h * output_w * sizeof(float);
+  size_t output_size =
+      input_n * weights_k * output_h * output_w * sizeof(float);
   memset(output, 0, output_size);
 
   return 0;
@@ -382,8 +383,8 @@ int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
     return -1;
   }
 
-  MOCK_PRINT("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n", (long long)m,
-         (long long)n, (long long)k);
+  MOCK_PRINT("[MOCK] wrap_hipblasLtGemm(M=%lld, N=%lld, K=%lld)\n",
+             (long long)m, (long long)n, (long long)k);
 
   hipblasLtHandle_t hipblas_handle = static_cast<hipblasLtHandle_t>(handle);
   hipStream_t hip_stream = static_cast<hipStream_t>(stream);

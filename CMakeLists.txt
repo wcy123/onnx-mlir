@@ -47,5 +47,11 @@ if(BUILD_MLIR_HIP_COMPILER)
   add_subdirectory(tools/mlir-hip-compiler)
 endif()
 
+option(BUILD_TEST_MODEL_DLL "Build test-model-dll DLL testing tool" ON)
+
+if(BUILD_TEST_MODEL_DLL)
+  add_subdirectory(tools/test-model-dll)
+endif()
+
 enable_testing()
 add_subdirectory(test)

@@ -300,10 +300,10 @@ int main(int argc, char **argv) {
                                       "inference_cleanup"};
 
   // NOTE: No need to link HipDnnRuntime.lib
-  // Runtime functions were merged at IR level (Step 3.5) and inlined during optimization (Step 4)
-  // The object file already contains all runtime code
-  std::vector<std::string> libraries;       // Empty - no runtime lib needed
-  std::vector<std::string> libraryPaths;    // Empty
+  // Runtime functions were merged at IR level (Step 3.5) and inlined during
+  // optimization (Step 4) The object file already contains all runtime code
+  std::vector<std::string> libraries;    // Empty - no runtime lib needed
+  std::vector<std::string> libraryPaths; // Empty
 
   if (!linker.linkDLL(objFilename, opts.outputFilename, libraries, libraryPaths,
                       exports)) {

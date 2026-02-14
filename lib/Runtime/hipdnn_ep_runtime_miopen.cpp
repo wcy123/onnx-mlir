@@ -127,7 +127,8 @@ int wrap_miopenConvolutionForward(
     return -1;
   }
 
-  // Extract handle and stream from opaque RuntimeState (NO direct field access in generated code!)
+  // Extract handle and stream from opaque RuntimeState (NO direct field access
+  // in generated code!)
   miopenHandle_t miopen_handle = state->miopen_handle;
   hipStream_t hip_stream = state->stream;
 
@@ -142,7 +143,8 @@ int wrap_miopenConvolutionForward(
   MIOPEN_CHECK(miopenSet4dTensorDescriptor(input_desc, miopenFloat, input_n,
                                            input_c, input_h, input_w));
 
-  // Weights: [K, C, R, S] where K=output channels, C=input channels, R=kernel_h, S=kernel_w
+  // Weights: [K, C, R, S] where K=output channels, C=input channels,
+  // R=kernel_h, S=kernel_w
   MIOPEN_CHECK(miopenSet4dTensorDescriptor(weights_desc, miopenFloat, weights_k,
                                            input_c, kernel_h, kernel_w));
 
@@ -151,8 +153,8 @@ int wrap_miopenConvolutionForward(
                                            weights_k, output_h, output_w));
 
   // Create convolution descriptor
-  // Note: MIOpen padding is per-side, but if pad_top==pad_bottom and pad_left==pad_right,
-  // we use the symmetric version
+  // Note: MIOpen padding is per-side, but if pad_top==pad_bottom and
+  // pad_left==pad_right, we use the symmetric version
   miopenConvolutionDescriptor_t conv_desc;
   MIOPEN_CHECK(miopenCreateConvolutionDescriptor(&conv_desc));
   MIOPEN_CHECK(miopenInitConvolutionDescriptor(

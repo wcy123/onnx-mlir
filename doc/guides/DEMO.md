@@ -65,10 +65,10 @@ This demo shows the 5-stage compilation and testing pipeline:
                          │ • C interface exports
                          │ • Linked runtime
                          ▼
-              ┌──────────────────────┐
-              │  Stage 5: test-model-dll
+              ┌──────────────────────────┐
+              │  Stage 5: test-model-dll (tools/)
               │  model.dll
-              └──────────┬───────────┘
+              └──────────┬───────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -88,7 +88,7 @@ This demo shows the 5-stage compilation and testing pipeline:
 ```bash
 cd /path/to/onnx-hipdnn-ep
 
-# Build tools and test executable
+# Build tools (hip-opt, mlir-hip-compiler, test-model-dll)
 cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
 cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler test-model-dll
 ```
@@ -629,7 +629,7 @@ With **mock runtime** (no GPU required), you'll see all GPU operations:
 ### Quick Start Commands
 
 ```bash
-# 1. Build the tools
+# 1. Build the tools (hip-opt, mlir-hip-compiler, test-model-dll)
 cd /path/to/onnx-hipdnn-ep
 cmake -S . -B ../../build/onnx-hipdnn-ep -DBUILD_HIP_OPT_TOOL=ON -DBUILD_MLIR_HIP_COMPILER=ON
 cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hip-compiler test-model-dll
@@ -743,12 +743,13 @@ strings ../output/my_inference.dll | grep inference_
 - Usage: Production artifact generation, standalone testing
 - Dependencies: Links with HipDnnRuntime.lib, amdhip64.lib, MIOpen.lib, hipblaslt.lib
 
-**test-model-dll** (test/):
+**test-model-dll** (tools/test-model-dll/):
 - Purpose: End-to-end DLL testing and validation
 - Input: Compiled model DLL (from mlir-hip-compiler)
 - Output: Test results (PASSED/FAILED)
 - Validates: DLL loading, export resolution, inference execution
 - Usage: CI testing, manual verification of compiled models
+- Dependencies: Minimal (C++17, platform DLL APIs only)
 
 **Workflow:**
 ```bash

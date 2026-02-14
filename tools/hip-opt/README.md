@@ -59,7 +59,7 @@ hip-opt after_onnx_to_hip.mlir --convert-hip-to-llvm > after_hip_to_llvm.mlir
 - `hip` - Custom HIP dialect
 - `onnx` - ONNX dialect (from onnx-mlir)
 
-## Comparison with mlir-hip-compiler
+## Comparison with Other Tools
 
 **hip-opt:**
 - Purpose: Development and debugging
@@ -73,6 +73,12 @@ hip-opt after_onnx_to_hip.mlir --convert-hip-to-llvm > after_hip_to_llvm.mlir
 - Output: Native DLL
 - Use when: Generating production artifacts
 
+**test-model-dll:**
+- Purpose: DLL testing and validation
+- Input: Compiled DLL (from mlir-hip-compiler)
+- Output: Test results (PASSED/FAILED)
+- Use when: Verifying compiled models, CI/CD testing
+
 ## Example Workflow
 
 ```bash
@@ -84,8 +90,9 @@ hip-opt stage1.mlir --convert-hip-to-llvm -o stage2.mlir
 hip-opt stage2.mlir --generate-interface -o stage3.mlir
 # Inspect stage3.mlir...
 
-# Production workflow (one command)
+# Production workflow (compile and test)
 mlir-hip-compiler demo.mlir -o output.dll --from-onnx-mlir
+test-model-dll output.dll --verbose --validate
 ```
 
 ## Building
@@ -97,5 +104,6 @@ cmake --build build --target hip-opt
 
 ## See Also
 
-- [DEMO.md](../../doc/DEMO.md) - Complete demo of MLIR compilation pipeline
+- [DEMO.md](../../doc/guides/DEMO.md) - Complete demo of MLIR compilation pipeline
 - [mlir-hip-compiler](../mlir-hip-compiler/) - Production DLL compilation tool
+- [test-model-dll](../test-model-dll/) - DLL testing and validation tool

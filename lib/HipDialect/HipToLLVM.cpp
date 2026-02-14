@@ -101,7 +101,8 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
       return rewriter.notifyMatchFailure(op, "incompatible memref type");
 
     // Declare hipMalloc with CORRECT signature: (ptr, i64) -> i32
-    // The real hipMalloc signature is: hipError_t hipMalloc(void **ptr, size_t size)
+    // The real hipMalloc signature is: hipError_t hipMalloc(void **ptr, size_t
+    // size)
     Type indexType = getIndexType();
     Type ptrType = getPtrType();
     Type i32Type = IntegerType::get(getContext(), 32);
@@ -119,9 +120,9 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
 
     // Allocate stack space for the returned pointer
     Value one = rewriter.create<LLVM::ConstantOp>(loc, indexType,
-                                                    rewriter.getIndexAttr(1));
-    Value ptrStorage = rewriter.create<LLVM::AllocaOp>(
-        loc, ptrType, ptrType, one, /*alignment=*/8);
+                                                  rewriter.getIndexAttr(1));
+    Value ptrStorage = rewriter.create<LLVM::AllocaOp>(loc, ptrType, ptrType,
+                                                       one, /*alignment=*/8);
 
     // Call hipMalloc(&ptrStorage, sizeBytes)
     Value mallocResult =
@@ -132,7 +133,8 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     // For now, assume success
 
     // Load the allocated pointer from ptrStorage
-    Value allocatedPtr = rewriter.create<LLVM::LoadOp>(loc, ptrType, ptrStorage);
+    Value allocatedPtr =
+        rewriter.create<LLVM::LoadOp>(loc, ptrType, ptrStorage);
 
     // Cast to memref address space if needed
     Type elementPtrType = getElementPtrType(memRefType);
@@ -203,12 +205,13 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
     Type i32Type = rewriter.getI32Type();
 
     // Generate call to runtime wrapper following opaque RuntimeState pattern.
-    // The wrapper extracts handle/stream from state internally (no direct field access!).
+    // The wrapper extracts handle/stream from state internally (no direct field
+    // access!).
     //
     // Signature:
     // int wrap_miopenConvolutionForward(
-    //     RuntimeState* state,    // Opaque pointer - extracts handle/stream internally
-    //     void* input,            // Input tensor data pointer
+    //     RuntimeState* state,    // Opaque pointer - extracts handle/stream
+    //     internally void* input,            // Input tensor data pointer
     //     int64_t input_n,        // Input batch size
     //     int64_t input_c,        // Input channels
     //     int64_t input_h,        // Input height
@@ -252,7 +255,7 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
       return ptr;
     };
 
-    Value statePtr = adaptor.getHandle();  // RuntimeState* (opaque)
+    Value statePtr = adaptor.getHandle(); // RuntimeState* (opaque)
     Value inputPtr = getAlignedPtr(adaptor.getInput());
     Value weightsPtr = getAlignedPtr(adaptor.getWeights());
     Value outputPtr = getAlignedPtr(adaptor.getOutput());
@@ -355,9 +358,9 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
 
     // Build argument list matching the signature
     SmallVector<Value, 24> args = {
-        statePtr,   inputPtr, inputN,    inputC,   inputH,   inputW,
-        weightsPtr, weightsK, biasPtr,   outputPtr, outputH,  outputW,
-        kernelH,    kernelW,  strideH,   strideW,  padTop,   padLeft,
+        statePtr,   inputPtr, inputN,    inputC,    inputH,  inputW,
+        weightsPtr, weightsK, biasPtr,   outputPtr, outputH, outputW,
+        kernelH,    kernelW,  strideH,   strideW,   padTop,  padLeft,
         padBottom,  padRight, dilationH, dilationW, groupVal};
 
     // Call the runtime function
