@@ -97,15 +97,16 @@ Before the `GenerateInterfacePass` can run, prior passes must establish certain 
 1. **A. Verified Prerequisites** - What `verifyPrerequisites()` actually checks in the code
 2. **B. Design Contracts** - Important conventions not enforced by code but critical for correct implementation
 
-**CRITICAL REQUIREMENT: Dynamic Shape Support**
+**Interface Design for Dynamic Shapes**
 
-All prerequisites MUST support **dynamic shapes from Day 1**. For complete dynamic shape design and rationale, see [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md).
+Interface designed to support runtime dimension values. For implementation challenges, see [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md).
 
-Summary:
-- ✅ Tensor **rank** is compile-time known (e.g., 4D tensor)
-- ✅ Dimension **values** are runtime (loaded from tensor_t.shape pointer)
-- ✅ No interface changes needed for dynamic shapes
-- ✅ All memref operations must work with runtime dimension values
+Design:
+- Tensor **rank** is compile-time known (e.g., 4D tensor)
+- Dimension **values** loaded from tensor_t.shape pointer
+- Interface accepts both static and runtime dimension values
+
+**Status:** Dynamic shapes not yet implemented (memory pooling incompatibility)
 
 ---
 
@@ -329,11 +330,9 @@ typedef struct {
 4. Calculate **runtime strides** from dimension values
 
 **Key Design Decisions:**
-- ✅ **Keep tensor_t simple:** Don't match memref structure exactly
-- ✅ **CRITICAL: Support dynamic shapes from Day 1:** `shape` pointer provides runtime dimensions
-- ✅ **No interface changes needed:** Same interface works for static and dynamic shapes
-- ✅ **Runtime stride calculation:** Compute strides from runtime dimension values
-- ✅ **Type system:** Rank (4D) is compile-time, dimension values (N, C, H, W) are runtime
+- **Keep tensor_t simple:** Don't match memref structure exactly
+- **Runtime stride calculation:** Compute strides from dimension values
+- **Type system:** Rank (4D) is compile-time, dimension values loaded from shape pointer
 
 **See:** [../INTERFACE-DESIGN.md - Data Structures](../INTERFACE-DESIGN.md#32-data-structures) for complete tensor interface specification.
 
@@ -820,22 +819,18 @@ int ret = init(&state);  // Must work without stack corruption
 
 ---
 
-## Dynamic Shape Support
+## Interface Design for Runtime Shapes
 
-**CRITICAL:** This pass implements dynamic shape support!
+**Status:** Interface designed to accept runtime dimension values, but dynamic shapes not yet implemented.
 
-**How it works:**
-1. User provides tensor with shape [2, 3, 256, 256]
-2. `inference_compute` loads [2, 3, 256, 256] from `tensor_t.shape` (**runtime!**)
-3. Calculates strides: [196608, 65536, 256, 1] (**runtime!**)
-4. Builds memref struct with these **runtime values**
+**Interface design:**
+1. User provides tensor with shape via `tensor_t.shape` pointer
+2. `inference_compute` loads dimension values from pointer
+3. Calculates strides from dimension values
+4. Builds memref struct with size/stride arrays
 5. Passes to @main
-6. @main passes to wrappers
-7. Wrappers extract dimensions and pass to MIOpen
 
-**No interface changes needed** - same C API for static and dynamic shapes!
-
-See [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) for complete flow.
+See [../DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) for implementation challenges.
 
 ---
 

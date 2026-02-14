@@ -121,16 +121,17 @@ The compiled DLL has two layers: C interface (public API) and internal MLIR func
 
 ---
 
-## Dynamic Shape Support
+## Interface Design for Runtime Shapes
 
-**Critical requirement:** All components must support dynamic shapes from Day 1.
+Interface designed to accept runtime dimension values:
 
 - **Rank**: Compile-time known (e.g., 4D tensor)
-- **Dimensions**: Runtime values (loaded from tensor_t.shape)
-- **Strides**: Calculated at runtime from dimensions
-- **Interface**: No changes needed for dynamic vs static shapes
+- **Dimensions**: Loaded from tensor_t.shape pointer
+- **Strides**: Calculated from dimension values
 
-See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details.
+**Status:** Dynamic shapes not yet implemented (memory pooling incompatibility).
+
+See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for implementation challenges.
 
 ---
 

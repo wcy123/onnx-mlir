@@ -4,600 +4,281 @@ Licensed under the MIT License.
 -->
 # Dynamic Shape Support Design
 
-**Note:** This is the authoritative source for dynamic shape design. Other documents reference this for details.
+**Status:** NOT IMPLEMENTED - Design Only
+**Blocker:** Incompatible with memory pooling (60% memory savings)
 
-**Date:** 2026-02-10
+**Date:** 2026-02-14
 **Document Type:** Design
 **Review Status:** Draft
-**Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md)
+**Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md), [MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md)
 
 ---
 
 ## Overview
 
-This document explains how the MLIR-based AOT compilation pipeline supports dynamic shapes (tensors with runtime-determined dimensions) while maintaining efficient execution and clean architecture.
+Dynamic shapes (tensors with runtime-determined dimensions) are not currently supported due to fundamental incompatibility with memory pooling optimization.
 
-**Key Design Principle:** The C interface (`tensor_t` with `shape` pointer) already provides runtime shape information. All layers of the system simply propagate and use this information without requiring interface changes.
-
----
-
-## The Challenge: Static Types vs Dynamic Values
-
-### MLIR Type System
-
-MLIR's type system distinguishes between:
-- **Rank** (number of dimensions) - compile-time constant
-- **Dimension values** (size of each dimension) - can be static or dynamic
-
-**Static shape:**
-```mlir
-memref<1x3x224x224xf32, 1>  // All dimensions known at compile time
-```
-
-**Dynamic shape:**
-```mlir
-memref<?x?x224x224xf32, 1>  // First two dimensions unknown (? = dynamic)
-```
-
-**Fully dynamic:**
-```mlir
-memref<?x?x?x?xf32, 1>  // All dimensions dynamic
-```
-
-### Lowering to LLVM
-
-Both static and dynamic shapes lower to the **same struct type** (determined by rank):
-
-```mlir
-// 4D tensor (rank=4) - regardless of which dimensions are static/dynamic
-!llvm.struct<(
-  ptr<1>,           // allocated_ptr
-  ptr<1>,           // aligned_ptr
-  i64,              // offset
-  array<4 x i64>,   // sizes[4] - ACTUAL dimension values
-  array<4 x i64>    // strides[4]
-)>
-```
-
-The difference is **how the sizes array is populated**:
-- Static: `llvm.insertvalue %c224, ...` (constant)
-- Dynamic: `llvm.insertvalue %runtime_value, ...` (variable)
+The C interface design supports runtime shapes, but critical compilation passes reject dynamic dimensions, preventing real-world usage.
 
 ---
 
-## Interface Design: Already Dynamic-Ready
+## Current Limitations
 
-### C Interface (From ARCHITECTURE.md)
+### Memory Pooling Rejects Dynamic Shapes
+
+MemoryPoolingPass explicitly rejects dynamic dimensions:
+
+```cpp
+if (!memrefType.hasStaticShape()) {
+  // For now, we don't support dynamic shapes
+  // In the future, we could use conservative upper bounds
+  return failure();
+}
+```
+
+**Why this blocks dynamic shapes:**
+- Graph coloring algorithm requires compile-time buffer sizes
+- Pool size must be constant (stored as module attribute)
+- Buffer offsets must be static (attached as compile-time metadata)
+- Single pool allocation happens in `inference_init` with fixed size
+
+**Impact:** Models with dynamic dimensions cannot compile with memory pooling enabled.
+
+See [MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md) for algorithm details.
+
+### No Test Coverage for Dynamic Operations
+
+Test coverage validates memory operations only:
+- Memory allocation/deallocation with dynamic dimensions works
+- No tests for Conv/GEMM/other compute ops with dynamic shapes
+- No validation that MIOpen descriptors accept runtime dimensions correctly
+
+### Missing Performance Validation
+
+Design claims "negligible overhead" for dynamic shapes but provides no benchmarks:
+- No measurements comparing static vs dynamic compilation
+- No profiling of descriptor creation overhead
+- Claims based on theoretical analysis, not empirical data
+
+---
+
+## What Actually Works
+
+### C Interface Accepts Runtime Shapes
 
 ```c
 typedef struct {
-    void* data;          // Pointer to tensor data (CPU or GPU)
-    int64_t* shape;      // Runtime dimension values
-    int rank;            // Number of dimensions
+    void* data;
+    int64_t* shape;  // Runtime dimension values
+    int rank;
 } tensor_t;
-
-typedef struct {
-    void* data;          // Pointer to tensor_t array
-    size_t count;        // Number of tensors
-} span_t;
 
 int inference_compute(void* state, span_t* inputs, span_t* outputs);
 ```
 
-**Key observation:** The interface **already provides runtime shapes** via `tensor_t.shape` pointer!
+The interface can receive tensors with runtime-determined dimensions.
 
-This design choice was intentional:
-- CustomOp can pass static shapes (constant array)
-- CustomOp can pass dynamic shapes (runtime-computed array)
-- `inference_compute` treats both cases identically
+### GenerateInterfacePass Can Load Dimensions at Runtime
+
+Code generation supports loading shape values from pointers:
+
+```mlir
+// Load dimension value from tensor_t.shape array
+%shape_ptr = llvm.getelementptr %shape[0] : (!llvm.ptr) -> !llvm.ptr
+%size_0 = llvm.load %shape_ptr : i64
+```
+
+### Memref Structs Support Runtime Dimensions
+
+LLVM memref descriptors store dimension values in arrays:
+
+```mlir
+!llvm.struct<(
+  ptr<1>,           // allocated_ptr
+  ptr<1>,           // aligned_ptr
+  i64,              // offset
+  array<4 x i64>,   // sizes - can hold runtime values
+  array<4 x i64>    // strides
+)>
+```
+
+Static vs dynamic only differs in how the size array is populated (constants vs loads).
 
 ---
 
-## How Each Layer Handles Dynamic Shapes
+## Design Vision (Not Implemented)
 
-### Layer 1: CustomOp (Caller)
+The original design assumed dynamic shapes could work by:
 
-**Static shape example:**
-```cpp
-void MyCustomOp::Compute(OrtKernelContext* context) {
-  // Shape is compile-time constant
-  int64_t input_shape[] = {1, 3, 224, 224};
+1. CustomOp passes runtime shapes via `tensor_t.shape`
+2. `inference_compute` loads dimensions from shape pointer
+3. Memref structs built with runtime dimension values
+4. Wrapper functions extract dimensions and pass to MIOpen
+5. MIOpen handles runtime dimensions natively
 
-  tensor_t input = {
-    .data = GetInputPointer(context, 0),
-    .shape = input_shape,
-    .rank = 4
-  };
-
-  span_t inputs = {.data = &input, .count = 1};
-  inference_compute(state_, inputs, outputs);
-}
-```
-
-**Dynamic shape example:**
-```cpp
-void MyCustomOp::Compute(OrtKernelContext* context) {
-  // Shape determined at runtime
-  int64_t batch = GetInputDim(context, 0, 0);  // Could be 1, 8, 16, etc.
-  int64_t channels = GetInputDim(context, 0, 1);
-  int64_t input_shape[] = {batch, channels, 224, 224};
-
-  tensor_t input = {
-    .data = GetInputPointer(context, 0),
-    .shape = input_shape,  // Runtime values
-    .rank = 4
-  };
-
-  span_t inputs = {.data = &input, .count = 1};
-  inference_compute(state_, inputs, outputs);  // Same call!
-}
-```
-
-**No interface change needed** - the same function call handles both cases.
-
-### Layer 2: inference_compute Wrapper (GenerateInterfacePass)
-
-```mlir
-llvm.func @inference_compute(%state: !llvm.ptr,
-                              %inputs: !llvm.ptr,   // span_t*
-                              %outputs: !llvm.ptr)  // span_t*
-                              -> i32 {
-
-  // ============================================================================
-  // Parse span_t to get tensor_t
-  // ============================================================================
-  %inputs_data_ptr = llvm.getelementptr %inputs[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %inputs_data = llvm.load %inputs_data_ptr : !llvm.ptr  // tensor_t* array
-
-  %input_tensor_0 = llvm.getelementptr %inputs_data[0] : (!llvm.ptr) -> !llvm.ptr
-
-  // ============================================================================
-  // Extract tensor_t fields
-  // ============================================================================
-  // tensor_t layout: {void* data, int64_t* shape, int rank}
-
-  // Get data pointer
-  %data_field_ptr = llvm.getelementptr %input_tensor_0[0, 0] : (!llvm.ptr) -> !llvm.ptr
-  %data = llvm.load %data_field_ptr : !llvm.ptr
-
-  // Get shape pointer
-  %shape_field_ptr = llvm.getelementptr %input_tensor_0[0, 1] : (!llvm.ptr) -> !llvm.ptr
-  %shape = llvm.load %shape_field_ptr : !llvm.ptr  // int64_t* array
-
-  // Get rank
-  %rank_field_ptr = llvm.getelementptr %input_tensor_0[0, 2] : (!llvm.ptr) -> !llvm.ptr
-  %rank = llvm.load %rank_field_ptr : i32
-
-  // ============================================================================
-  // Build memref descriptor from runtime shape
-  // ============================================================================
-  // Read dimension values from shape array (works for both static and dynamic!)
-  %shape_0_ptr = llvm.getelementptr %shape[0] : (!llvm.ptr) -> !llvm.ptr
-  %size_0 = llvm.load %shape_0_ptr : i64  // Load actual value
-
-  %shape_1_ptr = llvm.getelementptr %shape[1] : (!llvm.ptr) -> !llvm.ptr
-  %size_1 = llvm.load %shape_1_ptr : i64  // Load actual value
-
-  %shape_2_ptr = llvm.getelementptr %shape[2] : (!llvm.ptr) -> !llvm.ptr
-  %size_2 = llvm.load %shape_2_ptr : i64
-
-  %shape_3_ptr = llvm.getelementptr %shape[3] : (!llvm.ptr) -> !llvm.ptr
-  %size_3 = llvm.load %shape_3_ptr : i64
-
-  // Compute strides (row-major): stride[i] = product(shape[i+1:])
-  %stride_3 = llvm.mlir.constant(1 : i64) : i64
-  %stride_2 = llvm.mul %size_3, %stride_3 : i64
-  %stride_1 = llvm.mul %size_2, %stride_2 : i64
-  %stride_0 = llvm.mul %size_1, %stride_1 : i64
-
-  // Build memref struct (4D)
-  %desc = llvm.mlir.poison : !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>
-
-  %data_gpu = llvm.addrspacecast %data : !llvm.ptr to !llvm.ptr<1>
-  %desc = llvm.insertvalue %data_gpu, %desc[0] : !llvm.struct<...>  // allocated_ptr
-  %desc = llvm.insertvalue %data_gpu, %desc[1] : !llvm.struct<...>  // aligned_ptr
-
-  %offset = llvm.mlir.constant(0 : i64) : i64
-  %desc = llvm.insertvalue %offset, %desc[2] : !llvm.struct<...>
-
-  // Insert sizes (could be constants or runtime values - doesn't matter!)
-  %desc = llvm.insertvalue %size_0, %desc[3, 0] : !llvm.struct<...>
-  %desc = llvm.insertvalue %size_1, %desc[3, 1] : !llvm.struct<...>
-  %desc = llvm.insertvalue %size_2, %desc[3, 2] : !llvm.struct<...>
-  %desc = llvm.insertvalue %size_3, %desc[3, 3] : !llvm.struct<...>
-
-  // Insert strides
-  %desc = llvm.insertvalue %stride_0, %desc[4, 0] : !llvm.struct<...>
-  %desc = llvm.insertvalue %stride_1, %desc[4, 1] : !llvm.struct<...>
-  %desc = llvm.insertvalue %stride_2, %desc[4, 2] : !llvm.struct<...>
-  %desc = llvm.insertvalue %stride_3, %desc[4, 3] : !llvm.struct<...>
-
-  // ============================================================================
-  // Call @main with memref struct (same for static or dynamic shapes!)
-  // ============================================================================
-  %ret = llvm.call @main(%state, %desc, %output_desc) : (...) -> i32
-
-  llvm.return %ret : i32
-}
-```
-
-**Key point:** Whether `%size_0` is a constant (from static shape) or a variable (from dynamic shape), the code is **identical**. We just load from the `shape` pointer.
-
-### Layer 3: @main Function
-
-```mlir
-llvm.func @main(%ctx: !llvm.ptr,
-                %input: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>,
-                %output: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>)
-                -> i32
-  attributes {
-    inference.num_inputs = 1 : i64,
-    inference.num_outputs = 1 : i64
-  } {
-
-  // Get constants
-  %weights = [hip.get_constant(...)]
-  %bias = [hip.get_constant(...)]
-
-  // Allocate temporary buffer
-  // ... (build temp memref struct)
-
-  // Call wrapper - passes memref structs (contain actual dimension values)
-  %ret = llvm.call @hip_conv_wrapper(
-    %ctx, %input, %weights, %bias, %temp
-  ) : (...) -> i32
-
-  llvm.return %ret : i32
-}
-```
-
-**@main doesn't care about static vs dynamic** - it just passes memref structs to wrapper functions.
-
-### Layer 4: Wrapper Functions (HipToLLVM Pass)
-
-```mlir
-llvm.func @hip_conv_wrapper(
-    %ctx: !llvm.ptr,
-    %input: !llvm.struct<(ptr<1>, ptr<1>, i64, array<4xi64>, array<4xi64>)>,
-    %weights: !llvm.struct<...>,
-    %bias: !llvm.struct<...>,
-    %output: !llvm.struct<...>,
-    %kernel_h: i64, %kernel_w: i64,
-    %stride_h: i64, %stride_w: i64,
-    ...) -> i32 {
-
-  // ============================================================================
-  // Extract dimension values from memref struct
-  // ============================================================================
-  %input_ptr = llvm.extractvalue %input[1] : !llvm.struct<...>
-
-  // These could be constants (static) or variables (dynamic) - doesn't matter!
-  %input_n = llvm.extractvalue %input[3, 0] : !llvm.struct<...>  // sizes[0]
-  %input_c = llvm.extractvalue %input[3, 1] : !llvm.struct<...>  // sizes[1]
-  %input_h = llvm.extractvalue %input[3, 2] : !llvm.struct<...>  // sizes[2]
-  %input_w = llvm.extractvalue %input[3, 3] : !llvm.struct<...>  // sizes[3]
-
-  // ============================================================================
-  // Create MIOpen tensor descriptor with ACTUAL dimension values
-  // ============================================================================
-  %xDesc_ptr = llvm.alloca %c1 x !llvm.ptr : (i64) -> !llvm.ptr
-  llvm.call @miopenCreateTensorDescriptor(%xDesc_ptr) : (!llvm.ptr) -> i32
-  %xDesc = llvm.load %xDesc_ptr : !llvm.ptr
-
-  %dataType = llvm.mlir.constant(0 : i32) : i32  // miopenFloat
-  llvm.call @miopenSet4dTensorDescriptor(
-    %xDesc, %dataType,
-    %input_n,  // Could be constant(1) or runtime variable
-    %input_c,  // Could be constant(3) or runtime variable
-    %input_h,  // Could be constant(224) or runtime variable
-    %input_w   // Could be constant(224) or runtime variable
-  ) : (!llvm.ptr, i32, i64, i64, i64, i64) -> i32
-
-  // Similar for weights, output descriptors...
-
-  // ============================================================================
-  // Call MIOpen with runtime dimension values
-  // ============================================================================
-  %ret = llvm.call @miopenConvolutionForward(
-    %miopen, %alpha, %xDesc, %input_ptr,
-    %wDesc, %weights_ptr, %convDesc, %algo,
-    %beta, %yDesc, %output_ptr, %workspace, %workspace_size
-  ) : (...) -> i32
-
-  // Cleanup descriptors
-  llvm.call @miopenDestroyTensorDescriptor(%xDesc) : (!llvm.ptr) -> i32
-  // ...
-
-  llvm.return %ret : i32
-}
-```
-
-**The wrapper is shape-agnostic!** It:
-1. Extracts dimension values from memref struct (SSA values)
-2. Passes them to MIOpen
-
-Whether those values are compile-time constants or runtime variables is **irrelevant** - MIOpen just gets `i64` values either way.
+**This design is sound for the interface and runtime layers, but breaks at the memory pooling optimization layer.**
 
 ---
 
-## Concrete Examples
+## Implementation Challenges
 
-### Example 1: Static Shape ResNet50
+### Challenge 1: Memory Pooling Requires Static Sizes
 
-**ONNX Model:**
-```
-Input: tensor<1x3x224x224xf32>  // Fixed batch=1
-Output: tensor<1x1000xf32>
-```
+Graph coloring algorithm assigns buffer offsets based on:
+- Computing exact buffer sizes (bytes = elements × element_size)
+- Building interference graph from liveness analysis
+- Assigning static offsets that don't overlap
 
-**CustomOp provides:**
-```cpp
-int64_t input_shape[] = {1, 3, 224, 224};  // Constants
-tensor_t input = {data, input_shape, 4};
-```
+Dynamic shapes break this because:
+- Buffer size unknown at compile time
+- Cannot assign fixed offsets without knowing sizes
+- Pool size cannot be computed without knowing all buffer sizes
 
-**What happens:**
-- `inference_compute` loads: `%size_0 = load [1]`, `%size_1 = load [3]`, etc.
-- LLVM optimizer sees these are constants from a global array
-- **Optimization:** LLVM inlines the constants, MIOpen descriptors created with constant dimensions
-- **Result:** Nearly identical performance to pure static compilation
+### Challenge 2: Conservative Upper Bounds Add Complexity
 
-### Example 2: Dynamic Batch Size
+Potential workaround: Use conservative upper bounds for dynamic dimensions.
 
-**ONNX Model:**
-```
-Input: tensor<?x3x224x224xf32>  // Batch size varies
-Output: tensor<?x1000xf32>
-```
+Challenges:
+- How to specify upper bounds? (in model, in EP config, hardcoded?)
+- Wastes memory for common case (batch=1 but plan for batch=64)
+- Requires tracking actual vs maximum dimensions
+- Pool may be much larger than needed (defeats pooling benefit)
 
-**CustomOp provides (batch=8 this time):**
-```cpp
-int64_t batch = GetBatchSize();  // Runtime: 8
-int64_t input_shape[] = {batch, 3, 224, 224};
-tensor_t input = {data, input_shape, 4};
-```
+### Challenge 3: Multi-Pool Strategy
 
-**What happens:**
-- `inference_compute` loads: `%size_0 = load [8]`, `%size_1 = load [3]`, etc.
-- These are runtime values (LLVM can't optimize away)
-- MIOpen descriptors created with runtime batch size
-- **Result:** Slightly slower descriptor creation (~microseconds), but convolution performance identical
+Alternative: Separate pools for static and dynamic buffers.
 
-### Example 3: Fully Dynamic (Variable Sequence Length)
+Challenges:
+- Static buffers use graph coloring (current implementation)
+- Dynamic buffers use individual allocations (defeats pooling)
+- Mixed models (some static, some dynamic ops) get no pooling benefit for dynamic parts
+- Increased code complexity for marginal benefit
 
-**ONNX Model:**
-```
-Input: tensor<?x?x?x?xf32>  // NLP model with variable sequence length
-```
+### Challenge 4: Runtime Pool Sizing
 
-**CustomOp provides:**
-```cpp
-int64_t shape[] = {batch, seq_len, hidden_dim, num_heads};  // All runtime
-tensor_t input = {data, shape, 4};
-```
+Alternative: Compute pool size at runtime in `inference_init`.
 
-**What happens:**
-- All dimensions loaded at runtime
-- MIOpen descriptors created with full runtime dimensions
-- **Performance:** Descriptor creation overhead (~1-2 microseconds per operation), negligible compared to GPU compute time
+Challenges:
+- Requires passing dimension information to `inference_init`
+- Interface change (breaks C ABI stability)
+- Complicates initialization (may fail due to OOM)
+- Still need conservative bounds or multi-pool strategy
 
 ---
 
-## Performance Implications
+## Implementation Status
 
-### Static Shape Advantages
+### What Needs Implementation
 
-**Compile-time optimizations:**
-```mlir
-// Static: LLVM can constant-fold
-%size = llvm.mlir.constant(224 : i64) : i64
-%stride = llvm.mul %size, %size : i64  // LLVM computes: 224*224 = 50176 at compile time
-```
+- [ ] ~~Generate `@main` with rank-specific memref struct types~~ (assumed done, not tested with dynamic shapes)
+- [ ] ~~Add function attributes for ranks~~ (assumed done, not tested)
+- [ ] ~~Lower memrefs to structs in HipToLLVM~~ (assumed done for static shapes)
+- [ ] ~~Generate wrapper functions~~ (assumed done for static shapes)
+- [ ] ~~Generate `inference_compute` that loads dimensions~~ (assumed done, not tested)
+- [ ] ~~Compute strides from dimensions~~ (assumed done, not tested)
+- [ ] ~~Build memref struct with runtime dimensions~~ (assumed done, not tested)
+- [ ] Test Conv with dynamic batch: `?x3x224x224xf32`
+- [ ] Test GEMM with dynamic dims: `?x256xf32`, `256x?xf32`
+- [ ] Test fully dynamic: `?x?x?x?xf32`
+- [ ] Benchmark static vs dynamic overhead
+- [ ] Resolve memory pooling incompatibility (choose approach from challenges)
+- [ ] Implement chosen approach (conservative bounds, multi-pool, or runtime sizing)
 
-**LLVM optimizations:**
-- Constant propagation through MIOpen descriptor creation
-- Dead code elimination for unused dimensions
-- Loop unrolling based on known sizes
+### Current State
 
-**Estimated overhead:** ~0 (compiled away)
+**Works:**
+- C interface accepts runtime shapes
+- Code generation can emit dimension loads
+- Memref descriptors support runtime values
 
-### Dynamic Shape Overhead
-
-**Runtime operations:**
-```mlir
-// Dynamic: LLVM must emit actual loads and multiplies
-%size = llvm.load %shape_ptr : i64     // Runtime load
-%stride = llvm.mul %size, %other : i64  // Runtime multiply
-```
-
-**Estimated overhead per tensor:**
-- Loads: ~4 loads × 1-2 cycles = 4-8 cycles
-- Stride computation: ~3 multiplies × 1-3 cycles = 3-9 cycles
-- MIOpen descriptor creation: ~500-1000 cycles (dominates)
-
-**Total overhead:** ~1-2 microseconds per operation
-
-**Context:** GPU convolution takes milliseconds
-- ResNet50 conv layer: ~500 microseconds
-- Dynamic shape overhead: ~1 microsecond (~0.2%)
-- **Negligible impact on end-to-end performance**
+**Does NOT work:**
+- Memory pooling with dynamic shapes (rejected at compile time)
+- Any model with dynamic dimensions (pooling is mandatory)
+- Compute operations with dynamic shapes (no test coverage)
 
 ---
 
-## Design Decisions
+## Technical Background
 
-### Decision 1: Support Dynamic Shapes from Day 1
+### MLIR Type System
 
-**Rationale:**
-- C interface already provides runtime shapes (no redesign needed)
-- Implementation cost is low (just load from shape pointer instead of constants)
-- Handles all use cases (static shapes work as special case of dynamic)
-- More future-proof (users expect dynamic shapes)
+MLIR distinguishes rank (compile-time) from dimension values (static or dynamic):
 
-**Trade-off:**
-- Slightly more complex code generation (but not significantly)
-- Negligible runtime overhead (~0.2% on GPU-bound workloads)
-
-**Conclusion:** ✅ Support dynamic shapes in Phase 1
-
-### Decision 2: Memref Struct Type Determined by Rank Only
-
-**Rationale:**
-- MLIR's type system requires compile-time rank
-- `!llvm.struct<(..., array<4 x i64>, ...)>` vs `!llvm.struct<(..., array<2 x i64>, ...)>` are different types
-- Cannot have fully rank-polymorphic `@main` in LLVM dialect
-
-**Implication:**
-- `@main` signature must be generated for specific tensor ranks
-- ONNX→HIP pass must know input/output ranks when generating `@main`
-
-**Metadata needed:**
 ```mlir
-llvm.func @main(...) attributes {
-  inference.num_inputs = 1 : i64,
-  inference.num_outputs = 1 : i64,
-  inference.input_ranks = [4] : i64,   // Input is 4D
-  inference.output_ranks = [2] : i64   // Output is 2D
-}
+memref<1x3x224x224xf32, 1>     // Static shape
+memref<?x3x224x224xf32, 1>     // Dynamic batch
+memref<?x?x?x?xf32, 1>         // Fully dynamic
 ```
 
-### Decision 3: Strides Computed in inference_compute
+All 4D tensors lower to same struct type (determined by rank=4), regardless of which dimensions are static.
 
-**Rationale:**
-- Row-major layout is standard (stride[i] = product(shape[i+1:]))
-- Simple formula, easily generated in MLIR
-- No need to require CustomOp to provide strides
+### Lowering to LLVM
 
-**Alternative considered:** CustomOp computes and provides strides
-- ❌ Rejected: More burden on CustomOp, more error-prone
+Difference between static and dynamic is how size array is populated:
 
-### Decision 4: No Shape Validation in inference_compute
+```mlir
+// Static: constant
+%desc = llvm.insertvalue %c224, %desc[3, 2]
 
-**Rationale:**
-- CustomOp already validated shapes (ONNX Runtime requirement)
-- MIOpen will fail with clear error if shapes are incompatible
-- Extra validation adds overhead without benefit
+// Dynamic: runtime value
+%size = llvm.load %shape_ptr : i64
+%desc = llvm.insertvalue %size, %desc[3, 2]
+```
 
-**Alternative considered:** Assert shapes match expected ranges
-- ❌ Rejected: Redundant validation, performance cost
+The struct type is identical; only the initialization differs.
 
 ---
 
-## Implementation Checklist
+## Potential Paths Forward
 
-### ONNX→HIP Pass
+### Option 1: Disable Pooling for Dynamic Models
 
-- [ ] Generate `@main` with rank-specific memref struct types
-- [ ] Add function attributes: `inference.num_inputs`, `inference.num_outputs`, `inference.input_ranks`, `inference.output_ranks`
-- [ ] Handle multiple inputs/outputs with correct ranks
+**Approach:** Detect dynamic shapes, skip MemoryPoolingPass entirely.
 
-### HIP→LLVM Pass
+**Trade-offs:**
+- ✅ Simple to implement
+- ✅ Dynamic shapes work (no pooling rejection)
+- ❌ Lose 60% memory savings
+- ❌ All-or-nothing (mixed models get no pooling)
 
-- [ ] Lower `@main` memrefs to struct-by-value (not unpacked)
-- [ ] Generate wrapper functions that extract dimension values from memref structs
-- [ ] Wrapper functions pass dimension values to MIOpen/hipBLAS
+### Option 2: Conservative Upper Bounds
 
-### GenerateInterfacePass
+**Approach:** User specifies maximum dimensions, pool uses worst-case sizes.
 
-- [ ] Parse `@main` attributes to discover number of inputs/outputs and their ranks
-- [ ] Generate `inference_compute` that:
-  - [ ] Parses `span_t` to get `tensor_t` array
-  - [ ] For each tensor, loads dimensions from `tensor_t.shape`
-  - [ ] Computes strides from dimensions (row-major)
-  - [ ] Builds memref struct with runtime dimensions
-  - [ ] Calls `@main` with memref structs
-- [ ] Handle multiple inputs/outputs
+**Trade-offs:**
+- ✅ Pooling still works
+- ✅ Dynamic shapes supported
+- ❌ Wastes memory (plan for max, use less)
+- ❌ Requires interface change (how to specify bounds?)
+- ❌ Complex metadata (actual dims vs max dims)
 
-### Testing
+### Option 3: Multi-Pool Strategy
 
-- [ ] Test with static shapes (verify LLVM optimizes constants)
-- [ ] Test with dynamic batch size (verify correctness)
-- [ ] Test with fully dynamic shapes (verify correctness)
-- [ ] Benchmark overhead (should be <1% of total inference time)
+**Approach:** Static buffers use graph coloring pool, dynamic buffers use separate pool or individual allocations.
 
----
+**Trade-offs:**
+- ✅ Static ops get full pooling benefit
+- ✅ Dynamic ops don't block static pooling
+- ❌ Complex implementation (two allocation strategies)
+- ❌ Dynamic ops lose pooling benefit
+- ❌ May require multiple `hipMalloc` calls
 
-## Future Enhancements
+### Option 4: Runtime Pool Computation
 
-### Optimization: Shape Caching
+**Approach:** Defer pool size computation to `inference_init`, compute based on actual input dimensions.
 
-If the same shape is used repeatedly, cache the MIOpen descriptors in state:
-
-```c
-struct InferenceState {
-  void* hip_stream;
-  void* miopen_handle;
-  void* hipblas_handle;
-  void* weight_pointers[N];
-
-  // NEW: Shape cache
-  struct {
-    int64_t last_input_shape[4];
-    miopenTensorDescriptor_t input_desc;
-    miopenTensorDescriptor_t output_desc;
-  } descriptor_cache;
-};
-```
-
-Wrapper function checks cache:
-```mlir
-// Check if shape changed
-%same = compare %input_n with %cached_n, %input_c with %cached_c, ...
-if %same:
-  %xDesc = load cached descriptor
-else:
-  create new descriptor
-  update cache
-```
-
-**Benefit:** Amortizes descriptor creation cost for static or slowly-changing shapes.
-
-### Optimization: Compile-Time Shape Specialization
-
-For common shapes (e.g., batch=1), generate specialized `@main_batch1` function:
-
-```mlir
-// Generic (dynamic batch)
-llvm.func @main(%ctx, %input, %output) -> i32
-
-// Specialized (batch=1, fully static)
-llvm.func @main_batch1(%ctx, %input, %output) -> i32
-  // All dimensions hardcoded, LLVM can fully optimize
-```
-
-Runtime dispatcher chooses specialized version when shapes match:
-```mlir
-llvm.func @inference_compute(...) {
-  %batch = extract batch from tensor_t
-  if %batch == 1:
-    call @main_batch1(...)
-  else:
-    call @main(...)
-}
-```
-
-**Benefit:** Best-of-both-worlds - static performance for common cases, dynamic flexibility for others.
+**Trade-offs:**
+- ✅ Exact pool size (no waste)
+- ✅ Pooling benefit preserved
+- ❌ Interface change (pass dimensions to init)
+- ❌ Initialization can fail (OOM)
+- ❌ Complex: need graph coloring at runtime or conservative compile-time bounds
 
 ---
 
-## Summary
+## Related Documents
 
-**Dynamic shape support is achieved through:**
-1. ✅ C interface provides runtime shapes (`tensor_t.shape`)
-2. ✅ `inference_compute` loads dimensions from shape pointer
-3. ✅ Memref structs built with runtime dimensions
-4. ✅ Wrapper functions extract dimensions and pass to MIOpen
-5. ✅ MIOpen handles runtime dimensions natively
-
-**No interface changes needed** - the design was already dynamic-ready from the start.
-
-**Performance impact:** Negligible (<1% overhead for dynamic shapes vs static shapes)
-
-**Implementation complexity:** Low - just load from pointer instead of using constants.
-
----
-
-**Related Documents:**
 - [ARCHITECTURE.md](ARCHITECTURE.md) - C interface design
-- [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - Wrapper functions, two-layer architecture
-- [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) - Runtime state struct layout
+- [MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md) - Memory pooling algorithm and limitations
+- [BUFFER-LIFETIME-DESIGN.md](BUFFER-LIFETIME-DESIGN.md) - Buffer lifetime management
+- [MLIR-COMPILATION-DESIGN.md](MLIR-COMPILATION-DESIGN.md) - Wrapper functions and compilation pipeline

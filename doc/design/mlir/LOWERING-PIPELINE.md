@@ -207,7 +207,7 @@ llvm.func @hip_conv_wrapper(%ctx: !llvm.ptr,
                              %input: !llvm.struct<...>,   // Struct-by-value!
                              %weights: !llvm.struct<...>,
                              ...) -> i32 {
-  // Extract RUNTIME dimensions (dynamic shape support!)
+  // Extract dimensions from memref struct
   %n = llvm.extractvalue %input[3, 0] : !llvm.struct<...> -> i64
   %c = llvm.extractvalue %input[3, 1] : !llvm.struct<...> -> i64
   // Pass runtime dimensions to MIOpen
@@ -405,7 +405,7 @@ This pass requires specific module structure from previous passes. See [passes/G
 
 1. **Progressive lowering**: High-level semantics → low-level implementation across stages
 2. **Explicit state management**: Context/state passed explicitly (no hidden globals)
-3. **Dynamic shapes from Day 1**: Rank is compile-time, dimensions are runtime
+3. **Interface designed for runtime shapes**: Rank is compile-time, dimension values loaded from pointers
 4. **Two-layer architecture**:
    - External: C interface (`inference_*`) for users
    - Internal: MLIR functions (`@main`, helpers) for optimization
@@ -424,7 +424,7 @@ These documents provide detailed specifications for implementing each pass:
   - Input/output formats, constant extraction, operation patterns, helper generation
 
 - **[passes/HipToLLVM.md](passes/HipToLLVM.md)** - HIP to LLVM dialect lowering
-  - Wrapper generation, @main transformation, dynamic shape support in wrappers
+  - Wrapper generation, @main transformation
 
 - **[passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md)** - C interface generation
   - Prerequisites, inference_init/compute/cleanup implementation, validation

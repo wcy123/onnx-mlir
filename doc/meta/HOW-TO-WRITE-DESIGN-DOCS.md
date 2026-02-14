@@ -15,14 +15,15 @@ Licensed under the MIT License.
 
 1. **No source code file paths** - Reference abstractions only (`RuntimeState`, `inference_init`, `@main`), never files (`lib/Foo.cpp:123`)
 2. **No duplication** - Before writing, search doc/ for existing content. Link instead of copy/paste.
-3. **Visual diagram if helpful** - Use for >2 components or non-trivial flow
-4. **Concrete metrics only** - If you have metrics from code/benchmarks, use them. Never guess numbers.
-5. **No fluff** - Delete adjectives and vague claims
-6. **No marketing language** - Delete: elegant, powerful, robust, seamless, comprehensive, etc.
-7. **No bureaucracy** - Delete: purpose statements, background sections, scope sections if obvious
-8. **Minimal speculation** - Focus on current design. Only add "Future Work" if user requested or doc needs it.
-9. **No discussion history** - Don't record committee discussions unless user explicitly requests it
-10. **Alternatives only if needed** - Don't compare with alternative solutions unless user requests it or decision is non-obvious
+3. **Use hyperlinks extensively** - Reference other docs instead of repeating information. Every time you mention a concept documented elsewhere, add a hyperlink. Link to related docs in "Related Documents" section with purpose statement.
+4. **Visual diagram if helpful** - Use for >2 components or non-trivial flow
+5. **Concrete metrics only** - If you have metrics from code/benchmarks, use them. Never guess numbers.
+6. **No fluff** - Delete adjectives and vague claims
+7. **No marketing language** - Delete: elegant, powerful, robust, seamless, comprehensive, etc.
+8. **No bureaucracy** - Delete: purpose statements, background sections, scope sections if obvious
+9. **Minimal speculation** - Focus on current design. Only add "Future Work" if user requested or doc needs it.
+10. **No discussion history** - Don't record committee discussions unless user explicitly requests it
+11. **Alternatives only if needed** - Don't compare with alternative solutions unless user requests it or decision is non-obvious
 
 ---
 
@@ -144,6 +145,8 @@ Analysis/comparison → Tech Note
 ### Duplication
 ❌ Copying interface definition from INTERFACE-DESIGN.md
 ✅ "For interface spec: [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md)"
+❌ Repeating memory pooling algorithm details
+✅ "Memory pooling uses graph coloring. See [MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md)"
 
 ---
 
@@ -156,6 +159,7 @@ Analysis/comparison → Tech Note
 [ ] Diagram if helpful (>2 components or complex flow)
 [ ] No vague claims (concrete metrics only if measured)
 [ ] Links have purpose statements
+[ ] Hyperlinks used extensively (every concept links to its doc)
 [ ] TOC if >100 lines
 [ ] No marketing words (powerful, elegant, robust, seamless, comprehensive)
 [ ] Searched doc/ for duplication - linked instead of copying

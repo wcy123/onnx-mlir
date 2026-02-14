@@ -461,7 +461,7 @@ The generated function delegates I/O management to runtime helper functions whil
 
 **Design rationale**: Runtime helpers encapsulate parsing/validation/transfers, reducing generated code complexity. See [mlir/passes/GenerateInterfacePass.md](../design/mlir/passes/GenerateInterfacePass.md) for design details.
 
-This design ensures **zero-copy for constants** (weights stay in RuntimeState) and **dynamic shape support** (helpers load dimensions from tensor_t.shape at runtime).
+This design ensures **zero-copy for constants** (weights stay in RuntimeState). Interface accepts runtime shape values via `tensor_t.shape` (dynamic shapes not yet implemented, see [DYNAMIC-SHAPE-DESIGN.md](../design/DYNAMIC-SHAPE-DESIGN.md)).
 
 ```mlir
 // ✅ EXPORT 1: Initialize GPU state (delegates to runtime)

@@ -327,6 +327,7 @@ Applied to:
 
 ## Limitations
 
+- **Static shapes only**: Dynamic dimensions not supported. MemoryPoolingPass rejects buffers with runtime-determined sizes because graph coloring requires compile-time known buffer sizes to compute offsets and pool size. See [DYNAMIC-SHAPE-DESIGN.md](../../DYNAMIC-SHAPE-DESIGN.md) for challenges and potential solutions.
 - **Single pool**: No multi-pool strategy for different memory types
 - **Greedy coloring**: Not optimal bin packing (NP-hard problem)
 

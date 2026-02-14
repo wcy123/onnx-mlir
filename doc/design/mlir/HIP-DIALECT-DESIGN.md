@@ -132,14 +132,14 @@ Each HIP operation gets a corresponding wrapper function. See [LOWERING-PIPELINE
 
 **Key steps in wrapper:**
 1. Extract data pointers from memref structs
-2. **Extract runtime dimensions from memref structs** (supports dynamic shapes!)
+2. Extract dimensions from memref structs (values from size array)
 3. Get library handle from context
-4. Create descriptors using runtime dimensions
+4. Create descriptors using dimension values
 5. Call MIOpen/hipBLAS
 6. Cleanup descriptors
 7. Return status
 
-**Critical for dynamic shapes:** Wrappers extract dimension values from memref structs at runtime:
+Wrappers extract dimension values from memref structs:
 
 ```mlir
 // Extract runtime dimensions (not compile-time constants!)
@@ -153,12 +153,14 @@ llvm.call @miopenSet4dTensorDescriptor(%xDesc, %dataType,
                                         %input_n, %input_c, %input_h, %input_w)
 ```
 
-This is how dynamic shapes work end-to-end:
-1. User provides tensor with shape [2, 3, 256, 256]
-2. inference_compute loads dimensions from tensor_t.shape
-3. Builds memref struct with sizes = [2, 3, 256, 256] (runtime values!)
+Interface design for runtime shapes (not yet implemented):
+1. User provides tensor with shape via tensor_t.shape pointer
+2. inference_compute loads dimensions from pointer
+3. Builds memref struct with size array containing dimension values
 4. @main passes memref to wrapper
 5. Wrapper extracts dimensions and passes to MIOpen
+
+See [DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for implementation challenges.
 
 ### Wrapper Generation in HipToLLVM Pass
 

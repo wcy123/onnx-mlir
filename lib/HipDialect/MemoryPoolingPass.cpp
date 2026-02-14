@@ -190,8 +190,11 @@ private:
 
     // Check for dynamic shapes
     if (!memrefType.hasStaticShape()) {
-      // For now, we don't support dynamic shapes
-      // In the future, we could use conservative upper bounds
+      // Memory pooling requires compile-time known buffer sizes for:
+      // - Graph coloring algorithm (computes static offsets)
+      // - Module metadata (hipdnn.pool_size, hipdnn.buffer_offsets are constants)
+      // - Runtime pool allocation (single fixed-size pool)
+      // See doc/design/DYNAMIC-SHAPE-DESIGN.md for design challenges
       return failure();
     }
 

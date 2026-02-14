@@ -156,7 +156,7 @@ Extract runtime information from memref struct fields:
 - Allocated pointer (`field[0]`)
 - Aligned data pointer (`field[1]`)
 - Offset (`field[2]`)
-- Dimension sizes (`field[3, i]`) - **runtime values for dynamic shapes**
+- Dimension sizes (`field[3, i]`) - values from size array
 - Strides (`field[4, i]`)
 
 ### 2. **Descriptor Creation**

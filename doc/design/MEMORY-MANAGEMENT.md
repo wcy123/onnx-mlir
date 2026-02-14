@@ -29,6 +29,8 @@ All levels use destination-passing style: caller allocates output buffers, calle
 
 No memory is returned from functions - all outputs are written to caller-provided buffers.
 
+**Note:** This design works for static shapes. Dynamic shape support requires resolving memory pooling incompatibility. See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md).
+
 ---
 
 ## Memory Categories

@@ -78,11 +78,11 @@ Computation complete
 - No C++ name mangling
 - Standard calling conventions (cdecl/sysv)
 
-**Why dynamic shape support?**
-- Same compiled DLL handles different batch sizes
-- No recompilation needed for shape changes
-- Runtime flexibility for deployment
-- See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete design
+**Why interface designed for dynamic shapes?**
+- Interface accepts runtime dimension values via `tensor_t.shape`
+- Rank (number of dimensions) is compile-time known
+- Dimension values can be runtime-determined (not yet implemented)
+- See [DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for implementation challenges
 
 ---
 
@@ -251,7 +251,7 @@ typedef struct {
   - For outputs: CPU memory (user-allocated, function fills)
 - `shape`: Pointer to array of dimension sizes
   - Example: For 4D tensor with shape [2, 3, 224, 224], shape[0]=2, shape[1]=3, etc.
-  - **Critical:** Runtime values - enables dynamic shapes
+  - Runtime values (interface supports dynamic shapes, not yet implemented)
 - `rank`: Number of dimensions (must match model's expected rank)
   - Example: 4 for NCHW image tensor, 2 for fully connected output
 - `data_type`: Element type (see table below)
@@ -369,23 +369,20 @@ span_t input_span = {
 - **Rejected:** Requires different signature for each model topology
 - **Scalability problem:** Cannot compile generic DLL loader
 
-### 4.3 Why Dynamic Shape Support?
+### 4.3 Why Interface Designed for Dynamic Shapes?
 
 **Problem:** Production models need batch size flexibility
 
-**Solution:** Runtime dimension values via `tensor_t.shape` pointer
-
-**Benefits:**
-- Same DLL handles batch size 1 (inference) and batch size 32 (training)
-- No recompilation needed for shape changes
-- Deployment flexibility (single artifact for all batch sizes)
+**Interface design:** Runtime dimension values via `tensor_t.shape` pointer
 
 **Design invariants:**
 - Tensor **rank** is compile-time known (e.g., always 4D for images)
-- Dimension **values** are runtime (loaded from tensor_t.shape)
-- No interface changes needed (same C API for static and dynamic)
+- Dimension **values** can be runtime-determined (interface supports it)
+- Same C API for static and dynamic
 
-**See:** [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for complete dynamic shape architecture
+**Implementation status:** Dynamic shapes not yet supported due to memory pooling incompatibility.
+
+**See:** [DYNAMIC-SHAPE-DESIGN.md](../DYNAMIC-SHAPE-DESIGN.md) for implementation challenges and potential solutions
 
 ### 4.4 Why C-ABI Compatibility?
 
