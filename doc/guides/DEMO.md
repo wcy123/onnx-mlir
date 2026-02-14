@@ -176,7 +176,7 @@ The `--generate-interface` pass **wraps** @main and uses the constant registry t
 
 ```bash
 # Complete MLIR → DLL compilation (continuing from demo_two_layer_conv.mlir)
-export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
+export PATH="../../local/bin:$PATH"  # For zlibd.dll (adjust if LLVM installed elsewhere)
 ../../build/$(basename $PWD)/bin/Debug/mlir-hip-compiler.exe \
   tools/hip-opt/demo_two_layer_conv.mlir \
   --from-onnx-mlir \
@@ -681,7 +681,7 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
   > ../output/my_stage3.mlir
 
 # 5. Run Stage 4: Compile to DLL (complete pipeline)
-export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
+export PATH="../../local/bin:$PATH"  # For zlibd.dll (adjust if LLVM installed elsewhere)
 ../../build/onnx-hipdnn-ep/bin/mlir-hip-compiler.exe \
   ../output/my_stage3.mlir \
   -o ../output/my_inference.dll \
@@ -854,9 +854,10 @@ Full outputs available in `../output/` directory.
 **What is this document?**
 A guide for live MLIR compilation demos. Use it for free-form technical discussions, not as a rigid script.
 
-**Two simple principles:**
+**Three simple principles:**
 
-1. **Use real output** - Copy examples from actual compiler runs (files in `../output/`), not made-up code
+1. **Use real output** - Copy examples from actual compiler runs (files in `../output/`), sanitizing any user-specific absolute paths
 2. **Don't make stale claims** - Avoid line counts, timing estimates, or other numbers that change frequently
+3. **Sanitize paths in output** - Replace absolute paths with relative paths (following project's `../../local`, `../../build/$(basename $PWD)` convention)
 
-That's it. Keep the demos working, keep the examples real.
+That's it. Keep the demos working, keep the examples real, keep paths portable.
