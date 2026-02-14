@@ -42,7 +42,8 @@ def Hip_DestroyHandleOp : Hip_Op<"destroy_handle", []> {
 }
 
 def Hip_AllocOp : Hip_Op<"alloc", [
-  DeclareOpInterfaceMethods<AllocationOpInterface, ["buildDealloc", "buildClone"]>
+  DeclareOpInterfaceMethods<AllocationOpInterface, ["buildDealloc", "buildClone"]>,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
 ]> {
   let summary = "Allocate device memory";
   let description = [{
@@ -65,7 +66,9 @@ def Hip_AllocOp : Hip_Op<"alloc", [
   }];
 }
 
-def Hip_FreeOp : Hip_Op<"free", []> {
+def Hip_FreeOp : Hip_Op<"free", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "Free device memory";
   let description = [{
     Frees device memory allocated with hip.alloc.

@@ -50,6 +50,20 @@ std::optional<Value> mlir::hip::AllocOp::buildClone(
 // MemoryEffectsOpInterface Implementations
 //===----------------------------------------------------------------------===//
 
+void mlir::hip::AllocOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  // hip.alloc allocates GPU memory
+  effects.emplace_back(MemoryEffects::Allocate::get(), &getMemrefMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::FreeOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  // hip.free deallocates GPU memory
+  effects.emplace_back(MemoryEffects::Free::get(), &getMemrefMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
 void mlir::hip::ConvOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   // Read inputs
