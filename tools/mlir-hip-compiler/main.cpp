@@ -41,6 +41,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Transforms/Passes.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
@@ -140,6 +143,7 @@ int main(int argc, char **argv) {
   if (opts.fromOnnxMlir) {
     context.loadDialect<mlir::arith::ArithDialect>();
     context.loadDialect<mlir::memref::MemRefDialect>();
+    context.loadDialect<mlir::bufferization::BufferizationDialect>();
     context.loadDialect<mlir::hip::HipDialect>();
     context.loadDialect<mlir::ONNXDialect>();
   }
@@ -178,12 +182,24 @@ int main(int argc, char **argv) {
 
   // Add our custom passes if processing ONNX-MLIR
   if (opts.fromOnnxMlir) {
+    // ONNX → HIP conversion
     pm.addPass(mlir::hip::createConvertOnnxToHipPass());
+
+    // BufferDeallocation pipeline (MLIR standard)
+    pm.addPass(mlir::bufferization::createBufferLoopHoistingPass());
+
+    mlir::bufferization::BufferDeallocationPipelineOptions bufferDeallocOpts;
+    mlir::bufferization::buildBufferDeallocationPipeline(pm, bufferDeallocOpts);
+
+    pm.addPass(mlir::bufferization::createOptimizeAllocationLivenessPass());
+    pm.addPass(mlir::createCanonicalizerPass());
+
+    // HIP → LLVM conversion
     pm.addPass(mlir::hip::createConvertHipToLLVMPass());
     pm.addPass(mlir::hip::createGenerateInterfacePass());
 
     if (opts.verbose) {
-      std::cout << "Running ONNX→HIP→LLVM→Interface passes\n";
+      std::cout << "Running ONNX→HIP→BufferDeallocation→LLVM→Interface passes\n";
     }
   } else {
     if (opts.verbose) {

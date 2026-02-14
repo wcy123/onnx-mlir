@@ -27,15 +27,15 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 ## Pipeline Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  ONNX-MLIR   │────▶│ HIP Dialect  │────▶│ LLVM Dialect │────▶│ Native Code  │
-│  (MorphiZen) │     │ (OnnxToHip)  │     │ (HipToLLVM + │     │ (LLVM JIT)   │
-│              │     │              │     │  GenInterface)│     │              │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-   tensor types         memref types        memref structs         DLL export
-   return values        context param       array parameters       3 C functions
-   onnx.Constant        hip operations      wrapper functions      (init/compute/
-   onnx operations      hip.context         llvm operations         cleanup)
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  ONNX-MLIR   │────▶│ HIP Dialect  │────▶│BufferDealloc │────▶│ LLVM Dialect │────▶│ Native Code  │
+│  (MorphiZen) │     │ (OnnxToHip)  │     │(MLIR Standard│     │ (HipToLLVM + │     │ (LLVM JIT)   │
+│              │     │              │     │  Pipeline)   │     │  GenInterface)│     │              │
+└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+   tensor types         memref types        + hip.free ops      memref structs         DLL export
+   return values        context param       auto-inserted       array parameters       3 C functions
+   onnx.Constant        hip.alloc ops       after last use      wrapper functions      (init/compute/
+   onnx operations      hip operations      ownership aware     llvm operations         cleanup)
 ```
 
 ---
@@ -111,6 +111,64 @@ module attributes {
 - `input_count`/`output_count`: Number of inputs/outputs for validation
 - `input_ranks`/`output_ranks`: Tensor ranks for memref struct construction
 - Used by GenerateInterfacePass to generate correct validation and I/O handling code
+
+---
+
+### Stage 2.5: Buffer Deallocation (MLIR Standard Pipeline)
+
+**What it does:**
+After OnnxToHip creates `hip.alloc` operations, MLIR's BufferDeallocation pipeline automatically inserts `hip.free` operations to prevent memory leaks.
+
+**Pipeline passes (in order):**
+1. **BufferLoopHoisting**: Moves allocations out of loops when safe
+2. **BufferDeallocation**: Inserts `hip.free` after last use of `hip.alloc` buffers
+3. **OptimizeAllocationLiveness**: Optimizes buffer lifetimes
+4. **Canonicalizer**: Simplifies and cleans up IR
+
+**Key capability:**
+- Automatically determines buffer ownership (function-owned vs caller-owned)
+- Inserts `hip.free` only for buffers allocated within the function
+- Does NOT free function arguments (caller owns those buffers)
+
+**Example transformation:**
+
+**Input (after OnnxToHip):**
+```mlir
+func.func @main(%ctx: !hip.context,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<1x64x224x224xf32, 1>) -> i32 {
+  %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.conv(%ctx, %input, %weights, %bias, %temp) {...}
+  memref.copy %temp, %output
+  // No explicit free - memory leak!
+  %c0 = arith.constant 0 : i32
+  return %c0 : i32
+}
+```
+
+**Output (after BufferDeallocation):**
+```mlir
+func.func @main(%ctx: !hip.context,
+                %input: memref<1x3x224x224xf32, 1>,
+                %output: memref<1x64x224x224xf32, 1>) -> i32 {
+  %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.conv(%ctx, %input, %weights, %bias, %temp) {...}
+  memref.copy %temp, %output
+  hip.free(%ctx, %temp)  // ✅ Automatically inserted!
+  // NOTE: %input and %output are NOT freed (function arguments)
+  %c0 = arith.constant 0 : i32
+  return %c0 : i32
+}
+```
+
+**Implementation requirements:**
+- `hip.alloc` must implement `AllocationOpInterface` with `buildDealloc()` method
+- All HIP operations must declare memory effects (`MemoryEffectsOpInterface`)
+- See `doc/design/BUFFER-LIFETIME-DESIGN.md` for full details
+
+**Future optimizations (Phase 2 & 3):**
+- **Phase 2**: Hoist allocations to `inference_init` (4-12x speedup)
+- **Phase 3**: Memory pooling to reduce footprint by 60-70%
 
 ---
 

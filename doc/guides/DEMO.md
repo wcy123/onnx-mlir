@@ -17,11 +17,12 @@ Compile ONNX models ahead-of-time to native DLLs:
 - Direct MIOpen/HIP calls
 - Native GPU performance
 
-**Demo model**: Two-layer convolution network (ResNet-style)
+**Demo model**: Two-layer convolution network with ReLU activations (ResNet-style)
 - Input: 1×3×224×224 (RGB image)
-- Layer 1: 64 filters, 3×3 conv, stride=1 → 1×64×224×224
-- Layer 2: 64 filters, 3×3 conv, stride=2 → 1×64×112×112
+- Layer 1: 64 filters, 3×3 conv, stride=1 → ReLU → 1×64×224×224
+- Layer 2: 64 filters, 3×3 conv, stride=2 → ReLU → 1×64×112×112
 - 4 constant tensors embedded in compiled code
+- Automatic memory management via BufferDeallocation
 
 ## Demo Flow
 
@@ -40,6 +41,15 @@ This demo shows the 5-stage compilation and testing pipeline:
                          │ HIP dialect MLIR
                          │ • Constants hoisted to globals
                          │ • Registry generated
+                         │ • ReLU operations converted
+                         ▼
+              ┌──────────────────────────────┐
+              │  Stage 1.5: BufferDeallocation│
+              │  (automatic in mlir-hip-compiler)
+              └──────────┬─────────────────────┘
+                         │ HIP dialect + hip.free
+                         │ • hip.free inserted after last use
+                         │ • Ownership-aware (args not freed)
                          ▼
               ┌──────────────────────┐
               │  Stage 2: hip-opt    │
@@ -103,12 +113,14 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 
 **What you'll see**:
 - 4 LLVM global constants discovered
-- `hip.conv` operations with GPU memory types
+- `hip.conv` and `hip.relu` operations with GPU memory types
 - Constant registry: `ConstantInfo` array + `get_constant_registry()` function
+- Memory effects declared on all operations (enables automatic deallocation)
 
 **For design details**, see:
 - [CONSTANT-HANDLING-DESIGN.md](../design/CONSTANT-HANDLING-DESIGN.md) - Constant discovery and registry design
 - [mlir/passes/OnnxToHip.md](../design/mlir/passes/OnnxToHip.md) - ONNX to HIP dialect conversion
+- [BUFFER-LIFETIME-DESIGN.md](../design/BUFFER-LIFETIME-DESIGN.md) - Automatic memory management
 
 ### Stage 2: HIP → LLVM IR
 
@@ -174,7 +186,12 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
   --keep
 ```
 
-**Note**: The `--from-onnx-mlir` flag runs all three passes (ONNX→HIP→LLVM→Interface) automatically before compilation, equivalent to piping Stages 1-3 output to the compiler.
+**Note**: The `--from-onnx-mlir` flag runs the full pipeline automatically:
+1. ONNX→HIP conversion
+2. BufferDeallocation (inserts hip.free operations)
+3. HIP→LLVM lowering
+4. Interface generation
+This is equivalent to piping Stages 1-3 output to the compiler, with automatic memory management.
 
 **Output** (from `../output/stage4_output.txt`):
 ```
@@ -188,7 +205,7 @@ Optimization: O2
 ✓ MLIR parsed successfully
 
 --- Step 2: Running MLIR Passes ---
-Running ONNX→HIP→LLVM→Interface passes
+Running ONNX→HIP→BufferDeallocation→LLVM→Interface passes
 ✓ MLIR passes completed
 
 --- Step 3: Translating to LLVM IR ---
@@ -248,7 +265,9 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
     kernel_shape = [3, 3], strides = [1, 1], pads = [1, 1, 1, 1]
   } : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>) -> tensor<1x64x224x224xf32>
 
-  // ... (layer 2 similar)
+  %relu1 = "onnx.Relu"(%conv1) : (tensor<1x64x224x224xf32>) -> tensor<1x64x224x224xf32>
+
+  // ... (layer 2 similar with ReLU)
 }
 ```
 
@@ -266,11 +285,16 @@ module attributes {hipdnn.input_count = 1, hipdnn.input_ranks = array<i64: 4>, .
     %weights1 = hip.get_constant(%ctx, 0) : memref<64x3x3x3xf32, 1>
     %bias1 = hip.get_constant(%ctx, 1) : memref<64xf32, 1>
 
-    // ✅ Direct HIP operation (in-place semantics)
+    // ✅ Direct HIP operations (in-place semantics)
     %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
     hip.conv(%ctx, %input, %weights1, %bias1, %temp) {kernel_shape = [3, 3], ...}
 
+    %relu_temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+    hip.relu(%ctx, %temp, %relu_temp)
+    hip.free(%ctx, %temp)  // ✅ Inserted by BufferDeallocation
+
     // ... (layer 2 writes directly to %output)
+    hip.free(%ctx, %relu_temp)  // ✅ Inserted by BufferDeallocation
     return 0 : i32
   }
 
@@ -318,8 +342,10 @@ module attributes {hipdnn.input_count = 1, hipdnn.input_ranks = array<i64: 4>, .
 **Key transformations**:
 - **Constant discovery**: 4 `onnx.Constant` → 4 `llvm.mlir.global`
 - **Module metadata**: Captures input/output counts and ranks
-- **In-place operations**: `hip.conv(ctx, in, w, b, out)` - no return value
+- **In-place operations**: `hip.conv(ctx, in, w, b, out)`, `hip.relu(ctx, in, out)` - no return values
 - **GPU memory types**: `memref<..., 1>` (address space 1 = device memory)
+- **Memory management**: BufferDeallocation automatically inserts `hip.free` after last use
+- **Ownership tracking**: Function arguments (caller-owned) are not freed
 
 ---
 
@@ -777,7 +803,7 @@ test-model-dll output.dll
 
 **Input ONNX Model**:
 ```mlir
-// Two conv layers with embedded constant weights/biases
+// Two conv layers with ReLU activations and embedded constant weights/biases
 func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   // Layer 1 constants
   %weights1 = "onnx.Constant"() {
@@ -794,6 +820,9 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   } : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>)
       -> tensor<1x64x224x224xf32>
 
+  // ReLU activation after first conv
+  %relu1 = "onnx.Relu"(%conv1) : (tensor<1x64x224x224xf32>) -> tensor<1x64x224x224xf32>
+
   // Layer 2 constants
   %weights2 = "onnx.Constant"() {
     value = dense<2.0> : tensor<64x64x3x3xf32>
@@ -803,13 +832,16 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   } : () -> tensor<64xf32>
 
   // Layer 2: Conv (3x3, stride=2, halves dimensions)
-  %conv2 = "onnx.Conv"(%conv1, %weights2, %bias2) {
+  %conv2 = "onnx.Conv"(%relu1, %weights2, %bias2) {
     kernel_shape = [3, 3], strides = [2, 2],
     pads = [1, 1, 1, 1], dilations = [1, 1], group = 1 : si64
   } : (tensor<1x64x224x224xf32>, tensor<64x64x3x3xf32>, tensor<64xf32>)
       -> tensor<1x64x112x112xf32>
 
-  return %conv2 : tensor<1x64x112x112xf32>
+  // ReLU activation after second conv
+  %relu2 = "onnx.Relu"(%conv2) : (tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+
+  return %relu2 : tensor<1x64x112x112xf32>
 }
 ```
 

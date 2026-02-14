@@ -6,10 +6,13 @@
 #include "HipDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Dialect/Bufferization/IR/AllocationOpInterface.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::hip;
+using namespace mlir::bufferization;
 
 #include "HipDialect.cpp.inc"
 
@@ -22,6 +25,89 @@ void HipDialect::initialize() {
 #define GET_OP_LIST
 #include "HipOps.cpp.inc"
       >();
+}
+
+//===----------------------------------------------------------------------===//
+// AllocationOpInterface for Hip_AllocOp
+//===----------------------------------------------------------------------===//
+
+std::optional<Operation *> mlir::hip::AllocOp::buildDealloc(
+    OpBuilder &builder, Value alloc) {
+  return builder.create<hip::FreeOp>(
+      alloc.getLoc(),
+      getHandle(),  // Same context
+      alloc         // Buffer to free
+  ).getOperation();
+}
+
+std::optional<Value> mlir::hip::AllocOp::buildClone(
+    OpBuilder &builder, Value alloc) {
+  // GPU buffer cloning is complex, let MLIR handle via explicit copies
+  return std::nullopt;
+}
+
+//===----------------------------------------------------------------------===//
+// MemoryEffectsOpInterface Implementations
+//===----------------------------------------------------------------------===//
+
+void mlir::hip::ConvOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  // Read inputs
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &getWeightsMutable(),
+                       SideEffects::DefaultResource::get());
+  if (getBias())
+    effects.emplace_back(MemoryEffects::Read::get(), &getBiasMutable(),
+                         SideEffects::DefaultResource::get());
+
+  // Write output
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::GemmOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getAMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &getBMutable(),
+                       SideEffects::DefaultResource::get());
+  // Result is read-write (beta != 0 case)
+  effects.emplace_back(MemoryEffects::Read::get(), &getResultMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &getResultMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::MaxPoolOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::AvgPoolOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::ReluOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
+                       SideEffects::DefaultResource::get());
+}
+
+void mlir::hip::GetConstantOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  // Allocates view to constant memory
+  effects.emplace_back(MemoryEffects::Allocate::get(), &getResultMutable(),
+                       SideEffects::DefaultResource::get());
 }
 
 // Type and op class implementations (parse/print/verify, TypeIDs)

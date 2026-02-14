@@ -4,6 +4,7 @@
 include "HipDialect.td"
 include "HipTypes.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Dialect/Bufferization/IR/AllocationOpInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 
@@ -40,7 +41,9 @@ def Hip_DestroyHandleOp : Hip_Op<"destroy_handle", []> {
   let assemblyFormat = "`(` $handle `)` attr-dict `:` type($handle)";
 }
 
-def Hip_AllocOp : Hip_Op<"alloc", []> {
+def Hip_AllocOp : Hip_Op<"alloc", [
+  DeclareOpInterfaceMethods<AllocationOpInterface, ["buildDealloc", "buildClone"]>
+]> {
   let summary = "Allocate device memory";
   let description = [{
     Allocates device memory using HIP and returns a memref.
@@ -87,7 +90,9 @@ def Hip_FreeOp : Hip_Op<"free", []> {
 // MIOpen DNN Operations
 //===----------------------------------------------------------------------===//
 
-def Hip_ConvOp : Hip_Op<"conv", []> {
+def Hip_ConvOp : Hip_Op<"conv", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "2D convolution operation using MIOpen (in-place)";
   let description = [{
     Performs 2D convolution using MIOpen (miopenConvolutionForward).
@@ -134,7 +139,9 @@ def Hip_ConvOp : Hip_Op<"conv", []> {
   }];
 }
 
-def Hip_GemmOp : Hip_Op<"gemm", []> {
+def Hip_GemmOp : Hip_Op<"gemm", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "General matrix multiplication using hipBLASLt (in-place)";
   let description = [{
     Performs matrix multiplication: result = alpha * A * B + beta * C
@@ -175,7 +182,9 @@ def Hip_GemmOp : Hip_Op<"gemm", []> {
   }];
 }
 
-def Hip_MaxPoolOp : Hip_Op<"maxpool", []> {
+def Hip_MaxPoolOp : Hip_Op<"maxpool", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "Max pooling operation using MIOpen (in-place)";
   let description = [{
     Performs max pooling using MIOpen (miopenPoolingForward with max mode).
@@ -212,7 +221,9 @@ def Hip_MaxPoolOp : Hip_Op<"maxpool", []> {
   }];
 }
 
-def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
+def Hip_AvgPoolOp : Hip_Op<"avgpool", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "Average pooling operation using MIOpen (in-place)";
   let description = [{
     Performs average pooling using MIOpen (miopenPoolingForward with average mode).
@@ -250,10 +261,47 @@ def Hip_AvgPoolOp : Hip_Op<"avgpool", []> {
 }
 
 //===----------------------------------------------------------------------===//
+// Activation Operations
+//===----------------------------------------------------------------------===//
+
+def Hip_ReluOp : Hip_Op<"relu", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
+  let summary = "ReLU activation";
+  let description = [{
+    Applies ReLU activation: output = max(0, input)
+    Uses MIOpen's miopenActivationForward with MIOPEN_ACTIVATION_RELU mode.
+
+    Uses destination-passing style: output buffer is provided as argument.
+
+    Example:
+    ```mlir
+    %output = hip.alloc(%handle) : memref<1x64x224x224xf32, 1>
+    hip.relu(%handle, %input, %output)
+      : (!hip.context, memref<1x64x224x224xf32, 1>, memref<1x64x224x224xf32, 1>)
+    ```
+  }];
+
+  let arguments = (ins
+    Hip_ContextType:$handle,
+    AnyMemRef:$input,
+    AnyMemRef:$output
+  );
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $handle `,` $input `,` $output `)` attr-dict
+    `:` `(` type($handle) `,` type($input) `,` type($output) `)`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Constant Management Operations
 //===----------------------------------------------------------------------===//
 
-def Hip_GetConstantOp : Hip_Op<"get_constant", []> {
+def Hip_GetConstantOp : Hip_Op<"get_constant", [
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+]> {
   let summary = "Retrieve constant from GPU memory";
   let description = [{
     Retrieves a pre-uploaded constant from state->gpu_constants[index].

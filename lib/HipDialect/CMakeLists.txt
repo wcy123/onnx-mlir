@@ -74,6 +74,8 @@ target_link_libraries(HipDialect PUBLIC
   ${MLIR_CORE_LIBS}
   ${MLIR_DIALECT_LIBS}
   ${MLIR_CONVERSION_LIBS}
+  MLIRBufferizationDialect
+  MLIRBufferizationTransforms
   OMONNXOps  # ONNX dialect from onnx-mlir (required)
   ${llvm_libs}
 )

@@ -13,6 +13,11 @@ def Hip_Dialect : Dialect {
   }];
   let cppNamespace = "::mlir::hip";
   let useDefaultTypePrinterParser = 1;
+
+  let dependentDialects = [
+    "memref::MemRefDialect",
+    "bufferization::BufferizationDialect"
+  ];
 }
 
 #endif // HIP_DIALECT

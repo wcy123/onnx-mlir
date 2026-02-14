@@ -290,6 +290,68 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ONNX ReLU → HIP ReLU Conversion Pattern
+//===----------------------------------------------------------------------===//
+
+struct ReluToHipPattern : public OpConversionPattern<ONNXReluOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ONNXReluOp reluOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = reluOp.getLoc();
+    Value X = adaptor.getX();
+
+    // Get context from function's first argument
+    auto funcOp = reluOp->getParentOfType<func::FuncOp>();
+    if (!funcOp) {
+      return rewriter.notifyMatchFailure(reluOp, "Not inside a function");
+    }
+
+    auto &entryBlock = funcOp.getBody().front();
+    if (entryBlock.getNumArguments() == 0) {
+      return rewriter.notifyMatchFailure(
+          reluOp, "Function has no arguments (expected context as first arg)");
+    }
+
+    Value context = entryBlock.getArgument(0);
+    if (!isa<hip::ContextType>(context.getType())) {
+      return rewriter.notifyMatchFailure(
+          reluOp, "First function argument is not a !hip.context");
+    }
+
+    // Convert output type
+    auto outputMemRefType = getTypeConverter()->convertType(reluOp.getResult().getType());
+    if (!outputMemRefType || !isa<MemRefType>(outputMemRefType)) {
+      return rewriter.notifyMatchFailure(
+          reluOp, "Failed to convert output tensor type to memref");
+    }
+
+    // Extract dynamic sizes if needed
+    SmallVector<Value> dynamicSizes;
+    auto memRefType = cast<MemRefType>(outputMemRefType);
+    for (int64_t i = 0; i < memRefType.getRank(); ++i) {
+      if (memRefType.isDynamicDim(i)) {
+        Value dimSize = rewriter.create<memref::DimOp>(loc, X, i);
+        dynamicSizes.push_back(dimSize);
+      }
+    }
+
+    // Allocate output buffer
+    auto outputBuffer = rewriter.create<hip::AllocOp>(loc, outputMemRefType,
+                                                      context, dynamicSizes);
+
+    // Create HIP ReLU operation (in-place semantics)
+    rewriter.create<hip::ReluOp>(loc, context, X, outputBuffer.getResult());
+
+    // Replace ONNX op result with allocated buffer
+    rewriter.replaceOp(reluOp, outputBuffer.getResult());
+
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Func Return Conversion Pattern
 //===----------------------------------------------------------------------===//
 // Convert func.return to return i32 status code (destination-passing style)
@@ -1037,6 +1099,9 @@ private:
     // Mark ONNX Conv as illegal (must be lowered)
     target.addIllegalOp<ONNXConvOp>();
 
+    // Mark ONNX ReLU as illegal (must be lowered)
+    target.addIllegalOp<ONNXReluOp>();
+
     // Mark ONNX Constant as illegal (must be lowered to hip.get_constant)
     target.addIllegalOp<ONNXConstantOp>();
 
@@ -1052,6 +1117,7 @@ private:
     patterns.add<ConstantToHipPattern>(typeConverter, context,
                                        constantRegistry_);
     patterns.add<ConvToHipPattern>(typeConverter, context);
+    patterns.add<ReluToHipPattern>(typeConverter, context);
     patterns.add<ReturnOpConversion>(typeConverter, context);
 
     // Apply conversion

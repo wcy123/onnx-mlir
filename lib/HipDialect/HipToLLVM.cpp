@@ -373,6 +373,62 @@ struct ConvOpLowering : public ConvertOpToLLVMPattern<ConvOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ReLU Activation Lowering
+//===----------------------------------------------------------------------===//
+
+struct ReluOpLowering : public ConvertOpToLLVMPattern<ReluOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(ReluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+    Type ptrType = getPtrType();
+    Type i32Type = rewriter.getI32Type();
+
+    // Runtime wrapper signature:
+    // int wrap_miopenActivationForward_relu(
+    //     RuntimeState* state,
+    //     void* input_memref,
+    //     void* output_memref
+    // );
+
+    // Extract memref pointers
+    auto getAlignedPtr = [&](Value memrefDesc) -> Value {
+      MemRefDescriptor desc(memrefDesc);
+      Value ptr = desc.alignedPtr(rewriter, loc);
+      if (cast<LLVM::LLVMPointerType>(ptr.getType()).getAddressSpace() != 0) {
+        ptr = rewriter.create<LLVM::AddrSpaceCastOp>(loc, ptrType, ptr);
+      }
+      return ptr;
+    };
+
+    Value statePtr = adaptor.getHandle();
+    Value inputPtr = getAlignedPtr(adaptor.getInput());
+    Value outputPtr = getAlignedPtr(adaptor.getOutput());
+
+    // Build function signature
+    SmallVector<Type, 3> paramTypes = {ptrType, ptrType, ptrType};
+
+    // Lookup or create the runtime function
+    StringRef funcName = "wrap_miopenActivationForward_relu";
+    FailureOr<LLVM::LLVMFuncOp> funcOp =
+        LLVM::lookupOrCreateFn(rewriter, module, funcName, paramTypes, i32Type);
+    if (failed(funcOp))
+      return failure();
+
+    // Call the runtime function
+    SmallVector<Value, 3> args = {statePtr, inputPtr, outputPtr};
+    LLVM::CallOp::create(rewriter, loc, *funcOp, args);
+
+    // Erase the HIP relu operation
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Constant Management Operations Lowering
 //===----------------------------------------------------------------------===//
 
@@ -481,8 +537,8 @@ struct ConvertHipToLLVMPass
     // Add HIP-specific conversion patterns
     patterns
         .add<CreateHandleOpLowering, DestroyHandleOpLowering, AllocOpLowering,
-             FreeOpLowering, ConvOpLowering, GetConstantOpLowering>(
-            typeConverter);
+             FreeOpLowering, ConvOpLowering, ReluOpLowering,
+             GetConstantOpLowering>(typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);

@@ -203,3 +203,85 @@ int wrap_miopenConvolutionForward(
 
   return 0;
 }
+
+// =============================================================================
+// MIOpen Activation Forward Wrapper (ReLU)
+// =============================================================================
+//
+// Applies ReLU activation: output = max(0, input)
+// Uses miopenActivationForward with MIOPEN_ACTIVATION_RELU mode.
+//
+// DESIGN: Generic activation wrapper that can be extended for other activation
+// functions (sigmoid, tanh, etc.) by passing activation mode parameter.
+// =============================================================================
+
+extern "C" int wrap_miopenActivationForward_relu(RuntimeState *state,
+                                                   void *input_memref_ptr,
+                                                   void *output_memref_ptr) {
+  if (!state || !input_memref_ptr || !output_memref_ptr) {
+    fprintf(stderr, "Invalid arguments to wrap_miopenActivationForward_relu\n");
+    return -1;
+  }
+
+  miopenHandle_t miopen_handle = state->miopen_handle;
+
+  // Extract memref descriptor fields
+  // MemRef struct layout: {ptr allocated, ptr aligned, i64 offset, i64[rank] sizes, i64[rank] strides}
+  struct MemRefDescriptor {
+    void *allocated;
+    void *aligned;
+    int64_t offset;
+    int64_t sizes[4];    // Assuming rank-4 tensor [N, C, H, W]
+    int64_t strides[4];
+  };
+
+  auto *input_desc = static_cast<MemRefDescriptor *>(input_memref_ptr);
+  auto *output_desc = static_cast<MemRefDescriptor *>(output_memref_ptr);
+
+  void *input_ptr = input_desc->aligned;
+  void *output_ptr = output_desc->aligned;
+
+  // Get dimensions from memref (runtime values!)
+  int64_t n = input_desc->sizes[0];
+  int64_t c = input_desc->sizes[1];
+  int64_t h = input_desc->sizes[2];
+  int64_t w = input_desc->sizes[3];
+
+  // Create tensor descriptors
+  miopenTensorDescriptor_t input_tensor_desc, output_tensor_desc;
+  MIOPEN_CHECK(miopenCreateTensorDescriptor(&input_tensor_desc));
+  MIOPEN_CHECK(miopenCreateTensorDescriptor(&output_tensor_desc));
+
+  MIOPEN_CHECK(miopenSet4dTensorDescriptor(input_tensor_desc, miopenFloat,
+                                            static_cast<int>(n),
+                                            static_cast<int>(c),
+                                            static_cast<int>(h),
+                                            static_cast<int>(w)));
+  MIOPEN_CHECK(miopenSet4dTensorDescriptor(output_tensor_desc, miopenFloat,
+                                            static_cast<int>(n),
+                                            static_cast<int>(c),
+                                            static_cast<int>(h),
+                                            static_cast<int>(w)));
+
+  // Create activation descriptor for ReLU
+  miopenActivationDescriptor_t activ_desc;
+  MIOPEN_CHECK(miopenCreateActivationDescriptor(&activ_desc));
+
+  // miopenActivationRELU mode with no parameters (alpha, beta, gamma unused for ReLU)
+  MIOPEN_CHECK(miopenSetActivationDescriptor(activ_desc, miopenActivationRELU,
+                                              0.0, 0.0, 0.0));
+
+  // Forward pass
+  float alpha = 1.0f;
+  float beta = 0.0f;
+  MIOPEN_CHECK(miopenActivationForward(miopen_handle, activ_desc, &alpha,
+                                        input_tensor_desc, input_ptr, &beta,
+                                        output_tensor_desc, output_ptr));
+
+  // Cleanup
+  miopenDestroyActivationDescriptor(activ_desc);
+  miopenDestroyTensorDescriptor(input_tensor_desc);
+  miopenDestroyTensorDescriptor(output_tensor_desc);
+
+  return 0;
+}

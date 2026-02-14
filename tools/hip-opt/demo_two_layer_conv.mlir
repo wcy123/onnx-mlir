@@ -22,6 +22,9 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   } : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>)
       -> tensor<1x64x224x224xf32>
 
+  // ReLU activation after first conv
+  %relu1 = "onnx.Relu"(%conv1) : (tensor<1x64x224x224xf32>) -> tensor<1x64x224x224xf32>
+
   // Second Conv: Constants for layer 2
   %weights2 = "onnx.Constant"() {
     value = dense<2.0> : tensor<64x64x3x3xf32>
@@ -32,7 +35,7 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   } : () -> tensor<64xf32>
 
   // Second convolution (stride=2, halves spatial dimensions)
-  %conv2 = "onnx.Conv"(%conv1, %weights2, %bias2) {
+  %conv2 = "onnx.Conv"(%relu1, %weights2, %bias2) {
     kernel_shape = [3, 3],
     strides = [2, 2],
     pads = [1, 1, 1, 1],
@@ -41,5 +44,8 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
   } : (tensor<1x64x224x224xf32>, tensor<64x64x3x3xf32>, tensor<64xf32>)
       -> tensor<1x64x112x112xf32>
 
-  return %conv2 : tensor<1x64x112x112xf32>
+  // ReLU activation after second conv
+  %relu2 = "onnx.Relu"(%conv2) : (tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
+
+  return %relu2 : tensor<1x64x112x112xf32>
 }
