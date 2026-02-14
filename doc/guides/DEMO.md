@@ -176,42 +176,41 @@ export PATH="/c/Develop/m/local/bin:$PATH"  # For zlibd.dll
 
 **Note**: The `--from-onnx-mlir` flag runs all three passes (ONNX→HIP→LLVM→Interface) automatically before compilation, equivalent to piping Stages 1-3 output to the compiler.
 
-**Output**:
+**Output** (from `../output/stage4_output.txt`):
 ```
 === MLIR to HIP DLL Compiler ===
 Input: tools/hip-opt/demo_two_layer_conv.mlir
-Output: demo_two_layer.dll
+Output: ../output/demo_two_layer.dll
 Mode: dll
+Optimization: O2
 
 --- Step 1: Parsing MLIR ---
 ✓ MLIR parsed successfully
 
 --- Step 2: Running MLIR Passes ---
-Running pass: --convert-onnx-to-hip
-Running pass: --convert-hip-to-llvm
-Running pass: --generate-interface
+Running ONNX→HIP→LLVM→Interface passes
 ✓ MLIR passes completed
 
 --- Step 3: Translating to LLVM IR ---
 ✓ LLVM IR generated
 
+--- Step 3.5: Linking Runtime Module ---
+✓ Runtime module linked (enables cross-module inlining)
+
 --- Step 4: Optimizing LLVM IR (O2) ---
-✓ Optimization completed
+✓ Optimization completed (Runtime calls inlined)
 
 --- Step 5: Emitting LLVM IR ---
-✓ LLVM IR written to: demo_two_layer.ll
+✓ LLVM IR written to: ../output/demo_two_layer.ll
 
 --- Step 6: Compiling to Object File ---
-✓ Object file created: demo_two_layer.obj
+✓ Object file created: ../output/demo_two_layer.obj
 
 --- Step 7: Linking to DLL ---
-Found runtime library: HipDnnRuntime.lib
-✓ DLL created: demo_two_layer.dll
+✓ DLL created: ../output/demo_two_layer.dll
 
 --- Step 8: Verifying DLL Exports ---
-  ✓ inference_init
-  ✓ inference_compute
-  ✓ inference_cleanup
+✓ All expected exports present
 
 === Compilation Successful ===
 ```
@@ -583,7 +582,7 @@ Test end-to-end execution with `test-model-dll`:
 ../../build/$(basename $PWD)/bin/Debug/test-model-dll.exe demo_two_layer.dll
 ```
 
-**Output**:
+**Output** (idealized - current implementation includes `[DEBUG]` messages, see `tools/test-model-dll/TODO.md`):
 ```
 === Model DLL Test ===
 DLL: demo_two_layer.dll
