@@ -327,11 +327,9 @@ int main(int argc, char **argv) {
   std::vector<std::string> exports = {"inference_init", "inference_compute",
                                       "inference_cleanup"};
 
-  // Link HipDnnEpRuntime.lib for pool init functions and MIOpen wrappers
-  // Note: Simple accessor functions are inlined, but library wrappers are not
-  std::vector<std::string> libraries = {"HipDnnEpRuntime.lib"};
-  std::vector<std::string> libraryPaths = {
-      RUNTIME_LIB_DIR}; // From CMake compile definition
+  // No external libraries needed - runtime is merged at IR level
+  std::vector<std::string> libraries = {};
+  std::vector<std::string> libraryPaths = {};
 
   if (!linker.linkDLL(objFilename, opts.outputFilename, libraries, libraryPaths,
                       exports)) {

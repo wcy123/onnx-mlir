@@ -204,49 +204,6 @@ add_custom_target(RuntimeBitcode
 set(RUNTIME_BC_PATH ${CMAKE_CURRENT_BINARY_DIR}/runtime.bc PARENT_SCOPE)
 
 # ============================================================================
-# STEP 6: Create Static Library for External Linking
-# ============================================================================
-
-# While runtime.bc is merged at IR level for inlining, some functions
-# (like MIOpen wrappers) can't be fully inlined and need to be available
-# for traditional linking. Create a static library with object code.
-
-if(NOT BUILD_MOCK_RUNTIME)
-    # Real runtime with ROCm
-    add_library(HipDnnEpRuntime STATIC
-        hipdnn_ep_runtime_state.cpp
-        hipdnn_ep_runtime_constants.cpp
-        hipdnn_ep_runtime_tensor.cpp
-        hipdnn_ep_runtime_hip.cpp
-        hipdnn_ep_runtime_miopen.cpp
-        hipdnn_ep_runtime_hipblas.cpp
-    )
-
-    target_link_libraries(HipDnnEpRuntime PUBLIC
-        hip::host
-        MIOpen
-        roc::hipblaslt
-    )
-else()
-    # Mock runtime for testing without ROCm
-    add_library(HipDnnEpRuntime STATIC
-        hipdnn_ep_runtime_state.cpp
-        hipdnn_ep_runtime_constants.cpp
-        hipdnn_ep_runtime_tensor.cpp
-        hipdnn_ep_runtime_mock.cpp
-    )
-endif()
-
-target_compile_definitions(HipDnnEpRuntime PRIVATE
-    BUILD_MOCK_RUNTIME=$<BOOL:${BUILD_MOCK_RUNTIME}>
-    $<$<BOOL:${BUILD_MOCK_RUNTIME}>:BUILD_MOCK_RUNTIME=1>
-)
-
-target_include_directories(HipDnnEpRuntime PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-# ============================================================================
 # SUMMARY OF BUILD ARTIFACTS AND PIPELINE
 # ============================================================================
 #

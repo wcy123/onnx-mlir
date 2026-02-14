@@ -38,16 +38,8 @@ set(BACKEND_LIBS
     HipDialect
 )
 
-# Define library output directory for runtime linking
-set(RUNTIME_LIB_DIR "${CMAKE_BINARY_DIR}/lib/Runtime/${CMAKE_BUILD_TYPE}")
-
 # Create executable
 add_executable(mlir-hip-compiler main.cpp)
-
-# Pass library directory as compile definition
-target_compile_definitions(mlir-hip-compiler PRIVATE
-    RUNTIME_LIB_DIR="${RUNTIME_LIB_DIR}"
-)
 
 # Link libraries
 target_link_libraries(mlir-hip-compiler
