@@ -161,19 +161,127 @@ func.func @main(...) {
 }
 ```
 
-**Interference**:
-- buf0 [0,5) interferes with buf1 [1,6) → edge
-- buf0 [0,5) NO interference with buf2 [5,8) → no edge
-- buf0 [0,5) NO interference with buf3 [6,9) → no edge
-- buf1 [1,6) interferes with buf2 [5,8) → edge
-- buf1 [1,6) NO interference with buf3 [6,9) → no edge
-- buf2 [5,8) interferes with buf3 [6,9) → edge
+**Interference Analysis**:
+
+Two buffers interfere if their lifetimes overlap (conservative: same function):
+- buf0 [0,5) interferes with buf1 [1,6) → **edge** (overlap: [1,5))
+- buf0 [0,5) NO interference with buf2 [5,8) → no edge (disjoint)
+- buf0 [0,5) NO interference with buf3 [6,9) → no edge (disjoint)
+- buf1 [1,6) interferes with buf2 [5,8) → **edge** (overlap: [5,6))
+- buf1 [1,6) NO interference with buf3 [6,9) → no edge (disjoint)
+- buf2 [5,8) interferes with buf3 [6,9) → **edge** (overlap: [6,8))
+
+**Interference Graph** (vertices = buffers, edges = cannot share memory):
+
+```
+    buf0 (12.8MB)          buf1 (12.8MB)          buf2 (3.2MB)          buf3 (3.2MB)
+    [lifetime: 0-5)        [lifetime: 1-6)        [lifetime: 5-8)       [lifetime: 6-9)
+    ┌────────────┐         ┌────────────┐         ┌────────────┐        ┌────────────┐
+    │            │         │            │         │            │        │            │
+    │    buf0    │─────────│    buf1    │─────────│    buf2    │────────│    buf3    │
+    │            │         │            │         │            │        │            │
+    └────────────┘         └────────────┘         └────────────┘        └────────────┘
+         │                      │                      │                     │
+         │   Edge: lifetimes    │   Edge: lifetimes    │  Edge: lifetimes    │
+         │   overlap [1,5)      │   overlap [5,6)      │  overlap [6,8)      │
+         └──────────────────────┘                      └─────────────────────┘
+
+    Graph structure: Path graph (buf0)──(buf1)──(buf2)──(buf3)
+
+    Chromatic number: 2 (minimum colors needed)
+    Our "colors": memory offsets (not discrete, continuous addressing)
+```
+
+**Key Insight**: This is a **path graph** - can be 2-colored! In traditional graph coloring:
+- Color 1 (red): buf0, buf2 (no edges between them)
+- Color 2 (blue): buf1, buf3 (no edges between them)
+
+In buffer pooling, "colors" = **offset ranges**:
+- Offset 0: buf0, buf2 (can share because no interference)
+- Offset X: buf1, buf3 (can share because no interference, X determined by buf0's size)
 
 **Graph coloring** (sorted by size: buf0, buf1, buf2, buf3):
 1. buf0 (12.8MB) → offset 0 (first buffer)
 2. buf1 (12.8MB) → offset 12.8MB (interferes with buf0)
 3. buf2 (3.2MB) → offset 0 (no interference with buf0, fits in same space!)
 4. buf3 (3.2MB) → offset 12.8MB (no interference with buf1, fits in same space!)
+
+**Greedy Coloring with First-Fit Decreasing**:
+
+```
+Step 1: Sort by size → [buf0: 12.8MB, buf1: 12.8MB, buf2: 3.2MB, buf3: 3.2MB]
+
+Step 2: Process buf0
+  - First buffer → assign offset 0
+  - Pool extends to: 0 + 12.8MB = 12.8MB
+
+Step 3: Process buf1
+  - Try offset 0: conflicts with buf0 (both alive during [1,5))
+  - Try offset 12.8MB: no conflict ✓
+  - Assign offset 12.8MB
+  - Pool extends to: 12.8MB + 12.8MB = 25.6MB
+
+Step 4: Process buf2
+  - Try offset 0: check interference
+    • buf0 at offset [0, 12.8MB): NO conflict (buf0 dies at 5, buf2 starts at 5)
+    • buf1 at offset [12.8MB, 25.6MB): NO conflict (different memory ranges)
+  - Assign offset 0 ✓ (REUSES buf0's space!)
+  - Pool size unchanged: 25.6MB (buf2 fits within buf0's 12.8MB slot)
+
+Step 5: Process buf3
+  - Try offset 0: check interference
+    • buf0: NO time conflict
+    • buf1: NO time conflict
+    • buf2 at offset [0, 3.2MB): CONFLICT (both alive during [6,8))
+  - Try offset 3.2MB: check interference
+    • buf2 at offset [0, 3.2MB): NO conflict (disjoint ranges) ✓
+  - Assign offset 3.2MB
+  - Pool extends to: 3.2MB + 3.2MB = 6.4MB (still < 25.6MB)
+
+Final assignments:
+  buf0 → offset 0       (range: [0, 12.8MB))
+  buf1 → offset 12.8MB  (range: [12.8MB, 25.6MB))
+  buf2 → offset 0       (range: [0, 3.2MB))     ← reuses buf0 space
+  buf3 → offset 3.2MB   (range: [3.2MB, 6.4MB)) ← fits within buf0 space
+```
+
+**Visual Memory Layout**:
+```
+Timeline (horizontal = time, vertical = memory offset):
+
+Time →    0   1   2   3   4   5   6   7   8   9
+  0MB ┌───┬───┬───┬───┬───┐
+      │ buf0 (12.8MB)     │
+      │   Color 1 (red)   │
+12.8MB├───┼───┬───┬───┬───┼───┐
+      │ buf1 (12.8MB)         │
+      │  Color 2 (blue)       │
+25.6MB└───┴───┴───┴───┴───┴───┴───┘
+                      ┌───┬───┬───┐
+  0MB                 │ buf2 (3.2MB) │ ← REUSE!
+                      │ Color 1 (red)│
+ 3.2MB                ├───┼───┬───┬───┐
+                      │   │buf3 (3.2MB)│ ← REUSE!
+                      │   │Color 2 (blue)
+ 6.4MB                └───┴───┴───┴───┘
+
+Memory Pool (space-time diagram):
+Offset
+25.6MB ┐
+       │ ┌─────────────────┐
+19.2MB │ │                 │
+       │ │      buf1       │  [1,6)
+12.8MB │ ├─────────────────┤
+       │ │                 │
+       │ │      buf0       │  [0,5)   Then buf2 [5,8) + buf3 [6,9) reuse
+       │ │                 │           this 12.8MB space (only need 6.4MB)
+  0MB  └─┴─────────────────┴───
+       0                   9   Time
+
+Pool Size = 25.6MB (not 12.8MB as stated in line 179)
+Without pooling = 12.8MB + 12.8MB + 3.2MB + 3.2MB = 32MB
+Savings = (32 - 25.6) / 32 = 20%
+```
 
 **Result**:
 - Pool size: 12.8MB (instead of 32MB)
