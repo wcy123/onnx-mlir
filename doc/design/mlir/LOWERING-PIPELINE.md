@@ -27,15 +27,78 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 ## Pipeline Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  ONNX-MLIR   │────▶│ HIP Dialect  │────▶│BufferDealloc │────▶│ LLVM Dialect │────▶│ Native Code  │
-│  (MorphiZen) │     │ (OnnxToHip)  │     │(MLIR Standard│     │ (HipToLLVM + │     │ (LLVM JIT)   │
-│              │     │              │     │  Pipeline)   │     │  GenInterface)│     │              │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-   tensor types         memref types        + hip.free ops      memref structs         DLL export
-   return values        context param       auto-inserted       array parameters       3 C functions
-   onnx.Constant        hip.alloc ops       after last use      wrapper functions      (init/compute/
-   onnx operations      hip operations      ownership aware     llvm operations         cleanup)
+┌─────────────────────────────────────────┐
+│           ONNX-MLIR (MorphiZen)         │
+│  tensor types, return values,           │
+│  onnx.Constant, onnx operations         │
+└─────────────────────────────────────────┘
+              |
+              | OnnxToHip Pass
+              v
+┌─────────────────────────────────────────┐
+│             HIP Dialect                 │
+│  memref types, context param,           │
+│  hip.alloc ops, hip operations          │
+└─────────────────────────────────────────┘
+              |
+              | BufferLoopHoisting
+              v
+┌─────────────────────────────────────────┐
+│         HIP Dialect (optimized)         │
+│  allocations moved out of loops         │
+└─────────────────────────────────────────┘
+              |
+              | BufferDeallocation
+              v
+┌─────────────────────────────────────────┐
+│      HIP Dialect (with hip.free)        │
+│  hip.free inserted after last use       │
+└─────────────────────────────────────────┘
+              |
+              | OptimizeAllocationLiveness
+              v
+┌─────────────────────────────────────────┐
+│      HIP Dialect (lifetime opt)         │
+│  buffer lifetimes optimized             │
+└─────────────────────────────────────────┘
+              |
+              | Canonicalizer
+              v
+┌─────────────────────────────────────────┐
+│       HIP Dialect (canonicalized)       │
+│  IR simplified and cleaned up           │
+└─────────────────────────────────────────┘
+              |
+              | MemoryPooling
+              v
+┌─────────────────────────────────────────┐
+│       HIP Dialect (with pooling)        │
+│  pool metadata attached to module       │
+└─────────────────────────────────────────┘
+              |
+              | HipToLLVM Pass
+              v
+┌─────────────────────────────────────────┐
+│             LLVM Dialect                │
+│  memref structs, wrapper functions,     │
+│  llvm operations                        │
+└─────────────────────────────────────────┘
+              |
+              | GenerateInterfacePass
+              v
+┌─────────────────────────────────────────┐
+│      LLVM Dialect (with interface)      │
+│  inference_init/compute/cleanup,        │
+│  C-ABI exports, array parameters        │
+└─────────────────────────────────────────┘
+              |
+              | LLVM Compilation
+              v
+┌─────────────────────────────────────────┐
+│            Native Code (DLL)            │
+│  DLL export, 3 C functions              │
+│  (init/compute/cleanup)                 │
+└─────────────────────────────────────────┘
 ```
 
 ---
@@ -80,7 +143,7 @@ func.func @main_graph(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x1000xf32>)
 - **Metadata**: Add module attributes (I/O counts, ranks) - Required for [GenerateInterfacePass](passes/GenerateInterfacePass.md)
 - **Generated**: Constant management helpers
 
-**Why metadata is needed:** When @main signature becomes `(context, inputs, outputs) → i32` in Stage 3, type information is lost (arrays have no compile-time size). GenerateInterfacePass needs to know: (1) how many inputs/outputs to validate, (2) what rank each tensor has for memref struct construction, (3) loop bounds for processing I/O arrays. The metadata preserves this information.
+**Why metadata is needed:** When @main signature becomes `(context, inputs, outputs) → i32` in Stage 5, type information is lost (arrays have no compile-time size). GenerateInterfacePass needs to know: (1) how many inputs/outputs to validate, (2) what rank each tensor has for memref struct construction, (3) loop bounds for processing I/O arrays. The metadata preserves this information.
 
 **@main signature at this stage:**
 ```mlir
@@ -114,7 +177,7 @@ module attributes {
 
 ---
 
-### Stage 2.5: Buffer Deallocation (MLIR Standard Pipeline)
+### Stage 3: Buffer Deallocation (MLIR Standard Pipeline)
 
 **What it does:**
 After OnnxToHip creates `hip.alloc` operations, MLIR's BufferDeallocation pipeline automatically inserts `hip.free` operations to prevent memory leaks.
@@ -168,7 +231,7 @@ func.func @main(%ctx: !hip.context,
 
 ---
 
-### Stage 2.75: Memory Pooling (MemoryPoolingPass)
+### Stage 4: Memory Pooling (MemoryPoolingPass)
 
 **👉 See [passes/MemoryPoolingPass.md](passes/MemoryPoolingPass.md)**
 
@@ -178,7 +241,7 @@ Attaches module metadata (`hipdnn.pool_size`, `hipdnn.buffer_offsets`) consumed 
 
 ---
 
-### Stage 3: LLVM Dialect (HipToLLVM Pass)
+### Stage 5: LLVM Dialect (HipToLLVM Pass)
 
 **👉 See [passes/HipToLLVM.md](passes/HipToLLVM.md) for implementation details**
 
@@ -218,7 +281,7 @@ llvm.func @hip_conv_wrapper(%ctx: !llvm.ptr,
 
 ---
 
-### Stage 4: C Interface (GenerateInterfacePass)
+### Stage 6: C Interface (GenerateInterfacePass)
 
 **👉 See [passes/GenerateInterfacePass.md](passes/GenerateInterfacePass.md) for implementation details**
 
@@ -248,7 +311,7 @@ llvm.func @inference_cleanup(%state: !llvm.ptr) -> i32
 
 ---
 
-### Stage 5: Native Code (LLVM Backend)
+### Stage 7: Native Code (LLVM Backend)
 
 **Input:** LLVM dialect module
 **Output:** Native DLL (`.dll` / `.so`)
@@ -297,10 +360,10 @@ Stage 2 (OnnxToHip):    llvm.mlir.global constant @constant_0(...)
                         llvm.mlir.global constant @constant_registry(...)
                         └─ Extracted to globals + registry metadata
                               ↓
-Stage 3 (HipToLLVM):    llvm.mlir.addressof @constant_0
+Stage 5 (HipToLLVM):    llvm.mlir.addressof @constant_0
                         └─ Referenced in ConstantInfo array
                               ↓
-Stage 4 (Compilation):  DLL .data section (embedded in binary)
+Stage 7 (Compilation):  DLL .data section (embedded in binary)
                               ↓
 Runtime (init):         get_constant_registry() → metadata
                         hipMalloc + hipMemcpy → GPU memory
@@ -323,7 +386,7 @@ Dynamic shapes are supported by deferring dimension value resolution to runtime:
 │ Compile Time: Rank is known, dimension values are symbolic     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
-         Stage 2-3: memref types use compile-time ranks
+         Stage 2-5: memref types use compile-time ranks
                  (e.g., memref<?x?x?x?xf32> = rank 4)
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
