@@ -1,6 +1,8 @@
 #!/bin/bash
-# Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
-# Licensed under the MIT License.
+##
+## Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+## Licensed under the MIT License.
+##
 
 # Verify all buffer offsets are 4096-byte aligned from LLVM IR
 

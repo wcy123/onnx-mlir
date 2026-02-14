@@ -6,14 +6,14 @@
 #define HIP_DIALECT_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/AllocationOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/Dialect/Bufferization/IR/AllocationOpInterface.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include "HipDialect.h.inc"
 

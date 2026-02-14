@@ -377,8 +377,8 @@ int wrap_miopenConvolutionForward(
 
 // Mock implementation for ReLU activation
 extern "C" int wrap_miopenActivationForward_relu(RuntimeState *state,
-                                                   void *input_memref_ptr,
-                                                   void *output_memref_ptr) {
+                                                 void *input_memref_ptr,
+                                                 void *output_memref_ptr) {
   if (!state || !input_memref_ptr || !output_memref_ptr) {
     fprintf(stderr, "Invalid arguments to wrap_miopenActivationForward_relu\n");
     return -1;

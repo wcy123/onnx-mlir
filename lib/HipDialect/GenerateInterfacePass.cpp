@@ -271,15 +271,17 @@ private:
     // Declare memory pooling functions
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_pool_init")) {
       // int hipdnn_ep_pool_init(RuntimeState* state, size_t pool_size,
-      //                         const size_t* buffer_offsets, size_t num_buffers)
+      //                         const size_t* buffer_offsets, size_t
+      //                         num_buffers)
       auto funcType = LLVM::LLVMFunctionType::get(
           i32Type, {ptrType, i64Type, ptrType, i64Type});
-      auto func =
-          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_pool_init", funcType);
+      auto func = builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_pool_init",
+                                                   funcType);
       func.setLinkage(LLVM::Linkage::External);
     }
 
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_buffer_from_pool")) {
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
+            "hipdnn_ep_get_buffer_from_pool")) {
       // void* hipdnn_ep_get_buffer_from_pool(RuntimeState* state, size_t index)
       auto funcType = LLVM::LLVMFunctionType::get(ptrType, {ptrType, i64Type});
       auto func = builder.create<LLVM::LLVMFuncOp>(

@@ -38,14 +38,14 @@
 
 // Include MLIR pass headers
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Transforms/Passes.h"
 
 #include <iostream>
 #include <string>
@@ -139,7 +139,8 @@ int main(int argc, char **argv) {
   // Initialize MLIR context and register dialects
   mlir::MLIRContext context;
 
-  // Register all dialects (loading unused dialects is cheap and makes the tool more flexible)
+  // Register all dialects (loading unused dialects is cheap and makes the tool
+  // more flexible)
   context.loadDialect<mlir::BuiltinDialect>();
   context.loadDialect<mlir::LLVM::LLVMDialect>();
   context.loadDialect<mlir::func::FuncDialect>();
@@ -187,25 +188,32 @@ int main(int argc, char **argv) {
     pm.addPass(mlir::hip::createConvertOnnxToHipPass());
 
     // BufferDeallocation pipeline (MLIR standard)
-    // Note: API changed in newer MLIR - use individual passes instead of pipeline builder
-    // These are function-level passes, so use pm.nest<func::FuncOp>()
-    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createBufferLoopHoistingPass());
-    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createOwnershipBasedBufferDeallocationPass());
-    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createOptimizeAllocationLivenessPass());
+    // Note: API changed in newer MLIR - use individual passes instead of
+    // pipeline builder These are function-level passes, so use
+    // pm.nest<func::FuncOp>()
+    pm.nest<mlir::func::FuncOp>().addPass(
+        mlir::bufferization::createBufferLoopHoistingPass());
+    pm.nest<mlir::func::FuncOp>().addPass(
+        mlir::bufferization::createOwnershipBasedBufferDeallocationPass());
+    pm.nest<mlir::func::FuncOp>().addPass(
+        mlir::bufferization::createOptimizeAllocationLivenessPass());
     pm.addPass(mlir::createCanonicalizerPass());
 
     // Memory pooling optimization (Phase 3)
-    // IMPORTANT: Must run AFTER BufferDeallocation, since BufferDeallocation creates the final hip.alloc/hip.free ops
+    // IMPORTANT: Must run AFTER BufferDeallocation, since BufferDeallocation
+    // creates the final hip.alloc/hip.free ops
     llvm::errs() << "[DEBUG] About to call createMemoryPoolingPass()\n";
     pm.addPass(mlir::hip::createMemoryPoolingPass());
-    llvm::errs() << "[DEBUG] createMemoryPoolingPass() returned, pass added to PM\n";
+    llvm::errs()
+        << "[DEBUG] createMemoryPoolingPass() returned, pass added to PM\n";
 
     // HIP → LLVM conversion
     pm.addPass(mlir::hip::createConvertHipToLLVMPass());
     pm.addPass(mlir::hip::createGenerateInterfacePass());
 
     if (opts.verbose) {
-      std::cout << "Running ONNX→HIP→BufferDeallocation→LLVM→Interface passes\n";
+      std::cout
+          << "Running ONNX→HIP→BufferDeallocation→LLVM→Interface passes\n";
     }
   } else {
     if (opts.verbose) {

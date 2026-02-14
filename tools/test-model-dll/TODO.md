@@ -1,3 +1,7 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
 # TODO: Remove Debug Output
 
 The test-model-dll.cpp currently has extensive debug logging that clutters the output.
@@ -5,7 +9,7 @@ The test-model-dll.cpp currently has extensive debug logging that clutters the o
 ## Issues
 
 1. `std::cerr << "[DEBUG]..."` statements throughout the code
-2. Unicode checkmark character `\u2713` renders as `?` on Windows console  
+2. Unicode checkmark character `\u2713` renders as `?` on Windows console
 3. Unicode micro symbol `\u03bc` for microseconds may not display correctly
 
 ## Required Changes
@@ -18,7 +22,7 @@ The test-model-dll.cpp currently has extensive debug logging that clutters the o
 ## Affected Lines
 
 - Lines with `[DEBUG]`: 41 occurrences
-- Lines with checkmarks: 8 occurrences  
+- Lines with checkmarks: 8 occurrences
 - Lines with micro symbol: 4 occurrences
 
 See backup: test-model-dll.cpp.backup

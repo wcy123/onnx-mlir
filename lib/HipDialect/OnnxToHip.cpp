@@ -321,7 +321,8 @@ struct ReluToHipPattern : public OpConversionPattern<ONNXReluOp> {
     }
 
     // Convert output type
-    auto outputMemRefType = getTypeConverter()->convertType(reluOp.getResult().getType());
+    auto outputMemRefType =
+        getTypeConverter()->convertType(reluOp.getResult().getType());
     if (!outputMemRefType || !isa<MemRefType>(outputMemRefType)) {
       return rewriter.notifyMatchFailure(
           reluOp, "Failed to convert output tensor type to memref");

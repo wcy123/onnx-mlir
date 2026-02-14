@@ -143,17 +143,22 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     // Check if memory pooling is enabled (module has pool metadata)
     auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
     if (poolSizeAttr) {
-      llvm::errs() << "[HipToLLVM] Pool metadata found, using pool-based allocation\n";
+      llvm::errs()
+          << "[HipToLLVM] Pool metadata found, using pool-based allocation\n";
       // Phase 3: Pool-based allocation
-      // Get buffer index from the operation's attribute (set by MemoryPoolingPass)
-      auto bufferIndexAttr = op->getAttrOfType<IntegerAttr>("hipdnn.buffer_index");
+      // Get buffer index from the operation's attribute (set by
+      // MemoryPoolingPass)
+      auto bufferIndexAttr =
+          op->getAttrOfType<IntegerAttr>("hipdnn.buffer_index");
       if (!bufferIndexAttr) {
-        llvm::errs() << "[HipToLLVM] ERROR: hip.alloc missing hipdnn.buffer_index attribute!\n";
+        llvm::errs() << "[HipToLLVM] ERROR: hip.alloc missing "
+                        "hipdnn.buffer_index attribute!\n";
         return rewriter.notifyMatchFailure(
             op, "hip.alloc operation missing hipdnn.buffer_index attribute");
       }
       int64_t bufferIndex = bufferIndexAttr.getInt();
-      llvm::errs() << "[HipToLLVM] Buffer index for this alloc: " << bufferIndex << "\n";
+      llvm::errs() << "[HipToLLVM] Buffer index for this alloc: " << bufferIndex
+                   << "\n";
 
       // Call hipdnn_ep_get_buffer_from_pool(state, index)
       FailureOr<LLVM::LLVMFuncOp> getBufferFn = LLVM::lookupOrCreateFn(
@@ -177,15 +182,15 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
         return failure();
 
       // Allocate stack space for the returned pointer
-      Value one = rewriter.create<LLVM::ConstantOp>(
-          loc, indexType, rewriter.getIndexAttr(1));
+      Value one = rewriter.create<LLVM::ConstantOp>(loc, indexType,
+                                                    rewriter.getIndexAttr(1));
       Value ptrStorage = rewriter.create<LLVM::AllocaOp>(loc, ptrType, ptrType,
                                                          one, /*alignment=*/8);
 
       // Call hipMalloc(&ptrStorage, sizeBytes)
-      Value mallocResult =
-          LLVM::CallOp::create(rewriter, loc, *mallocFn, {ptrStorage, sizeBytes})
-              .getResult();
+      Value mallocResult = LLVM::CallOp::create(rewriter, loc, *mallocFn,
+                                                {ptrStorage, sizeBytes})
+                               .getResult();
 
       // TODO: Check mallocResult for errors (hipSuccess == 0)
       // For now, assume success
@@ -603,10 +608,9 @@ struct ConvertHipToLLVMPass
     RewritePatternSet patterns(ctx);
 
     // Add HIP-specific conversion patterns
-    patterns
-        .add<CreateHandleOpLowering, DestroyHandleOpLowering, AllocOpLowering,
-             FreeOpLowering, ConvOpLowering, ReluOpLowering,
-             GetConstantOpLowering>(typeConverter);
+    patterns.add<CreateHandleOpLowering, DestroyHandleOpLowering,
+                 AllocOpLowering, FreeOpLowering, ConvOpLowering,
+                 ReluOpLowering, GetConstantOpLowering>(typeConverter);
 
     // Add standard MLIR→LLVM conversion patterns
     populateFuncToLLVMConversionPatterns(typeConverter, patterns);

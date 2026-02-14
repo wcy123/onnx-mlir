@@ -53,10 +53,10 @@ struct RuntimeState {
   size_t num_constants;
 
   // Memory pooling support (Phase 3)
-  void *pool_base;          // Single large memory pool
-  size_t pool_size;         // Total pool size in bytes
-  size_t *buffer_offsets;   // Offset for each buffer in the pool
-  size_t num_buffers;       // Number of buffers in the pool
+  void *pool_base;        // Single large memory pool
+  size_t pool_size;       // Total pool size in bytes
+  size_t *buffer_offsets; // Offset for each buffer in the pool
+  size_t num_buffers;     // Number of buffers in the pool
 };
 
 // Runtime state management implementation
@@ -340,8 +340,7 @@ void *hipdnn_ep_get_buffer_from_pool(RuntimeState *state, size_t index) {
   }
 
   if (index >= state->num_buffers) {
-    fprintf(stderr,
-            "Buffer index %zu out of range (num_buffers = %zu)\n",
+    fprintf(stderr, "Buffer index %zu out of range (num_buffers = %zu)\n",
             index, state->num_buffers);
     return nullptr;
   }

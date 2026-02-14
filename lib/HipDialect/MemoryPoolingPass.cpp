@@ -56,11 +56,11 @@ namespace {
 
 // Buffer metadata for pooling analysis
 struct BufferInfo {
-  size_t index;           // Unique buffer index
-  size_t sizeBytes;       // Buffer size in bytes
-  AllocOp allocOp;        // The allocation operation
-  Operation *firstUse;    // First operation using this buffer
-  Operation *lastUse;     // Last operation using this buffer
+  size_t index;        // Unique buffer index
+  size_t sizeBytes;    // Buffer size in bytes
+  AllocOp allocOp;     // The allocation operation
+  Operation *firstUse; // First operation using this buffer
+  Operation *lastUse;  // Last operation using this buffer
 };
 
 class MemoryPoolingPass
@@ -76,7 +76,8 @@ public:
   void runOnOperation() override {
     ModuleOp module = getOperation();
 
-    llvm::errs() << "[MemoryPooling] ========================================\n";
+    llvm::errs()
+        << "[MemoryPooling] ========================================\n";
     llvm::errs() << "[MemoryPooling] Pass started\n";
 
     // Step 1: Collect all hip.alloc operations
@@ -87,11 +88,13 @@ public:
       return;
     }
 
-    llvm::errs() << "[MemoryPooling] Found " << buffers.size() << " allocations\n";
+    llvm::errs() << "[MemoryPooling] Found " << buffers.size()
+                 << " allocations\n";
 
     if (buffers.empty()) {
       llvm::errs() << "[MemoryPooling] No allocations found, skipping\n";
-      llvm::errs() << "[MemoryPooling] ========================================\n";
+      llvm::errs()
+          << "[MemoryPooling] ========================================\n";
       return;
     }
 
@@ -119,13 +122,16 @@ public:
     }
     size_t alignedPoolSize = alignOffset(poolSize, GPU_BUFFER_ALIGNMENT);
     size_t alignmentOverhead = alignedPoolSize - poolSize;
-    double savingsPct = totalIndividual > 0
-                            ? 100.0 * (1.0 - double(alignedPoolSize) / totalIndividual)
-                            : 0.0;
+    double savingsPct =
+        totalIndividual > 0
+            ? 100.0 * (1.0 - double(alignedPoolSize) / totalIndividual)
+            : 0.0;
 
-    llvm::errs() << "[MemoryPooling] Pool size: " << alignedPoolSize << " bytes "
-                 << "(was " << totalIndividual << " bytes, saved "
-                 << savingsPct << "%, alignment overhead: " << alignmentOverhead << " bytes)\n";
+    llvm::errs() << "[MemoryPooling] Pool size: " << alignedPoolSize
+                 << " bytes "
+                 << "(was " << totalIndividual << " bytes, saved " << savingsPct
+                 << "%, alignment overhead: " << alignmentOverhead
+                 << " bytes)\n";
     llvm::errs() << "[MemoryPooling] Processed " << buffers.size()
                  << " buffers\n";
   }
@@ -142,7 +148,8 @@ private:
     size_t funcCount = 0;
     for (auto funcOp : module.getOps<func::FuncOp>()) {
       funcCount++;
-      llvm::errs() << "[MemoryPooling]   Scanning function: " << funcOp.getName() << "\n";
+      llvm::errs() << "[MemoryPooling]   Scanning function: "
+                   << funcOp.getName() << "\n";
 
       // Walk all hip.alloc operations in deterministic order
       funcOp.walk([&](AllocOp allocOp) {
@@ -388,7 +395,8 @@ private:
     module->setAttr("hipdnn.buffer_offsets", builder.getArrayAttr(offsetAttrs));
 
     // CRITICAL: Attach buffer index as attribute to each hip.alloc operation
-    // This allows HipToLLVM to find the index even if the operation is cloned/replaced by later passes
+    // This allows HipToLLVM to find the index even if the operation is
+    // cloned/replaced by later passes
     for (const auto &buf : buffers) {
       buf.allocOp->setAttr("hipdnn.buffer_index",
                            builder.getI64IntegerAttr(buf.index));
