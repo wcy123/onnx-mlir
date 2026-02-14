@@ -220,11 +220,7 @@ void printTensorInfo(const char *name, const std::vector<int64_t> &shape,
 }
 
 int main(int argc, char **argv) {
-  std::cerr << "[DEBUG] main() started, argc=" << argc << "\n";
-  std::cerr.flush();
   Config config = parseArgs(argc, argv);
-  std::cerr << "[DEBUG] parseArgs() completed\n";
-  std::cerr.flush();
 
   if (config.showHelp) {
     showUsage(argv[0]);
@@ -244,11 +240,7 @@ int main(int argc, char **argv) {
 
   // Load DLL
   std::cout << "--- Loading DLL ---\n";
-  std::cerr << "[DEBUG] About to call LOAD_LIB for: " << config.dllPath << "\n";
-  std::cerr.flush();
   LIB_HANDLE lib = LOAD_LIB(config.dllPath);
-  std::cerr << "[DEBUG] LOAD_LIB returned: " << lib << "\n";
-  std::cerr.flush();
   if (!lib) {
     std::cerr << "ERROR: Cannot load DLL\n";
 #ifndef _WIN32
@@ -258,48 +250,22 @@ int main(int argc, char **argv) {
 #endif
     return 1;
   }
-  std::cerr << "[DEBUG] Lib pointer is valid, about to print success\n";
-  std::cerr.flush();
   std::cout << "\u2713 DLL loaded successfully\n\n";
-  std::cerr << "[DEBUG] Printed success message\n";
-  std::cerr.flush();
 
   // Resolve functions
   std::cout << "--- Resolving Exports ---\n";
-  std::cerr << "[DEBUG] About to GET_PROC for inference_init\n";
-  std::cerr.flush();
   auto init = (init_fn)GET_PROC(lib, "inference_init");
-  std::cerr << "[DEBUG] init ptr: " << (void *)init << "\n";
-  std::cerr.flush();
-
-  std::cerr << "[DEBUG] About to GET_PROC for inference_compute\n";
-  std::cerr.flush();
   auto compute = (compute_fn)GET_PROC(lib, "inference_compute");
-  std::cerr << "[DEBUG] compute ptr: " << (void *)compute << "\n";
-  std::cerr.flush();
-
-  std::cerr << "[DEBUG] About to GET_PROC for inference_cleanup\n";
-  std::cerr.flush();
   auto cleanup = (cleanup_fn)GET_PROC(lib, "inference_cleanup");
-  std::cerr << "[DEBUG] cleanup ptr: " << (void *)cleanup << "\n";
-  std::cerr.flush();
 
-  std::cerr << "[DEBUG] Checking init pointer\n";
-  std::cerr.flush();
   if (!init) {
     std::cerr << "ERROR: Failed to find 'inference_init' export\n";
     std::cerr << "Make sure DLL was compiled with --generate-interface pass\n";
     FREE_LIB(lib);
     return 1;
   }
-  std::cerr << "[DEBUG] init is valid, printing...\n";
-  std::cerr.flush();
   std::cout << "\u2713 Found inference_init\n";
-  std::cerr << "[DEBUG] Printed init message\n";
-  std::cerr.flush();
 
-  std::cerr << "[DEBUG] Checking compute pointer\n";
-  std::cerr.flush();
   if (!compute) {
     std::cerr << "ERROR: Failed to find 'inference_compute' export\n";
     FREE_LIB(lib);
@@ -307,30 +273,17 @@ int main(int argc, char **argv) {
   }
   std::cout << "\u2713 Found inference_compute\n";
 
-  std::cerr << "[DEBUG] Checking cleanup pointer\n";
-  std::cerr.flush();
   if (!cleanup) {
     std::cerr << "ERROR: Failed to find 'inference_cleanup' export\n";
     FREE_LIB(lib);
     return 1;
   }
   std::cout << "\u2713 Found inference_cleanup\n\n";
-  std::cerr << "[DEBUG] All function pointers validated\n";
-  std::cerr.flush();
 
   // Initialize
   std::cout << "--- Running inference_init ---\n";
-  std::cerr << "[DEBUG] About to call init function at: " << (void *)init
-            << "\n";
-  std::cerr.flush();
   void *state = nullptr;
-  std::cerr << "[DEBUG] Calling init(&state)...\n";
-  std::cerr.flush();
   int rc = init(&state);
-  std::cerr << "[DEBUG] init returned: " << rc << ", state=" << state << "\n";
-  std::cerr.flush();
-  std::cerr << "[DEBUG] About to check return code\n";
-  std::cerr.flush();
   if (rc != 0 || !state) {
     std::cerr << "ERROR: inference_init failed\n";
     std::cerr << "  Return code: " << rc << " (" << decodeErrorCode(rc)
@@ -339,32 +292,14 @@ int main(int argc, char **argv) {
     FREE_LIB(lib);
     return 1;
   }
-  std::cerr << "[DEBUG] Return code check passed, about to print success\n";
-  std::cerr.flush();
   std::cout << "\u2713 State initialized\n";
-  std::cerr << "[DEBUG] Printed state initialized\n";
-  std::cerr.flush();
-  std::cerr << "[DEBUG] Checking verbose flag: " << config.verbose << "\n";
-  std::cerr.flush();
   if (config.verbose) {
-    std::cerr << "[DEBUG] About to print state address\n";
-    std::cerr.flush();
     std::cout << "  State address: " << state << "\n";
-    std::cerr << "[DEBUG] Printed state address\n";
-    std::cerr.flush();
   }
-  std::cerr << "[DEBUG] About to print newline\n";
-  std::cerr.flush();
   std::cout << "\n";
-  std::cerr << "[DEBUG] Printed newline\n";
-  std::cerr.flush();
 
   // Prepare test data
-  std::cerr << "[DEBUG] About to print 'Preparing Test Data'\n";
-  std::cerr.flush();
   std::cout << "--- Preparing Test Data ---\n";
-  std::cerr << "[DEBUG] Printed 'Preparing Test Data'\n";
-  std::cerr.flush();
 
   // Test shapes for demo_two_layer_conv model
   // Input: tensor<1x3x224x224xf32> = 150528 elements
@@ -380,20 +315,12 @@ int main(int argc, char **argv) {
     printTensorInfo("Output", outputShape, outputElements);
   }
 
-  std::cerr << "[DEBUG] About to allocate input data\n";
-  std::cerr.flush();
   std::cout << "Allocating input data (" << inputElements * sizeof(float)
             << " bytes = " << (inputElements * sizeof(float) / 1024)
             << " KB)...\n";
-  std::cerr << "[DEBUG] Creating vector\n";
-  std::cerr.flush();
   std::vector<float> inputData;
-  std::cerr << "[DEBUG] About to call generateTestInput\n";
-  std::cerr.flush();
   try {
     inputData = generateTestInput(inputShape);
-    std::cerr << "[DEBUG] generateTestInput succeeded\n";
-    std::cerr.flush();
   } catch (const std::exception &e) {
     std::cerr << "ERROR: Failed to allocate input data: " << e.what() << "\n";
     cleanup(state);
@@ -401,26 +328,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  std::cerr << "[DEBUG] About to allocate output data\n";
-  std::cerr.flush();
   std::cout << "Allocating output data (" << outputElements * sizeof(float)
             << " bytes = " << (outputElements * sizeof(float) / 1024)
             << " KB)...\n";
-  std::cerr << "[DEBUG] Printed output allocation message\n";
-  std::cerr.flush();
   std::vector<float> outputData;
-  std::cerr << "[DEBUG] About to resize output vector for " << outputElements
-            << " floats\n";
-  std::cerr.flush();
-  std::cerr << "[DEBUG] Current vector capacity: " << outputData.capacity()
-            << "\n";
-  std::cerr.flush();
   try {
-    std::cerr << "[DEBUG] Calling resize...\n";
-    std::cerr.flush();
     outputData.resize(outputElements, 0.0f);
-    std::cerr << "[DEBUG] Resize completed\n";
-    std::cerr.flush();
   } catch (const std::exception &e) {
     std::cerr << "ERROR: Failed to allocate output data: " << e.what() << "\n";
     cleanup(state);
