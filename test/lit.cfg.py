@@ -9,15 +9,18 @@ import platform
 import lit.formats
 import lit.util
 
-from lit.llvm import llvm_config
-
 # Configuration file for the 'lit' test runner.
 
 # name: The name of this test suite.
 config.name = "ONNX-HIP-EP"
 
 # testFormat: The test format to use to interpret tests.
-config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
+# Use internal shell by default for better cross-platform support
+use_lit_shell = True
+lit_shell_env = os.environ.get("LIT_USE_INTERNAL_SHELL")
+if lit_shell_env:
+    use_lit_shell = lit.util.pythonize_bool(lit_shell_env)
+config.test_format = lit.formats.ShTest(execute_external=not use_lit_shell)
 
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]
@@ -27,6 +30,11 @@ config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.onnx_hip_obj_root, "test")
+
+# Initialize llvm_config for tool management
+import lit.llvm
+lit.llvm.initialize(lit_config, config)
+llvm_config = lit.llvm.llvm_config
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
