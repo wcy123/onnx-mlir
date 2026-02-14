@@ -30,6 +30,16 @@
 using namespace mlir;
 using namespace mlir::hip;
 
+namespace {
+// GPU memory alignment (4K page alignment)
+static constexpr size_t GPU_BUFFER_ALIGNMENT = 4096;
+
+// Align offset to boundary
+static inline size_t alignOffset(size_t offset, size_t alignment) {
+  return (offset + alignment - 1) / alignment * alignment;
+}
+} // namespace
+
 // Static initializer to verify this file is being compiled and linked
 namespace {
 struct MemoryPoolingPassDebugInit {
@@ -107,13 +117,15 @@ public:
     for (const auto &buf : buffers) {
       totalIndividual += buf.sizeBytes;
     }
+    size_t alignedPoolSize = alignOffset(poolSize, GPU_BUFFER_ALIGNMENT);
+    size_t alignmentOverhead = alignedPoolSize - poolSize;
     double savingsPct = totalIndividual > 0
-                            ? 100.0 * (1.0 - double(poolSize) / totalIndividual)
+                            ? 100.0 * (1.0 - double(alignedPoolSize) / totalIndividual)
                             : 0.0;
 
-    llvm::errs() << "[MemoryPooling] Pool size: " << poolSize << " bytes "
+    llvm::errs() << "[MemoryPooling] Pool size: " << alignedPoolSize << " bytes "
                  << "(was " << totalIndividual << " bytes, saved "
-                 << savingsPct << "%)\n";
+                 << savingsPct << "%, alignment overhead: " << alignmentOverhead << " bytes)\n";
     llvm::errs() << "[MemoryPooling] Processed " << buffers.size()
                  << " buffers\n";
   }
@@ -299,7 +311,7 @@ private:
 
       // Try each boundary position
       for (size_t boundary : boundaries) {
-        candidateOffset = boundary;
+        candidateOffset = alignOffset(boundary, GPU_BUFFER_ALIGNMENT);
         bool conflict = false;
 
         // Check if this offset conflicts with any interfering buffer
@@ -334,7 +346,7 @@ private:
 
       // If no slot found at boundaries, append at the end
       if (!foundSlot) {
-        candidateOffset = poolSize;
+        candidateOffset = alignOffset(poolSize, GPU_BUFFER_ALIGNMENT);
       }
 
       // Assign offset
@@ -350,9 +362,12 @@ private:
                       const SmallVector<size_t> &offsets, size_t poolSize) {
     OpBuilder builder(module.getContext());
 
+    // Align final pool size
+    size_t alignedPoolSize = alignOffset(poolSize, GPU_BUFFER_ALIGNMENT);
+
     // Store pool size
     module->setAttr("hipdnn.pool_size",
-                    builder.getI64IntegerAttr(poolSize));
+                    builder.getI64IntegerAttr(alignedPoolSize));
 
     // Store buffer count
     module->setAttr("hipdnn.buffer_count",

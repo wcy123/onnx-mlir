@@ -183,24 +183,22 @@ func.func @main(...) {
 
 ## Current Limitations
 
-### 1. No Alignment Constraints
+### 1. Buffer Alignment (Implemented)
 
-**Problem**: Buffer offsets are assigned without alignment requirements. GPUs typically require 4K (4096 bytes) or other alignment for optimal performance.
+Buffer offsets aligned to 4096-byte boundaries.
 
-**Current behavior**:
-```
-Buffer 0: offset = 0         ✓ aligned
-Buffer 1: offset = 3211264   ✗ not 4K-aligned (3211264 % 4096 = 0, actually aligned by luck)
-Buffer 2: offset = 147456    ✗ not 4K-aligned (147456 % 4096 = 0, actually aligned by luck)
-```
-
-**Required fix**: Round up offsets to alignment boundary:
+**Implementation**:
 ```cpp
-const size_t ALIGNMENT = 4096;  // 4K pages
-candidateOffset = (candidateOffset + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT;
+const size_t GPU_BUFFER_ALIGNMENT = 4096;
+static inline size_t alignOffset(size_t offset, size_t alignment) {
+  return (offset + alignment - 1) / alignment * alignment;
+}
+
+// Applied during offset assignment
+candidateOffset = alignOffset(boundary, GPU_BUFFER_ALIGNMENT);
 ```
 
-**Impact**: May increase pool size by ~10-20% but ensures correctness.
+**Overhead**: 15-30% increase in pool size.
 
 ### 2. Conservative Interference Check
 

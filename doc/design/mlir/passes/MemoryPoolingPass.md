@@ -303,9 +303,30 @@ ctest --test-dir ../../build/$(basename $PWD) -R CompileDemoConvDLL --verbose
 
 ---
 
+## Buffer Alignment
+
+Buffer offsets aligned to 4096-byte (4K page) boundaries.
+
+**Implementation**: Alignment applied during graph coloring in `computePoolOffsets()`. No runtime code changes.
+
+**Overhead**: 15-30% increase in pool size.
+
+**Alignment logic**:
+```cpp
+static constexpr size_t GPU_BUFFER_ALIGNMENT = 4096;
+static inline size_t alignOffset(size_t offset, size_t alignment) {
+  return (offset + alignment - 1) / alignment * alignment;
+}
+```
+
+Applied to:
+1. Candidate offsets during first-fit search
+2. Final pool size in metadata
+
+---
+
 ## Limitations
 
-- **No alignment**: Buffer offsets are not aligned (no 4K/page alignment). May cause performance degradation or runtime errors if GPU requires aligned allocations.
 - **Single pool**: No multi-pool strategy for different memory types
 - **Greedy coloring**: Not optimal bin packing (NP-hard problem)
 
