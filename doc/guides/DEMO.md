@@ -107,11 +107,11 @@ This section walks through each compilation stage with real compiler output.
 ```mlir
 // Two-layer convolution network (ResNet-style)
 func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
-  // ❌ Constants inline in function
+  // Constants inline in function
   %weights1 = "onnx.Constant"() {value = dense<1.0> : tensor<64x3x3x3xf32>} : () -> tensor<64x3x3x3xf32>
   %bias1 = "onnx.Constant"() {value = dense<0.5> : tensor<64xf32>} : () -> tensor<64xf32>
 
-  // ❌ ONNX dialect operations (high-level)
+  // ONNX dialect operations (high-level)
   %conv1 = "onnx.Conv"(%input, %weights1, %bias1) {kernel_shape = [3, 3], strides = [1, 1], ...}
     : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>) -> tensor<1x64x224x224xf32>
   %relu1 = "onnx.Relu"(%conv1) : (tensor<1x64x224x224xf32>) -> tensor<1x64x224x224xf32>
