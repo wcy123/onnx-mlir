@@ -20,6 +20,9 @@ std::unique_ptr<Pass> createConvertHipToLLVMPass();
 /// Create a pass to generate C interface wrapper functions.
 std::unique_ptr<Pass> createGenerateInterfacePass();
 
+/// Create a pass to optimize memory allocation with pooling.
+std::unique_ptr<Pass> createMemoryPoolingPass();
+
 /// Register all HIP passes.
 void registerHipPasses();
 

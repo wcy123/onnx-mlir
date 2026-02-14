@@ -268,6 +268,25 @@ private:
       func.setLinkage(LLVM::Linkage::External);
     }
 
+    // Declare memory pooling functions
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_pool_init")) {
+      // int hipdnn_ep_pool_init(RuntimeState* state, size_t pool_size,
+      //                         const size_t* buffer_offsets, size_t num_buffers)
+      auto funcType = LLVM::LLVMFunctionType::get(
+          i32Type, {ptrType, i64Type, ptrType, i64Type});
+      auto func =
+          builder.create<LLVM::LLVMFuncOp>(loc, "hipdnn_ep_pool_init", funcType);
+      func.setLinkage(LLVM::Linkage::External);
+    }
+
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_get_buffer_from_pool")) {
+      // void* hipdnn_ep_get_buffer_from_pool(RuntimeState* state, size_t index)
+      auto funcType = LLVM::LLVMFunctionType::get(ptrType, {ptrType, i64Type});
+      auto func = builder.create<LLVM::LLVMFuncOp>(
+          loc, "hipdnn_ep_get_buffer_from_pool", funcType);
+      func.setLinkage(LLVM::Linkage::External);
+    }
+
     // Declare tensor preparation helpers
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>(
             "hipdnn_ep_tensor_prepare_input")) {
@@ -445,11 +464,88 @@ private:
     // Call hipdnn_ep_state_init(out_state, registry_ptr)
     auto runtimeInitFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_state_init");
-    auto call = builder.create<LLVM::CallOp>(
+    auto initCall = builder.create<LLVM::CallOp>(
         loc, runtimeInitFunc, ValueRange{outStatePtr, registryPtr});
 
-    // Return the result from hipdnn_ep_state_init
-    builder.create<LLVM::ReturnOp>(loc, call.getResult());
+    // Check if memory pooling is enabled (module has pool metadata)
+    auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
+    auto bufferOffsetsAttr =
+        module->getAttrOfType<ArrayAttr>("hipdnn.buffer_offsets");
+    auto bufferCountAttr =
+        module->getAttrOfType<IntegerAttr>("hipdnn.buffer_count");
+
+    if (poolSizeAttr && bufferOffsetsAttr && bufferCountAttr) {
+      // Phase 3: Initialize memory pool
+      size_t poolSize = poolSizeAttr.getInt();
+      size_t numBuffers = bufferCountAttr.getInt();
+      auto offsetsAttrArray = bufferOffsetsAttr.getValue();
+
+      // Check if init failed
+      Value zero_i32 = builder.create<LLVM::ConstantOp>(
+          loc, i32Type, builder.getI32IntegerAttr(0));
+      Value initFailed = builder.create<LLVM::ICmpOp>(
+          loc, LLVM::ICmpPredicate::ne, initCall.getResult(), zero_i32);
+
+      // Create blocks for conditional pool init
+      Block *poolInitBlock = funcOp.addBlock();
+      Block *returnBlock = funcOp.addBlock();
+
+      // If state init failed, skip pool init and return error
+      builder.create<LLVM::CondBrOp>(loc, initFailed, returnBlock,
+                                     poolInitBlock);
+
+      // Pool initialization block
+      builder.setInsertionPointToStart(poolInitBlock);
+
+      // Load state pointer from outStatePtr
+      Value statePtr = builder.create<LLVM::LoadOp>(loc, ptrType, outStatePtr);
+
+      // Create constant array of buffer offsets
+      Value one = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(1));
+      Value numBuffersVal = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(numBuffers));
+
+      // Allocate array for offsets on stack
+      Value offsetsArrayPtr = builder.create<LLVM::AllocaOp>(
+          loc, ptrType, i64Type, numBuffersVal, 0);
+
+      // Fill the offsets array
+      for (size_t i = 0; i < numBuffers; i++) {
+        auto offsetAttr = dyn_cast<IntegerAttr>(offsetsAttrArray[i]);
+        Value offset = builder.create<LLVM::ConstantOp>(
+            loc, i64Type, builder.getI64IntegerAttr(offsetAttr.getInt()));
+        Value idx = builder.create<LLVM::ConstantOp>(
+            loc, i32Type, builder.getI32IntegerAttr(i));
+        Value elemPtr = builder.create<LLVM::GEPOp>(
+            loc, ptrType, i64Type, offsetsArrayPtr, ValueRange{idx});
+        builder.create<LLVM::StoreOp>(loc, offset, elemPtr);
+      }
+
+      // Call hipdnn_ep_pool_init(state, pool_size, offsets, num_buffers)
+      auto poolInitFunc =
+          module.lookupSymbol<LLVM::LLVMFuncOp>("hipdnn_ep_pool_init");
+      Value poolSizeVal = builder.create<LLVM::ConstantOp>(
+          loc, i64Type, builder.getI64IntegerAttr(poolSize));
+      auto poolInitCall = builder.create<LLVM::CallOp>(
+          loc, poolInitFunc,
+          ValueRange{statePtr, poolSizeVal, offsetsArrayPtr, numBuffersVal});
+
+      // Branch to return block
+      builder.create<LLVM::BrOp>(loc, returnBlock);
+
+      // Return block
+      builder.setInsertionPointToStart(returnBlock);
+
+      // PHI node to select correct return value
+      Value retVal = builder.create<LLVM::SelectOp>(
+          loc, initFailed, initCall.getResult(), poolInitCall.getResult());
+
+      builder.create<LLVM::ReturnOp>(loc, retVal);
+    } else {
+      // Phase 1: No pooling - return init result directly
+      builder.create<LLVM::ReturnOp>(loc, initCall.getResult());
+    }
   }
 
   /// Generate inference_compute function using tensor preparation helpers

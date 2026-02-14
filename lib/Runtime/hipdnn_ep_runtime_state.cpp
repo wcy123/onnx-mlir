@@ -40,6 +40,7 @@ extern "C" hipblasStatus_t hipblasLtDestroy(hipblasLtHandle_t handle);
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 // Internal runtime state structure
 struct RuntimeState {
@@ -50,6 +51,12 @@ struct RuntimeState {
   // Array of GPU pointers for constants (size known at compile time)
   void **gpu_constants;
   size_t num_constants;
+
+  // Memory pooling support (Phase 3)
+  void *pool_base;          // Single large memory pool
+  size_t pool_size;         // Total pool size in bytes
+  size_t *buffer_offsets;   // Offset for each buffer in the pool
+  size_t num_buffers;       // Number of buffers in the pool
 };
 
 // Runtime state management implementation
@@ -74,6 +81,10 @@ int hipdnn_ep_state_init(RuntimeState **out_state,
   state->hipblas_handle = nullptr;
   state->gpu_constants = nullptr;
   state->num_constants = registry ? registry->count : 0;
+  state->pool_base = nullptr;
+  state->pool_size = 0;
+  state->buffer_offsets = nullptr;
+  state->num_buffers = 0;
 
   // Allocate constants array (initialized to NULL)
   if (state->num_constants > 0) {
@@ -190,6 +201,14 @@ int hipdnn_ep_state_cleanup(RuntimeState *state) {
     hipStreamSynchronize(state->stream);
   }
 
+  // Free memory pool (if allocated)
+  if (state->pool_base) {
+    hipFree(state->pool_base);
+  }
+  if (state->buffer_offsets) {
+    free(state->buffer_offsets);
+  }
+
   // Free all constants (best-effort)
   if (state->gpu_constants) {
     for (size_t i = 0; i < state->num_constants; i++) {
@@ -263,6 +282,74 @@ int runtime_cleanup_inference(void *state, void *data, void *outputs_ptr) {
     free(data);
   }
   return 0; // Success
+}
+
+} // extern "C"
+
+//==============================================================================
+// Memory Pooling Support (Phase 3)
+//==============================================================================
+
+extern "C" {
+
+int hipdnn_ep_pool_init(RuntimeState *state, size_t pool_size,
+                        const size_t *buffer_offsets, size_t num_buffers) {
+  if (!state) {
+    fprintf(stderr, "Invalid state parameter to hipdnn_ep_pool_init\n");
+    return 1;
+  }
+
+  // Allocate the memory pool
+  if (pool_size > 0) {
+    if (hipMalloc(&state->pool_base, pool_size) != hipSuccess) {
+      fprintf(stderr, "Failed to allocate memory pool of size %zu bytes\n",
+              pool_size);
+      return 2; // Pool allocation failed
+    }
+  } else {
+    state->pool_base = nullptr;
+  }
+
+  // Store pool metadata
+  state->pool_size = pool_size;
+  state->num_buffers = num_buffers;
+
+  // Copy buffer offsets array
+  if (num_buffers > 0 && buffer_offsets) {
+    state->buffer_offsets = (size_t *)malloc(sizeof(size_t) * num_buffers);
+    if (!state->buffer_offsets) {
+      fprintf(stderr, "Failed to allocate buffer offsets array\n");
+      if (state->pool_base) {
+        hipFree(state->pool_base);
+        state->pool_base = nullptr;
+      }
+      return 1; // Allocation failed
+    }
+    memcpy(state->buffer_offsets, buffer_offsets, sizeof(size_t) * num_buffers);
+  } else {
+    state->buffer_offsets = nullptr;
+  }
+
+  return 0; // Success
+}
+
+void *hipdnn_ep_get_buffer_from_pool(RuntimeState *state, size_t index) {
+  if (!state || !state->pool_base) {
+    fprintf(stderr, "Invalid state or pool not initialized\n");
+    return nullptr;
+  }
+
+  if (index >= state->num_buffers) {
+    fprintf(stderr,
+            "Buffer index %zu out of range (num_buffers = %zu)\n",
+            index, state->num_buffers);
+    return nullptr;
+  }
+
+  // Return pointer at pool_base + offset
+  char *pool_ptr = static_cast<char *>(state->pool_base);
+  size_t offset = state->buffer_offsets[index];
+  return pool_ptr + offset;
 }
 
 } // extern "C"

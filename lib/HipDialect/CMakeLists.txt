@@ -56,6 +56,7 @@ add_library(HipDialect STATIC
   HipToLLVM.cpp
   OnnxToHip.cpp
   GenerateInterfacePass.cpp
+  MemoryPoolingPass.cpp
 )
 
 # Add dependencies on TableGen targets

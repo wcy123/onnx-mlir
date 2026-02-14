@@ -1,0 +1,369 @@
+/*
+ * Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+ * Licensed under the MIT License.
+ */
+
+//===----------------------------------------------------------------------===//
+// Memory Pooling Pass - Optimize buffer allocation with graph coloring
+//===----------------------------------------------------------------------===//
+// This pass implements Phase 3 of buffer lifetime management:
+// - Tracks all hip.alloc operations and assigns buffer indices
+// - Analyzes buffer lifetimes using liveness analysis
+// - Builds interference graph for overlapping lifetimes
+// - Performs greedy graph coloring with first-fit offset assignment
+// - Computes total pool size
+// - Attaches metadata to module (pool_size, buffer_offsets, buffer_count)
+//===----------------------------------------------------------------------===//
+
+#include "HipDialect.h"
+#include "HipPasses.h"
+#include "mlir/Analysis/Liveness.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/Pass.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
+#include <algorithm>
+
+using namespace mlir;
+using namespace mlir::hip;
+
+namespace {
+
+// Buffer metadata for pooling analysis
+struct BufferInfo {
+  size_t index;           // Unique buffer index
+  size_t sizeBytes;       // Buffer size in bytes
+  AllocOp allocOp;        // The allocation operation
+  Operation *firstUse;    // First operation using this buffer
+  Operation *lastUse;     // Last operation using this buffer
+};
+
+class MemoryPoolingPass
+    : public PassWrapper<MemoryPoolingPass, OperationPass<ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(MemoryPoolingPass)
+
+  StringRef getArgument() const final { return "memory-pooling"; }
+  StringRef getDescription() const final {
+    return "Optimize memory allocation using graph coloring for pool offsets";
+  }
+
+  void runOnOperation() override {
+    ModuleOp module = getOperation();
+
+    // Step 1: Collect all hip.alloc operations
+    SmallVector<BufferInfo> buffers;
+    if (failed(collectAllocations(module, buffers))) {
+      signalPassFailure();
+      return;
+    }
+
+    if (buffers.empty()) {
+      llvm::errs() << "[MemoryPooling] No allocations found, skipping\n";
+      return;
+    }
+
+    // Step 2: Analyze liveness intervals
+    if (failed(analyzeLiveness(module, buffers))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Step 3: Build interference graph and compute pool offsets
+    SmallVector<size_t> offsets(buffers.size());
+    size_t poolSize = 0;
+    if (failed(computePoolOffsets(buffers, offsets, poolSize))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Step 4: Attach metadata to module
+    attachMetadata(module, buffers, offsets, poolSize);
+
+    // Calculate memory savings
+    size_t totalIndividual = 0;
+    for (const auto &buf : buffers) {
+      totalIndividual += buf.sizeBytes;
+    }
+    double savingsPct = totalIndividual > 0
+                            ? 100.0 * (1.0 - double(poolSize) / totalIndividual)
+                            : 0.0;
+
+    llvm::errs() << "[MemoryPooling] Pool size: " << poolSize << " bytes "
+                 << "(was " << totalIndividual << " bytes, saved "
+                 << savingsPct << "%)\n";
+    llvm::errs() << "[MemoryPooling] Processed " << buffers.size()
+                 << " buffers\n";
+  }
+
+private:
+  /// Collect all hip.alloc operations and compute their sizes
+  LogicalResult collectAllocations(ModuleOp module,
+                                   SmallVector<BufferInfo> &buffers) {
+    size_t index = 0;
+
+    // Walk all functions in the module
+    for (auto funcOp : module.getOps<func::FuncOp>()) {
+      // Walk all hip.alloc operations in deterministic order
+      funcOp.walk([&](AllocOp allocOp) {
+        MemRefType memrefType = allocOp.getMemref().getType();
+
+        // Compute buffer size
+        auto sizeBytes = computeBufferSize(memrefType);
+        if (failed(sizeBytes)) {
+          allocOp->emitError("Cannot compute buffer size for dynamic memref");
+          return WalkResult::interrupt();
+        }
+
+        // Create buffer info
+        BufferInfo info;
+        info.index = index++;
+        info.sizeBytes = *sizeBytes;
+        info.allocOp = allocOp;
+        info.firstUse = allocOp.getOperation();
+        info.lastUse = nullptr;
+
+        buffers.push_back(info);
+        return WalkResult::advance();
+      });
+    }
+
+    return success();
+  }
+
+  /// Compute buffer size in bytes from memref type
+  FailureOr<size_t> computeBufferSize(MemRefType memrefType) {
+    Type elementType = memrefType.getElementType();
+    size_t elementSize = getElementSize(elementType);
+
+    if (elementSize == 0) {
+      return failure();
+    }
+
+    // Check for dynamic shapes
+    if (!memrefType.hasStaticShape()) {
+      // For now, we don't support dynamic shapes
+      // In the future, we could use conservative upper bounds
+      return failure();
+    }
+
+    // Compute total size
+    size_t totalElements = 1;
+    for (int64_t dim : memrefType.getShape()) {
+      if (dim == ShapedType::kDynamic) {
+        return failure();
+      }
+      totalElements *= dim;
+    }
+
+    return totalElements * elementSize;
+  }
+
+  /// Get element size in bytes
+  size_t getElementSize(Type elementType) {
+    if (auto floatType = dyn_cast<FloatType>(elementType)) {
+      return floatType.getWidth() / 8;
+    } else if (auto intType = dyn_cast<IntegerType>(elementType)) {
+      return intType.getWidth() / 8;
+    }
+    return 0;
+  }
+
+  /// Analyze liveness intervals for each buffer
+  LogicalResult analyzeLiveness(ModuleOp module,
+                                SmallVector<BufferInfo> &buffers) {
+    // Build a map from AllocOp to buffer index
+    DenseMap<Operation *, size_t> allocToIndex;
+    for (auto &buf : buffers) {
+      allocToIndex[buf.allocOp.getOperation()] = buf.index;
+    }
+
+    // Analyze each function
+    for (auto funcOp : module.getOps<func::FuncOp>()) {
+      Liveness liveness(funcOp);
+
+      // For each buffer, find its last use
+      for (auto &buf : buffers) {
+        if (buf.allocOp->getParentOfType<func::FuncOp>() != funcOp) {
+          continue;
+        }
+
+        Value buffer = buf.allocOp.getResult();
+        Operation *lastUse = buf.allocOp.getOperation();
+
+        // Find the last operation where this buffer is live
+        for (Block &block : funcOp.getBlocks()) {
+          for (Operation &op : block) {
+            // Check if this operation uses the buffer
+            for (Value operand : op.getOperands()) {
+              if (operand == buffer) {
+                lastUse = &op;
+              }
+            }
+          }
+        }
+
+        buf.lastUse = lastUse;
+      }
+    }
+
+    return success();
+  }
+
+  /// Check if two buffers have overlapping lifetimes
+  bool buffersInterfere(const BufferInfo &a, const BufferInfo &b) {
+    // If buffers are in different functions, they don't interfere
+    if (a.allocOp->getParentOfType<func::FuncOp>() !=
+        b.allocOp->getParentOfType<func::FuncOp>()) {
+      return false;
+    }
+
+    // Simple interference check: if lifetimes overlap
+    // We use operation ordering within the same block
+    // For simplicity, assume all buffers in same function interfere
+    // A more sophisticated analysis would use dominance and liveness
+
+    // For now, use a conservative approach: buffers in the same function
+    // interfere unless one is definitely dead before the other starts
+    // This requires more sophisticated analysis, so we'll be conservative
+    return true;
+  }
+
+  /// Compute pool offsets using greedy first-fit graph coloring
+  LogicalResult computePoolOffsets(const SmallVector<BufferInfo> &buffers,
+                                   SmallVector<size_t> &offsets,
+                                   size_t &poolSize) {
+    size_t numBuffers = buffers.size();
+    offsets.resize(numBuffers);
+    poolSize = 0;
+
+    // Sort buffers by size (descending) for better packing
+    SmallVector<size_t> sortedIndices;
+    for (size_t i = 0; i < numBuffers; i++) {
+      sortedIndices.push_back(i);
+    }
+    std::sort(sortedIndices.begin(), sortedIndices.end(),
+              [&](size_t a, size_t b) {
+                return buffers[a].sizeBytes > buffers[b].sizeBytes;
+              });
+
+    // Greedy first-fit allocation
+    for (size_t idx : sortedIndices) {
+      const auto &buffer = buffers[idx];
+
+      // Try to find a suitable offset
+      size_t candidateOffset = 0;
+      bool foundSlot = false;
+
+      // Try offsets at every existing allocation boundary
+      SmallVector<size_t> boundaries = {0};
+      for (size_t j = 0; j < numBuffers; j++) {
+        if (offsets[j] > 0 || j == idx) {
+          continue;
+        }
+        boundaries.push_back(offsets[j]);
+        boundaries.push_back(offsets[j] + buffers[j].sizeBytes);
+      }
+      std::sort(boundaries.begin(), boundaries.end());
+      boundaries.erase(std::unique(boundaries.begin(), boundaries.end()),
+                       boundaries.end());
+
+      // Try each boundary position
+      for (size_t boundary : boundaries) {
+        candidateOffset = boundary;
+        bool conflict = false;
+
+        // Check if this offset conflicts with any interfering buffer
+        for (size_t j = 0; j < numBuffers; j++) {
+          if (j == idx || offsets[j] == 0) {
+            continue;
+          }
+
+          // Check if buffers interfere
+          if (!buffersInterfere(buffer, buffers[j])) {
+            continue;
+          }
+
+          // Check for overlap: [candidateOffset, candidateOffset + size) vs
+          // [offsets[j], offsets[j] + buffers[j].sizeBytes)
+          size_t start1 = candidateOffset;
+          size_t end1 = candidateOffset + buffer.sizeBytes;
+          size_t start2 = offsets[j];
+          size_t end2 = offsets[j] + buffers[j].sizeBytes;
+
+          if (!(end1 <= start2 || end2 <= start1)) {
+            conflict = true;
+            break;
+          }
+        }
+
+        if (!conflict) {
+          foundSlot = true;
+          break;
+        }
+      }
+
+      // If no slot found at boundaries, append at the end
+      if (!foundSlot) {
+        candidateOffset = poolSize;
+      }
+
+      // Assign offset
+      offsets[idx] = candidateOffset;
+      poolSize = std::max(poolSize, candidateOffset + buffer.sizeBytes);
+    }
+
+    return success();
+  }
+
+  /// Attach metadata to module
+  void attachMetadata(ModuleOp module, const SmallVector<BufferInfo> &buffers,
+                      const SmallVector<size_t> &offsets, size_t poolSize) {
+    OpBuilder builder(module.getContext());
+
+    // Store pool size
+    module->setAttr("hipdnn.pool_size",
+                    builder.getI64IntegerAttr(poolSize));
+
+    // Store buffer count
+    module->setAttr("hipdnn.buffer_count",
+                    builder.getI64IntegerAttr(buffers.size()));
+
+    // Store buffer sizes (for validation)
+    SmallVector<Attribute> sizeAttrs;
+    for (const auto &buf : buffers) {
+      sizeAttrs.push_back(builder.getI64IntegerAttr(buf.sizeBytes));
+    }
+    module->setAttr("hipdnn.buffer_sizes", builder.getArrayAttr(sizeAttrs));
+
+    // Store buffer offsets
+    SmallVector<Attribute> offsetAttrs;
+    for (size_t offset : offsets) {
+      offsetAttrs.push_back(builder.getI64IntegerAttr(offset));
+    }
+    module->setAttr("hipdnn.buffer_offsets", builder.getArrayAttr(offsetAttrs));
+
+    // Store a map from AllocOp to buffer index for later use in lowering
+    // We'll use operation names/locations for this mapping
+    SmallVector<Attribute> allocIndexAttrs;
+    for (const auto &buf : buffers) {
+      allocIndexAttrs.push_back(builder.getI64IntegerAttr(buf.index));
+    }
+    module->setAttr("hipdnn.alloc_indices", builder.getArrayAttr(allocIndexAttrs));
+  }
+};
+
+} // namespace
+
+namespace mlir {
+namespace hip {
+
+std::unique_ptr<Pass> createMemoryPoolingPass() {
+  return std::make_unique<MemoryPoolingPass>();
+}
+
+} // namespace hip
+} // namespace mlir

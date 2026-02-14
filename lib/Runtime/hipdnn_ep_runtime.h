@@ -60,6 +60,22 @@ int hipdnn_ep_state_cleanup(RuntimeState *state);
 // Ownership: Caller does NOT own stream (destroyed in cleanup)
 void *hipdnn_ep_state_get_stream(RuntimeState *state);
 
+// Get buffer from memory pool by index
+// Returns: GPU pointer at pool_base + buffer_offsets[index] (NULL on error)
+// Ownership: Caller does NOT own pointer (freed in cleanup)
+void *hipdnn_ep_get_buffer_from_pool(RuntimeState *state, size_t index);
+
+// Initialize memory pool in runtime state
+// Called by generated inference_init after creating RuntimeState
+// Parameters:
+//   state: Runtime state to initialize pool in
+//   pool_size: Total size of memory pool in bytes
+//   buffer_offsets: Array of offsets for each buffer
+//   num_buffers: Number of buffers
+// Returns: 0=success, non-zero=error
+int hipdnn_ep_pool_init(RuntimeState *state, size_t pool_size,
+                        const size_t *buffer_offsets, size_t num_buffers);
+
 //==============================================================================
 // Inference API Types (for generated interface)
 //==============================================================================

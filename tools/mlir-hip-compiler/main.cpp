@@ -194,6 +194,9 @@ int main(int argc, char **argv) {
     pm.addPass(mlir::bufferization::createOptimizeAllocationLivenessPass());
     pm.addPass(mlir::createCanonicalizerPass());
 
+    // Memory pooling optimization (Phase 3)
+    pm.addPass(mlir::hip::createMemoryPoolingPass());
+
     // HIP → LLVM conversion
     pm.addPass(mlir::hip::createConvertHipToLLVMPass());
     pm.addPass(mlir::hip::createGenerateInterfacePass());

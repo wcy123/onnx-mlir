@@ -37,6 +37,8 @@ static constexpr const char *kHipFree = "hipFree";
 static constexpr const char *kMiopenConvolutionForward =
     "wrap_miopenConvolutionForward";
 static constexpr const char *kHipGetConstant = "hipdnn_ep_constant_get";
+static constexpr const char *kHipGetBufferFromPool =
+    "hipdnn_ep_get_buffer_from_pool";
 
 // --- CreateHandleOp: hip.create_handle() -> llvm.call @hipCreateHandle()
 struct CreateHandleOpLowering : public ConvertOpToLLVMPattern<CreateHandleOp> {
@@ -85,6 +87,30 @@ struct DestroyHandleOpLowering
   }
 };
 
+// Helper to get buffer index for an AllocOp from module metadata
+// Returns the index assigned by MemoryPoolingPass, or -1 if not found
+static int64_t getBufferIndexForAlloc(ModuleOp module, AllocOp allocOp) {
+  // Count allocations in deterministic order (same as MemoryPoolingPass)
+  int64_t currentIndex = 0;
+  int64_t targetIndex = -1;
+
+  for (auto funcOp : module.getOps<func::FuncOp>()) {
+    funcOp.walk([&](AllocOp op) {
+      if (op == allocOp) {
+        targetIndex = currentIndex;
+        return WalkResult::interrupt();
+      }
+      currentIndex++;
+      return WalkResult::advance();
+    });
+    if (targetIndex >= 0) {
+      break;
+    }
+  }
+
+  return targetIndex;
+}
+
 // --- AllocOp: hip.alloc(%handle, %dyn...) -> hipMalloc(bytes) + memref
 // descriptor
 struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
@@ -100,41 +126,69 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     if (!isConvertibleAndHasIdentityMaps(memRefType))
       return rewriter.notifyMatchFailure(op, "incompatible memref type");
 
-    // Declare hipMalloc with CORRECT signature: (ptr, i64) -> i32
-    // The real hipMalloc signature is: hipError_t hipMalloc(void **ptr, size_t
-    // size)
     Type indexType = getIndexType();
     Type ptrType = getPtrType();
     Type i32Type = IntegerType::get(getContext(), 32);
-    FailureOr<LLVM::LLVMFuncOp> mallocFn = LLVM::lookupOrCreateFn(
-        rewriter, module, kHipMalloc, {ptrType, indexType}, i32Type);
-    if (failed(mallocFn))
-      return failure();
+    Type i64Type = IntegerType::get(getContext(), 64);
 
-    // Compute sizes and sizeBytes (dynamic sizes are after the handle).
+    // Compute sizes and strides for memref descriptor
     SmallVector<Value, 4> sizes;
     SmallVector<Value, 4> strides;
     Value sizeBytes;
     getMemRefDescriptorSizes(loc, memRefType, adaptor.getDynamicSizes(),
                              rewriter, sizes, strides, sizeBytes, true);
 
-    // Allocate stack space for the returned pointer
-    Value one = rewriter.create<LLVM::ConstantOp>(loc, indexType,
-                                                  rewriter.getIndexAttr(1));
-    Value ptrStorage = rewriter.create<LLVM::AllocaOp>(loc, ptrType, ptrType,
-                                                       one, /*alignment=*/8);
+    Value allocatedPtr;
 
-    // Call hipMalloc(&ptrStorage, sizeBytes)
-    Value mallocResult =
-        LLVM::CallOp::create(rewriter, loc, *mallocFn, {ptrStorage, sizeBytes})
-            .getResult();
+    // Check if memory pooling is enabled (module has pool metadata)
+    auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
+    if (poolSizeAttr) {
+      // Phase 3: Pool-based allocation
+      // Get buffer index for this allocation
+      int64_t bufferIndex = getBufferIndexForAlloc(module, op);
+      if (bufferIndex < 0) {
+        return rewriter.notifyMatchFailure(
+            op, "Could not find buffer index for allocation");
+      }
 
-    // TODO: Check mallocResult for errors (hipSuccess == 0)
-    // For now, assume success
+      // Call hipdnn_ep_get_buffer_from_pool(state, index)
+      FailureOr<LLVM::LLVMFuncOp> getBufferFn = LLVM::lookupOrCreateFn(
+          rewriter, module, kHipGetBufferFromPool, {ptrType, i64Type}, ptrType);
+      if (failed(getBufferFn))
+        return failure();
 
-    // Load the allocated pointer from ptrStorage
-    Value allocatedPtr =
-        rewriter.create<LLVM::LoadOp>(loc, ptrType, ptrStorage);
+      Value indexValue = rewriter.create<LLVM::ConstantOp>(
+          loc, i64Type, rewriter.getI64IntegerAttr(bufferIndex));
+      Value statePtr = adaptor.getHandle(); // RuntimeState*
+
+      allocatedPtr = LLVM::CallOp::create(rewriter, loc, *getBufferFn,
+                                          {statePtr, indexValue})
+                         .getResult();
+    } else {
+      // Phase 1: Direct allocation (fallback)
+      // Declare hipMalloc with CORRECT signature: (ptr, i64) -> i32
+      FailureOr<LLVM::LLVMFuncOp> mallocFn = LLVM::lookupOrCreateFn(
+          rewriter, module, kHipMalloc, {ptrType, indexType}, i32Type);
+      if (failed(mallocFn))
+        return failure();
+
+      // Allocate stack space for the returned pointer
+      Value one = rewriter.create<LLVM::ConstantOp>(
+          loc, indexType, rewriter.getIndexAttr(1));
+      Value ptrStorage = rewriter.create<LLVM::AllocaOp>(loc, ptrType, ptrType,
+                                                         one, /*alignment=*/8);
+
+      // Call hipMalloc(&ptrStorage, sizeBytes)
+      Value mallocResult =
+          LLVM::CallOp::create(rewriter, loc, *mallocFn, {ptrStorage, sizeBytes})
+              .getResult();
+
+      // TODO: Check mallocResult for errors (hipSuccess == 0)
+      // For now, assume success
+
+      // Load the allocated pointer from ptrStorage
+      allocatedPtr = rewriter.create<LLVM::LoadOp>(loc, ptrType, ptrStorage);
+    }
 
     // Cast to memref address space if needed
     Type elementPtrType = getElementPtrType(memRefType);
@@ -167,6 +221,16 @@ struct FreeOpLowering : public ConvertOpToLLVMPattern<FreeOp> {
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     ModuleOp module = op->getParentOfType<ModuleOp>();
+
+    // Check if memory pooling is enabled
+    auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
+    if (poolSizeAttr) {
+      // Phase 3: Pooling enabled - free is a nop (pool freed in cleanup)
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    // Phase 1: Direct allocation - call hipFree
     Type voidType = getVoidType();
     Type ptrType = getPtrType();
 
@@ -761,6 +825,11 @@ void registerHipPasses() {
   // ConvertHipToLLVMPass (defined in this file)
   // Registered via: --convert-hip-to-llvm
   PassRegistration<ConvertHipToLLVMPass>();
+
+  // MemoryPoolingPass (defined in MemoryPoolingPass.cpp)
+  // Registered via: --memory-pooling
+  registerPass(
+      []() -> std::unique_ptr<Pass> { return createMemoryPoolingPass(); });
 
   // GenerateInterfacePass (defined in GenerateInterfacePass.cpp)
   // Registered via: --generate-interface
