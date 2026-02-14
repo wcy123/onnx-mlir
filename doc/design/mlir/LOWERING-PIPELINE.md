@@ -24,11 +24,15 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 
 ---
 
-## Pipeline Architecture
+## Pipeline Architecture Overview
+
+### High-Level Dialect Transformations
+
+This diagram shows the major dialect-to-dialect transformations in the compilation pipeline:
 
 ```
 ┌─────────────────────────────────────────┐
-│           ONNX-MLIR (MorphiZen)         │
+│         ONNX Dialect (MorphiZen)        │
 │  tensor types, return values,           │
 │  onnx.Constant, onnx operations         │
 └─────────────────────────────────────────┘
@@ -38,48 +42,15 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
 ┌─────────────────────────────────────────┐
 │             HIP Dialect                 │
 │  memref types, context param,           │
-│  hip.alloc ops, hip operations          │
-└─────────────────────────────────────────┘
-              |
-              | BufferLoopHoisting
-              v
-┌─────────────────────────────────────────┐
-│         HIP Dialect (optimized)         │
-│  allocations moved out of loops         │
-└─────────────────────────────────────────┘
-              |
-              | BufferDeallocation
-              v
-┌─────────────────────────────────────────┐
-│      HIP Dialect (with hip.free)        │
-│  hip.free inserted after last use       │
-└─────────────────────────────────────────┘
-              |
-              | OptimizeAllocationLiveness
-              v
-┌─────────────────────────────────────────┐
-│      HIP Dialect (lifetime opt)         │
-│  buffer lifetimes optimized             │
-└─────────────────────────────────────────┘
-              |
-              | Canonicalizer
-              v
-┌─────────────────────────────────────────┐
-│       HIP Dialect (canonicalized)       │
-│  IR simplified and cleaned up           │
-└─────────────────────────────────────────┘
-              |
-              | MemoryPooling
-              v
-┌─────────────────────────────────────────┐
-│       HIP Dialect (with pooling)        │
-│  pool metadata attached to module       │
+│  hip.alloc/free, hip operations         │
+│                                         │
+│  [See HIP Optimization Pipeline below]  │
 └─────────────────────────────────────────┘
               |
               | HipToLLVM Pass
               v
 ┌─────────────────────────────────────────┐
-│             LLVM Dialect                │
+│            LLVM Dialect                 │
 │  memref structs, wrapper functions,     │
 │  llvm operations                        │
 └─────────────────────────────────────────┘
@@ -87,19 +58,62 @@ This document provides a high-level overview of the MLIR lowering pipeline, show
               | GenerateInterfacePass
               v
 ┌─────────────────────────────────────────┐
-│      LLVM Dialect (with interface)      │
+│      LLVM Dialect (with C interface)    │
 │  inference_init/compute/cleanup,        │
-│  C-ABI exports, array parameters        │
+│  C-ABI exports                          │
 └─────────────────────────────────────────┘
               |
-              | LLVM Compilation
+              | LLVM Backend Compilation
               v
 ┌─────────────────────────────────────────┐
 │            Native Code (DLL)            │
-│  DLL export, 3 C functions              │
-│  (init/compute/cleanup)                 │
+│  Executable machine code                │
 └─────────────────────────────────────────┘
 ```
+
+### HIP Dialect Optimization Pipeline
+
+After OnnxToHip converts operations to HIP dialect, a series of optimization passes run before lowering to LLVM. These passes optimize buffer management and memory usage:
+
+```
+┌─────────────────────────────────────────┐
+│     Input: HIP Dialect (initial)        │
+│  hip.alloc (no matching hip.free)       │
+└─────────────────────────────────────────┘
+              |
+              | BufferLoopHoisting
+              | (moves allocs out of loops)
+              v
+┌─────────────────────────────────────────┐
+│      BufferDeallocation                 │
+│  Inserts hip.free after last use        │
+└─────────────────────────────────────────┘
+              |
+              | OptimizeAllocationLiveness
+              | (optimizes buffer lifetimes)
+              v
+┌─────────────────────────────────────────┐
+│         Canonicalizer                   │
+│  Constant folding, dead code removal    │
+└─────────────────────────────────────────┘
+              |
+              | MemoryPooling
+              | (graph coloring for reuse)
+              v
+┌─────────────────────────────────────────┐
+│  Output: HIP Dialect (optimized)        │
+│  pool metadata, optimized lifetimes     │
+└─────────────────────────────────────────┘
+```
+
+**Pass sequence:**
+1. **BufferLoopHoisting** - Move allocations out of loops when safe
+2. **BufferDeallocation** - Insert hip.free operations to prevent memory leaks
+3. **OptimizeAllocationLiveness** - Optimize buffer lifetimes
+4. **Canonicalizer** - Constant folding, dead code elimination, algebraic simplifications
+5. **MemoryPooling** - Graph coloring for memory reuse (60% savings for demo model)
+
+See Stage 3 and Stage 4 sections below for detailed explanations with code examples.
 
 ---
 
