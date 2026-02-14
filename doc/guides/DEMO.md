@@ -239,6 +239,7 @@ func.func @main(%arg0: !hip.context,
 - ✅ ~60% memory savings (demo model)
 - ✅ Pool metadata added to module attributes
 - ✅ Reuses memory for non-overlapping buffers
+- ✅ Each `hip.alloc` gets `hipdnn.buffer_index` attribute (consumed by Stage 4)
 
 **Key transformations (metadata added to module):**
 ```mlir
@@ -295,6 +296,9 @@ module attributes {
 - ✅ Runtime function declarations added
 - ✅ Opaque RuntimeState pattern (state passed as pointer)
 - ✅ Array-based interface for scalability
+- ✅ **Pool-aware transformations** (if Stage 3 metadata present):
+  - `hip.alloc` → `hipdnn_ep_get_buffer_from_pool(state, buffer_index)`
+  - `hip.free` → erased (pool freed once at cleanup)
 
 **Key transformations (excerpt from real output):**
 ```mlir
@@ -329,8 +333,14 @@ module {
     // ✅ Get constants via opaque accessor (no direct field access)
     %weights = llvm.call @hipdnn_ep_constant_get(%arg0, %c0) : (...) -> !llvm.ptr
 
+    // ✅ Pool-aware allocation (if Stage 3 metadata present)
+    // hip.alloc → llvm.call @hipdnn_ep_get_buffer_from_pool(%arg0, %buffer_index)
+    %temp = llvm.call @hipdnn_ep_get_buffer_from_pool(%arg0, %c0) : (...) -> !llvm.ptr
+
     // ✅ Call GPU operations
     llvm.call @wrap_miopenConvolutionForward(%arg0, %input_ptr, ...) : (...) -> i32
+
+    // ✅ hip.free → erased (no individual frees with pooling)
     ...
   }
 }
