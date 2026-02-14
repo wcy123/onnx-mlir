@@ -443,7 +443,7 @@ If `hipdnn.pool_size` metadata exists, `inference_init` allocates memory pool fo
 
 #### Memory Management Strategy: Compile-Time Decision
 
-Pool size (12845056) and buffer offsets ([0, 3211264, 6422528, 9633792]) are **hardcoded as LLVM constants** in generated `inference_init()` code.
+Pool size and buffer offsets are **hardcoded as LLVM constants** in generated `inference_init()` code.
 
 **Implications:**
 - ✅ Zero runtime overhead (no dynamic pool sizing logic)
