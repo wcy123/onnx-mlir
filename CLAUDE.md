@@ -22,23 +22,16 @@ Guidance for Claude Code when working with this repository.
 **Configure**:
 ```bash
 # CRITICAL: CMAKE_PREFIX_PATH must be absolute path (relative paths fail)
-# CRITICAL: CMAKE_PROGRAM_PATH must point to clang/llvm-link (adjust to your LLVM install)
 LOCAL_DIR=$(cd ../../local && pwd)
 cmake -S . -B ../../build/$(basename $PWD) -DBUILD_SHARED_LIBS=OFF \
   "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded\$<\$<CONFIG:Debug>:Debug>" \
   -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_PREFIX_PATH=$LOCAL_DIR" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -DCMAKE_PROGRAM_PATH="C:/LLVM20/bin" \
   -DONNX_MLIR_BUILD_TESTS=OFF \
   -DBUILD_HIP_OPT_TOOL=ON \
   -DONNX_HIP_INCLUDE_LIT_TESTS=ON \
   --fresh
 ```
-
-**Note**: `CMAKE_PROGRAM_PATH` specifies where to find `clang` and `llvm-link` executables.
-Adjust path based on your system (see README.md for full build instructions).
-
-**Note**: `ONNX_MLIR_BUILD_TESTS=OFF` disables onnx-mlir tests (requires LLVM test utilities not installed).
 
 **Build**: `cmake --build ../../build/$(basename $PWD) --config Debug --parallel`
 
@@ -143,6 +136,7 @@ If pre-commit makes changes (formatting, linting), commit and push them BEFORE m
 
 **Pre-commit** (required): `scripts/setup-dev-env.ps1` (Windows) or `scripts/setup-dev-env.sh` (Linux/Mac)
 
+
 ## Common Pitfalls
 
 1. Build dir: `../../build/$(basename $PWD)`, NOT `./build`
@@ -159,20 +153,23 @@ If pre-commit makes changes (formatting, linting), commit and push them BEFORE m
 **Required**: LLVM/MLIR, ONNX Runtime, HIP Runtime, MIOpen
 **Optional**: GTest
 
-### Building LLVM/MLIR with LLD Support
+### Building LLVM/MLIR from Source
 
-**CRITICAL**: LLVM must be built with matching runtime library and LLD support for DLL compilation.
+**CRITICAL**: LLVM must be built with matching runtime library, clang, LLD, and test utilities.
 
 **Configuration** (from llvm-project directory):
 ```bash
 cmake -S llvm -B ../../build/llvm-project \
-  -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+  -DLLVM_ENABLE_PROJECTS="mlir;lld;clang" \
   -DCMAKE_INSTALL_PREFIX=/c/Develop/m/local \
   -DCMAKE_BUILD_TYPE=Debug \
   -DBUILD_SHARED_LIBS=OFF \
   -DLLVM_TARGETS_TO_BUILD="host" \
   -DLLVM_ENABLE_ASSERTIONS=ON \
   -DLLVM_ENABLE_RTTI=OFF \
+  -DLLVM_INSTALL_UTILS=ON \
+  -DLLVM_INCLUDE_TESTS=ON \
+  -DLLVM_ENABLE_ZLIB=OFF \
   -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded\$<\$<CONFIG:Debug>:Debug>"
 ```
 
@@ -193,7 +190,10 @@ cmake --install ../../build/llvm-project --config Debug
 ```
 
 **Critical Settings**:
-- `LLVM_ENABLE_PROJECTS="mlir;lld"` - Required for DLL linking (lldCOFF, lldELF, lldCommon)
+- `LLVM_ENABLE_PROJECTS="mlir;lld;clang"` - MLIR dialects, LLD linker, and Clang compiler
+- `LLVM_INSTALL_UTILS=ON` - Install test utilities (FileCheck, lit, count, not, split-file, llvm-dis)
+- `LLVM_INCLUDE_TESTS=ON` - Build tests (required for test utilities)
 - `CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"` - Must match project's /MTd runtime
 - `BUILD_SHARED_LIBS=OFF` - Static libraries only
+- `LLVM_ENABLE_ZLIB=OFF` - Disabled to avoid static zlib dependency
 - Parallel build preferred; only use `--parallel 1` if C1041 PDB file conflicts occur during linking

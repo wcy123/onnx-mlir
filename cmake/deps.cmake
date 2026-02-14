@@ -8,14 +8,20 @@ include(FetchContent)
 message(STATUS "Configuring LLVM/MLIR for morphizen-mlir")
 
 # LLVM configuration options
-set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "LLVM projects to build")
+# Always build clang (eliminates CMAKE_PROGRAM_PATH requirement) and test utilities
+set(LLVM_ENABLE_PROJECTS "mlir;lld;clang" CACHE STRING "LLVM projects to build")
+
 set(LLVM_TARGETS_TO_BUILD "host" CACHE STRING "LLVM targets to build")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "Enable LLVM assertions")
 set(LLVM_ENABLE_RTTI OFF CACHE BOOL "Disable RTTI in LLVM")
 set(LLVM_ENABLE_LIBEDIT OFF CACHE BOOL "Enable libedit in LLVM")
 set(LLVM_BUILD_TOOLS ON CACHE BOOL "Build LLVM tools")
-set(LLVM_INSTALL_UTILS OFF CACHE BOOL "Install LLVM utilities")
-set(LLVM_INCLUDE_TESTS OFF CACHE BOOL "Build LLVM tests")
+
+# Test utilities (FileCheck, lit, count, not, split-file, llvm-dis)
+# Required for onnx-mlir tests
+set(LLVM_INSTALL_UTILS ON CACHE BOOL "Install LLVM utilities" FORCE)
+set(LLVM_INCLUDE_TESTS ON CACHE BOOL "Build LLVM tests (required for test utils)" FORCE)
+
 set(LLVM_DISABLE_ASSEMBLY_FILES OFF CACHE BOOL "disable assembly")
 set(LLVM_ENABLE_ZLIB OFF CACHE BOOL "Enable zlib compression")
 set(LLVM_ENABLE_ZSTD OFF CACHE BOOL "Enable zstd compression")
@@ -117,7 +123,8 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rd-party/onnx-mlir/CMakeLists.txt")
 endif()
 
 # onnx-mlir build options
-set(ONNX_MLIR_BUILD_TESTS OFF CACHE BOOL "Build onnx-mlir tests")
+option(ONNX_MLIR_BUILD_TESTS "Build onnx-mlir tests" OFF)
+
 set(ONNX_MLIR_ENABLE_WERROR OFF CACHE BOOL "Enable -Werror in onnx-mlir")
 set(ONNX_MLIR_BUILD_RUNTIME OFF CACHE BOOL "Build onnx-mlir runtime (we only need dialect)")
 
