@@ -4,248 +4,100 @@ Licensed under the MIT License.
 -->
 # onnx-hipdnn-ep
 
-**MLIR-based AOT Compilation Integration for AMD ROCm**
+**ONNX Runtime Execution Provider with MLIR-based AOT compilation for AMD ROCm**
 
-## Overview
-
-This is an integration branch combining:
-- **PR #1**: ONNX → MLIR conversion (MorphiZen framework)
-- **PR #4**: HIP MLIR dialect (hip-opt)
-
-The goal is to create a unified MLIR compilation pipeline for ONNX Runtime HipDNN Execution Provider with ahead-of-time compilation and EPContext caching.
-
-**Note:** This is a work-in-progress integration branch (`mlir-integration`). See `../notes/presentation-summary.md` for architecture design.
+An MLIR-based ahead-of-time (AOT) compilation pipeline for ONNX Runtime, targeting AMD GPUs via HIP and MIOpen. This project integrates ONNX-to-MLIR conversion with HIP dialect compilation to enable zero-cost abstraction and EPContext caching.
 
 ## Current Status
 
-✅ PR #1 baseline integrated (ONNX → MLIR parsing)
-⏳ PR #4 hip-opt integration (in progress)
-⏳ Pattern-based lowering (ONNX-MLIR → HIP dialect)
-⏳ Native compilation pipeline
+This is an active integration branch (`mlir-integration-1`) combining:
+- **PR #1**: ONNX → MLIR conversion (MorphiZen framework)
+- **PR #4**: HIP MLIR dialect (hip-opt)
 
-## Project Structure
-
-```
-onnx-hipdnn-ep/
-├── CMakeLists.txt              # Root CMake configuration
-├── README.md                   # This file
-├── LICENSE                     # MIT License
-├── .gitignore                  # Git ignore rules
-├── cmake/                      # CMake modules
-│   └── deps.cmake              # Dependency management
-├── 3rd-party/                  # Third-party dependencies
-│   └── morphizen/              # MorphiZen (git submodule)
-├── level-1-pass-mlir-compiler/ # MLIR compiler (ONNX → MLIR → HIP → LLVM)
-│   ├── CMakeLists.txt          # Pass build configuration
-│   └── src/
-│       └── pass_main.cpp       # Main pass implementation with MLIR parsing
-├── test/                       # Test infrastructure
-│   ├── CMakeLists.txt          # Test build configuration
-│   ├── test_ort_integration.cpp  # ORT integration tests
-│   ├── gen_conv_model.py       # Conv model generator
-│   └── gen_conv_gemm_model.py  # Conv+Gemm model generator
-├── doc/                        # Documentation
-│   └── TESTING.md              # Testing guide with examples
-└── etc/                        # Configuration files
-    └── morphizen_config.json   # MorphiZen pass configuration
-```
+**Progress:**
+- ✅ PR #1 baseline integrated (ONNX → MLIR parsing)
+- ⏳ PR #4 hip-opt integration (in progress)
+- ⏳ Pattern-based lowering (ONNX-MLIR → HIP dialect)
+- ⏳ Native compilation pipeline
 
 ## Key Features
 
-- **Minimal Design**: No pattern matching, no protobuf dependencies
-- **Level-1 Pass**: Simple MorphiZen pass structure for MLIR integration
-- **Clean Architecture**: Based on morphizen-demo but simplified
-- **Ready for Extension**: Template for adding MLIR-based transformations
+- **AOT Compilation**: Compile ONNX graphs to optimized HIP kernels ahead-of-time
+- **Zero-Cost Abstraction**: MLIR-based transformations with no runtime overhead
+- **EPContext Caching**: Cache compiled artifacts for fast startup
+- **Minimal Design**: No pattern matching or protobuf dependencies in core pipeline
+- **Clean Architecture**: Level-1 pass structure based on MorphiZen framework
 
-## Building
+## Quick Start
 
 ### Prerequisites
 
-- CMake 3.28 or later
-- Visual Studio 2022
-- Python 3 (with onnx package: `pip install onnx`)
+- CMake 3.28+
+- Visual Studio 2022 (Windows) or C++17 compiler
+- Python 3 with onnx package: `pip install onnx`
 - Git
-- **Clang** (for runtime bitcode compilation)
-  - Required for compiling the HIP runtime to LLVM bitcode
-  - Download from https://releases.llvm.org/ (LLVM 19+ recommended)
-  - Or use system package manager (e.g., `choco install llvm` on Windows)
-  - Must include both `clang` and `llvm-link` tools
+- Clang (LLVM 19+ with llvm-link)
 
-### Build Dependencies
+### Build
 
-The build process requires the following dependencies:
-
-1. **ONNXRuntime** (required - must be built first)
-2. **LLVM/MLIR** (optional pre-build - can be auto-fetched via FetchContent or pre-built manually)
-3. **MorphiZen** (git submodule at `3rd-party/morphizen`)
-
-**Note:** LLVM/MLIR pre-build is optional. The build system will automatically fetch and build LLVM via FetchContent if not pre-installed. However, pre-building can save time on subsequent builds.
-
-### Recommended Directory Layout
-
-```
-workspace/
-├── onnxruntime/           # ONNXRuntime source (cloned from GitHub)
-├── onnx-hipdnn-ep/        # This project
-├── build/
-│   ├── onnxruntime/       # ONNXRuntime build output
-│   └── onnx-hipdnn-ep/    # onnx-hipdnn-ep build output
-└── local/                 # Installation prefix
-    ├── bin/               # DLLs and executables
-    ├── lib/               # Libraries
-    └── include/           # Headers
-```
-
-### Step-by-Step Build Instructions
-
-#### Step 1: Build ONNXRuntime
-
-ONNXRuntime must be built first as it's a core dependency:
+From workspace root directory:
 
 ```bash
-# Clone ONNXRuntime (from workspace root)
+# 1. Build ONNXRuntime (required dependency)
 git clone https://github.com/Microsoft/onnxruntime.git
 cd onnxruntime
-
-# Build and install (Release configuration)
-
-If you use "Visual Studio 18 2026", upgrade cmake to >=v4.2, for example v4.2.3, then add `--cmake_generator "Visual Studio 18 2026"` in the following command.
-
-./build.bat --config Release --build_shared_lib --parallel --compile_no_warning_as_error --skip_submodule_sync --build_dir ../build/onnxruntime --skip_tests --cmake_extra_defines CMAKE_INSTALL_PREFIX=$PWD/../local --disable_memleak_checker
-
-# Install
-cmake --build ../build/onnxruntime/Release/ --target install
-```
-
-#### Step 2: Build onnx-hipdnn-ep
-
-Once ONNXRuntime is built, you can build onnx-hipdnn-ep. First initialize the git submodules:
-
-```bash
-cd onnx-hipdnn-ep
-git submodule update --init --recursive
-```
-
-**Using Visual Studio generator (recommended for Windows)**
-```bash
-cd onnx-hipdnn-ep
-
-# Configure with Visual Studio generator
-# Note: If clang/llvm-link are not in PATH, add them via CMAKE_PROGRAM_PATH
-cmake -DBUILD_SHARED_LIBS=OFF \
-  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
-  -S . -B ../build/onnx-hipdnn-ep \
-  -DCMAKE_INSTALL_PREFIX=../local \
-  -DCMAKE_PREFIX_PATH=$PWD/../local \
-  -DCMAKE_PROGRAM_PATH="C:/LLVM20/bin"  # Optional: specify clang location
-
-# Build
-cmake --build ../build/onnx-hipdnn-ep --config Release
-```
-
-**Note:** Replace `C:/LLVM20/bin` with your actual LLVM installation path. Common locations:
-- Windows: `C:/LLVM20/bin`, `C:/Program Files/LLVM/bin`
-- Linux: `/usr/bin`, `/usr/local/bin`
-- macOS: `/usr/local/opt/llvm/bin`, `/opt/homebrew/opt/llvm/bin`
-
-
-**Note:** The first build will take a long time (1-3 hours) as LLVM/MLIR is fetched and compiled. Subsequent builds are much faster.
-
-### Quick Build Summary
-
-```bash
-# From workspace root directory:
-
-# 1. Build ONNXRuntime
-cd onnxruntime
-
-If you use "Visual Studio 18 2026", upgrade cmake to >=v4.2, for example v4.2.3, then add `--cmake_generator "Visual Studio 18 2026"` in the following command.
-
-./build.bat --config Release --build_shared_lib --parallel --compile_no_warning_as_error --skip_submodule_sync --build_dir ../build/onnxruntime --skip_tests --cmake_extra_defines CMAKE_INSTALL_PREFIX=$PWD/../local --disable_memleak_checker
+./build.bat --config Release --build_shared_lib --parallel \
+  --skip_submodule_sync --build_dir ../build/onnxruntime \
+  --skip_tests --cmake_extra_defines CMAKE_INSTALL_PREFIX=$PWD/../local
 cmake --build ../build/onnxruntime/Release/ --target install
 
 # 2. Build onnx-hipdnn-ep
 cd ../onnx-hipdnn-ep
 git submodule update --init --recursive
-cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL -S . -B ../build/onnx-hipdnn-ep -DCMAKE_INSTALL_PREFIX=../local -DCMAKE_PREFIX_PATH=$PWD/../local
-cmake --build ../build/onnx-hipdnn-ep --config Release
+cmake -S . -B ../build/onnx-hipdnn-ep \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
+  -DCMAKE_INSTALL_PREFIX=../local \
+  -DCMAKE_PREFIX_PATH=$PWD/../local
+cmake --build ../build/onnx-hipdnn-ep --config Release --parallel
 ```
 
-### Optional: Pre-build LLVM/MLIR
+**Note:** First build takes 1-3 hours (LLVM/MLIR auto-fetch). Subsequent builds are much faster.
 
-If you want to pre-build LLVM/MLIR instead of using FetchContent (which can take several hours during the first build), you can build it manually. The build system will automatically detect and use the pre-built LLVM if available in `../local`.
-
-## Configuration
-
-The MorphiZen configuration is defined in `etc/morphizen_config.json`:
-
-- **Pass Name**: `mlir-pass`
-- **Plugin**: `morphizen-level1-pass-mlir`
-- **Target**: `mlir-target`
-
-## Development
-
-### Adding MLIR Logic
-
-The main pass implementation is in `level-1-pass-mlir/src/pass_main.cpp`. The `Level1MlirPass::process()` method is where you would add MLIR transformation logic.
-
-
-## MLIR Integration
-
-This project includes full MLIR integration for graph processing:
-
-### Features
-
-- **MLIR Parsing**: Parse ONNX graphs saved in MLIR format to `mlir::ModuleOp`
-- **Operation Walking**: Walk and inspect all operations in the MLIR module
-- **ModuleOp Printing**: Print complete MLIR IR with detailed flags
-- **Dialect Support**: Loaded dialects include func, arith, and unregistered dialects
-
-### MLIR Pass Implementation
-
-The Level-1 MLIR pass (`level-1-pass-mlir/src/pass_main.cpp`) performs:
-1. Saves graph to file (`graph_for_mlir.onnx`)
-2. Parses MLIR file to `mlir::ModuleOp`
-3. Walks all operations in the module
-4. Prints ModuleOp to stdout with generic form, debug info, and value users
-
-## Testing
-
-This project includes ORT integration tests. For comprehensive testing instructions, troubleshooting, and expected output details, see [doc/TESTING.md](doc/TESTING.md).
-
-### Quick Start
+### Test
 
 ```bash
-# From onnx-hipdnn-ep directory
-
-# 1. Generate test models
-pip install onnx  （If your environment don't have onnx）
-cd test && python gen_conv_model.py && python gen_conv_gemm_model.py
-
-# 2. Copy models to build output
-copy /Y *.onnx ..\..\build\onnx-hipdnn-ep\bin\Release\
-or
+# Generate test models
+cd test
+python gen_conv_model.py && python gen_conv_gemm_model.py
 cp *.onnx ../../build/onnx-hipdnn-ep/bin/Release/
 
-# 3. Run tests
-cd ..\..\build\onnx-hipdnn-ep\bin\Release\
-or
+# Run tests
 cd ../../build/onnx-hipdnn-ep/bin/Release/
-
-./ort_integration_test.exe
+./ort_integration_test
 ```
 
-For comprehensive information including:
-- Test case descriptions
-- Expected MLIR output examples
-- Debug mode configuration
-- Troubleshooting guide
-- CI/CD integration
+## Documentation
 
-See [doc/TESTING.md](doc/TESTING.md).
+- **[Building & Testing Guide](doc/BUILDING.md)** - Comprehensive build instructions, configuration options, and testing
+- **[Architecture](doc/design/ARCHITECTURE.md)** - System architecture and design decisions
+
+## Project Structure
+
+```
+onnx-hipdnn-ep/
+├── CMakeLists.txt              # Root build configuration
+├── level-1-pass-mlir/          # MLIR compiler (ONNX → MLIR → HIP → LLVM)
+├── test/                       # Integration tests
+├── doc/                        # Documentation
+│   ├── BUILDING.md             # Build & testing guide
+│   └── design/                 # Architecture docs
+├── 3rd-party/morphizen/        # MorphiZen framework (submodule)
+└── etc/morphizen_config.json   # MorphiZen pass configuration
+```
 
 ## License
 
 Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
 
-Licensed under the MIT License. See LICENSE file for details.
+Licensed under the MIT License. See [LICENSE](LICENSE) file for details.
