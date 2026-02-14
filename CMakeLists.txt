@@ -53,5 +53,24 @@ if(BUILD_TEST_MODEL_DLL)
   add_subdirectory(tools/test-model-dll)
 endif()
 
+# LIT testing infrastructure
+option(ONNX_HIP_INCLUDE_LIT_TESTS "Include LIT-based unit tests" ON)
+
+if(ONNX_HIP_INCLUDE_LIT_TESTS)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  find_program(LLVM_LIT_EXECUTABLE
+    NAMES llvm-lit lit
+    HINTS "${LLVM_TOOLS_BINARY_DIR}"
+    DOC "Path to llvm-lit tool")
+
+  if(LLVM_LIT_EXECUTABLE)
+    set(ONNX_HIP_ENABLE_LIT_TESTS ON)
+    message(STATUS "Found llvm-lit: ${LLVM_LIT_EXECUTABLE}")
+  else()
+    message(WARNING "llvm-lit not found. Install via: pip install lit")
+    set(ONNX_HIP_ENABLE_LIT_TESTS OFF)
+  endif()
+endif()
+
 enable_testing()
 add_subdirectory(test)

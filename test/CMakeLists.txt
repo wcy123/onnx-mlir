@@ -8,40 +8,48 @@ message(STATUS "Building tests")
 enable_testing()
 
 #=============================================================================
-# MLIR → DLL Pipeline Tests
+# LIT-based Unit Tests (MLIR pass testing)
 #=============================================================================
-# E2E test: Compile demo model from DEMO.md and verify it works correctly.
-# All outputs go to CMAKE_CURRENT_BINARY_DIR (build directory).
-#
-# Note: test-model-dll executable is now built in tools/test-model-dll/
-# but is still used by tests here. The executable is installed to bin/
-# so tests find it in the same location as before.
 
-# Test 1: Compile demo_two_layer_conv.mlir → demo_two_layer.dll
-add_test(NAME CompileDemoConvDLL
-    COMMAND mlir-hip-compiler
-        "${CMAKE_SOURCE_DIR}/tools/hip-opt/demo_two_layer_conv.mlir"
-        --from-onnx-mlir
-        -o "${CMAKE_CURRENT_BINARY_DIR}/demo_two_layer.dll"
-        --mode dll
-        --keep
-        -v
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-)
+if(ONNX_HIP_ENABLE_LIT_TESTS)
+    message(STATUS "Configuring LIT tests")
 
-# Test 2: Load and test demo_two_layer.dll
-add_test(NAME TestDemoConvDLL
-    COMMAND test-model-dll "${CMAKE_CURRENT_BINARY_DIR}/demo_two_layer.dll" --verbose --validate
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-)
+    # Configure the site specific configuration file
+    set(ONNX_HIP_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
+        ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
+        @ONLY
+    )
 
-# TestDemoConvDLL depends on CompileDemoConvDLL
-set_tests_properties(TestDemoConvDLL PROPERTIES
-    DEPENDS CompileDemoConvDLL
-)
+    # Add LIT test suite as a CTest target
+    add_test(
+        NAME LitTests
+        COMMAND ${LLVM_LIT_EXECUTABLE} -v ${CMAKE_CURRENT_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+
+    # Add a custom target for running LIT tests manually
+    add_custom_target(check-onnx-hip-lit
+        COMMAND ${LLVM_LIT_EXECUTABLE} -v ${CMAKE_CURRENT_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running LIT tests"
+        USES_TERMINAL
+    )
+
+    message(STATUS "LIT tests configured at: ${CMAKE_CURRENT_BINARY_DIR}")
+else()
+    message(STATUS "LIT tests disabled (llvm-lit not found or ONNX_HIP_INCLUDE_LIT_TESTS=OFF)")
+endif()
 
 #=============================================================================
-# Runtime Unit Tests (if enabled)
+# E2E Integration Tests (slow, compile + execute)
+#=============================================================================
+
+add_subdirectory(e2e)
+
+#=============================================================================
+# Runtime Unit Tests (optional, requires GTest)
 #=============================================================================
 
 if(BUILD_MOCK_RUNTIME)
@@ -75,36 +83,4 @@ if(BUILD_MOCK_RUNTIME)
     endif()
 else()
     message(STATUS "Mock Runtime Tests disabled (set BUILD_MOCK_RUNTIME=1 to enable)")
-endif()
-
-
-#=============================================================================
-# ORT Integration Test (optional)
-#=============================================================================
-
-find_package(onnxruntime QUIET)
-
-if(TARGET onnxruntime::onnxruntime)
-    find_package(GTest QUIET)
-
-    if(TARGET GTest::gtest)
-        message(STATUS "Building ORT integration test")
-
-        add_executable(ort_integration_test test_ort_integration.cpp)
-        target_link_libraries(ort_integration_test PRIVATE
-            onnxruntime::onnxruntime
-            GTest::gtest
-            GTest::gtest_main
-        )
-
-        if(WIN32)
-            target_compile_definitions(ort_integration_test PRIVATE "_CRT_SECURE_NO_WARNINGS")
-        endif()
-
-        add_test(NAME OrtIntegration COMMAND ort_integration_test)
-
-        set_target_properties(ort_integration_test PROPERTIES FOLDER "tests")
-    endif()
-else()
-    message(STATUS "ONNX Runtime not found, skipping ORT integration test")
 endif()

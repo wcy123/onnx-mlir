@@ -30,6 +30,8 @@ cmake -S . -B ../../build/$(basename $PWD) -DBUILD_SHARED_LIBS=OFF \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_PROGRAM_PATH="C:/LLVM20/bin" \
   -DONNX_MLIR_BUILD_TESTS=OFF \
+  -DBUILD_HIP_OPT_TOOL=ON \
+  -DONNX_HIP_INCLUDE_LIT_TESTS=ON \
   --fresh
 ```
 
@@ -56,12 +58,48 @@ cmd /c "call \"\"C:\\msvsn2022\\VC\\Auxiliary\\Build\\vcvars64.bat\"\" && cd /d 
 2. **Backend Integration**: HIP runtime, MIOpen library integration
 3. **Testing**: End-to-end tests with CTest integration
 
-**Key Directories**: `lib/Backend/`, `lib/Conversion/`, `tools/mlir-hip-compiler/`, `test/e2e/`
+**Key Directories**: `lib/Backend/`, `lib/Conversion/`, `tools/mlir-hip-compiler/`, `test/`
 
 ## Testing
 
-**Framework**: CTest, end-to-end tests
-**Run**: `ctest --test-dir ../../build/$(basename $PWD) -R TestName --verbose`
+**Test Structure**:
+- `test/lit/` - LIT-based unit tests for MLIR passes (fast, focused)
+- `test/e2e/` - End-to-end integration tests (slow, compile + execute)
+- `test/runtime/` - Runtime unit tests (optional, requires GTest)
+
+**LIT Tests** (MLIR pass testing):
+```bash
+# All LIT tests
+ctest --test-dir ../../build/$(basename $PWD) -R LitTests --verbose
+
+# Direct LIT execution (more detailed output)
+llvm-lit -v test/lit/
+
+# Specific category
+llvm-lit -v test/lit/Conversion/onnx-to-hip/
+
+# Single test
+llvm-lit -v test/lit/Conversion/onnx-to-hip/test_gemm_basic.mlir
+
+# Via CMake target
+cmake --build ../../build/$(basename $PWD) --target check-onnx-hip-lit
+```
+
+**E2E Tests** (integration testing):
+```bash
+# All E2E tests
+ctest --test-dir ../../build/$(basename $PWD) -R "CompileDemoConvDLL|TestDemoConvDLL" --verbose
+
+# All tests (LIT + E2E)
+ctest --test-dir ../../build/$(basename $PWD) --verbose
+```
+
+**Prerequisites**:
+- `llvm-lit`: Install via `pip install lit` (required for LIT tests)
+- `FileCheck`: Provided by LLVM installation
+- `hip-opt`: Built by project (`BUILD_HIP_OPT_TOOL=ON`)
+
+**Writing New Tests**: See `test/lit/README.md` for LIT test writing guide
 
 ## Git Workflow
 

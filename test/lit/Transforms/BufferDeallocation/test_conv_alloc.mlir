@@ -1,5 +1,5 @@
-// RUN: mlir-hip-compiler %s --from-onnx-mlir -o %t.dll --verbose
 // Test BufferDeallocation with convolution operation
+// RUN: hip-opt %s --bufferization-buffer-deallocation | FileCheck %s
 
 module {
   func.func @conv_test(
@@ -7,8 +7,10 @@ module {
       %input: memref<1x3x224x224xf32, 1>,
       %weights: memref<64x3x3x3xf32, 1>,
       %output: memref<1x64x224x224xf32, 1>) -> i32 {
+    // CHECK-LABEL: func.func @conv_test
 
     // Allocate temporary buffer
+    // CHECK: %[[TEMP:.*]] = hip.alloc(%{{.*}})
     %temp = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
 
     // Perform convolution
@@ -22,7 +24,7 @@ module {
     memref.copy %temp, %output : memref<1x64x224x224xf32, 1> to memref<1x64x224x224xf32, 1>
 
     // BufferDeallocation should insert: hip.free(%ctx, %temp)
-    // CHECK: hip.free(%ctx, %temp)
+    // CHECK: hip.free(%{{.*}}, %[[TEMP]])
     // CHECK-NEXT: arith.constant
 
     %c0 = arith.constant 0 : i32
