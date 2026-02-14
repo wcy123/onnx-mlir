@@ -1,3 +1,24 @@
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify HIP memory management operations are correctly lowered to LLVM
+// runtime calls.
+//
+// This test validates:
+// - hip.create_handle → llvm.call @hipCreateHandle
+// - hip.alloc → llvm.call @hipMalloc with proper size calculation
+// - hip.free → llvm.call @hipFree
+// - hip.destroy_handle → llvm.call @hipDestroyHandle
+// - Proper type conversion: !hip.handle → !llvm.ptr
+// - Memory pointer bitcasting (typed→void pointers)
+// - Dynamic tensor shape handling (?x128)
+//
+// Full lifecycle test: create handle → alloc → free → destroy handle
+// Expected: LLVM calls to HIP runtime API functions
+// ============================================================================
+
 // RUN: hip-opt %s --convert-hip-to-llvm | FileCheck %s
 
 module {

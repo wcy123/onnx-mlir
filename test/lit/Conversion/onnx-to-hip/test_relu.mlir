@@ -1,4 +1,21 @@
-// Test ONNX → HIP lowering for ReLU activation operation
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX ReLU (Rectified Linear Unit) activation is correctly lowered
+// to hip.relu operation.
+//
+// This test validates:
+// - Basic activation function lowering (onnx.Relu → hip.relu)
+// - Element-wise operation handling
+// - In-place operation semantics (input → output)
+// - Proper !hip.context threading through operations
+//
+// Input: ONNX ReLU on 4D tensor (batch x channels x height x width)
+// Expected: hip.relu operation preserving tensor shape and context
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {

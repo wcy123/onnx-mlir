@@ -1,4 +1,22 @@
-// Test ONNX → HIP lowering for GEMM (General Matrix Multiply) operation
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX GEMM (General Matrix Multiplication) is correctly lowered to
+// hip.gemm operation.
+//
+// This test validates:
+// - GEMM operation lowering (onnx.Gemm → hip.gemm)
+// - Matrix multiplication with bias: Y = alpha * A * B + beta * C
+// - Attribute preservation (alpha, beta, transA, transB)
+// - 2D matrix operand handling
+//
+// Input: GEMM with standard parameters (alpha=1.0, beta=1.0, no transpose)
+//        Matrix sizes: A[128x256] * B[256x512] + C[128x512] → Y[128x512]
+// Expected: hip.gemm operation with identical attributes
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {

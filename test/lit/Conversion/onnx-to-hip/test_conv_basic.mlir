@@ -1,4 +1,21 @@
-// Test ONNX → HIP lowering for Conv operation
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX Conv operation is correctly lowered to hip.conv operation.
+//
+// This test validates:
+// - Basic 2D convolution lowering (onnx.Conv → hip.conv)
+// - Attribute preservation (kernel_shape, strides, pads, dilations, group)
+// - Type conversion (ONNX tensor ops → HIP memref ops)
+// - Proper handling of input, weights, and bias operands
+//
+// Input: ONNX Conv with standard ResNet-50 first layer configuration
+//        (3→64 channels, 7x7 kernel, stride 2, padding 3)
+// Expected: hip.conv operation with identical attributes
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {

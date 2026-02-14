@@ -1,4 +1,25 @@
-// Test ONNX → HIP lowering for grouped convolution
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX Conv operations with grouped convolutions are correctly lowered
+// to hip.conv operations.
+//
+// This test validates:
+// - Grouped convolution lowering (group > 1)
+// - Depthwise convolution (group = num_channels)
+// - Proper channel partitioning with groups
+// - Weight tensor size validation for grouped convolutions
+//
+// Test cases:
+// 1. Grouped conv (group=2): 64→128 channels, each group processes 32→64
+// 2. Depthwise conv (group=64): Each of 64 channels processed independently
+//
+// Note: Grouped convolutions are common in MobileNet and ResNeXt architectures
+// Expected: hip.conv operations with correct group attribute
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {
@@ -39,6 +60,7 @@ module {
     // CHECK-LABEL: func.func @depthwise_conv
 
     // Depthwise convolution (group = num_channels)
+    // Each of the 64 channels is processed independently with its own 3x3 filter
     %output = "onnx.Conv"(%input, %weights, %bias) {
       kernel_shape = [3, 3],
       strides = [1, 1],

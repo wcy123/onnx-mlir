@@ -1,4 +1,24 @@
-// Test HIP → LLVM lowering for convolution operation
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify HIP convolution operations are correctly lowered to LLVM calls
+// to MIOpen library.
+//
+// This test validates:
+// - hip.conv → llvm.call @miopenConvolutionForward
+// - Type conversion: !hip.context → !llvm.ptr
+// - Memref descriptor conversion: memref<...> → !llvm.struct
+// - Attribute passing to runtime calls
+// - Proper function signature for MIOpen API
+//
+// Note: This tests the HIP→LLVM lowering, not ONNX→HIP.
+// Input is already in HIP dialect (hip.conv).
+//
+// Expected: LLVM call to miopenConvolutionForward with correct signature
+// ============================================================================
+
 // RUN: hip-opt %s --convert-hip-to-llvm | FileCheck %s
 
 module {
@@ -23,6 +43,7 @@ module {
          memref<64x3x7x7xf32, 1>, memref<64xf32, 1>,
          memref<1x64x112x112xf32, 1>)
 
+    // Should lower to MIOpen convolution forward call
     // CHECK: llvm.call @miopenConvolutionForward
     // CHECK-SAME: (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, i32, i64)
 

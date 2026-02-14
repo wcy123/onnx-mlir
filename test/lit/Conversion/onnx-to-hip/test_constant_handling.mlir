@@ -1,4 +1,26 @@
-// Test ONNX → HIP lowering for constant tensors
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX Constant operations are correctly lowered to hip.get_constant
+// operations with index-based lookup.
+//
+// This test validates:
+// - onnx.Constant → hip.get_constant conversion
+// - Constant discovery and global index assignment
+// - Index-based retrieval instead of value embedding
+// - Type conversion: tensor<...> → memref<..., 1> (GPU address space)
+// - Multiple constant handling with unique indices
+//
+// Implementation detail:
+// - Constants are discovered in Phase 1 and assigned global indices
+// - Converted to hip.get_constant(context, index) in Phase 2
+// - Actual constant data is pre-uploaded to GPU at runtime
+//
+// Expected: hip.get_constant with arith.constant index, not embedded values
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {
@@ -48,6 +70,7 @@ module {
       value = dense<[5.0, 6.0, 7.0, 8.0]> : tensor<4xf32>
     } : () -> tensor<4xf32>
 
+    // Each constant should get a unique index
     // CHECK: arith.constant {{[0-9]+}} : i64
     // CHECK: hip.get_constant
     // CHECK: arith.constant {{[0-9]+}} : i64

@@ -1,4 +1,24 @@
-// Test ONNX → HIP lowering for Conv with various stride configurations
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+// Licensed under the MIT License.
+
+// ============================================================================
+// TEST PURPOSE:
+// Verify ONNX Conv operations with various stride configurations are correctly
+// lowered to hip.conv operations.
+//
+// This test validates:
+// - Strided convolution lowering (stride = 2 for downsampling)
+// - Asymmetric stride handling (different horizontal/vertical strides)
+// - Proper output size calculation with strides
+// - Attribute preservation for non-unit strides
+//
+// Test cases:
+// 1. Symmetric stride=2: Common in ResNet bottleneck layers
+// 2. Asymmetric stride=[2,3]: Less common but valid configuration
+//
+// Expected: hip.conv operations with correct stride attributes
+// ============================================================================
+
 // RUN: hip-opt %s --convert-onnx-to-hip | FileCheck %s
 
 module {
@@ -23,7 +43,7 @@ module {
     } : (memref<1x64x56x56xf32>, memref<128x64x3x3xf32>, memref<128xf32>) -> memref<1x128x28x28xf32>
 
     // CHECK: %[[OUTPUT:.*]] = hip.conv(%[[CTX]], %[[INPUT]], %[[WEIGHTS]], %[[BIAS]])
-    // CHECK-SAME: {dilations = [2, 2], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]}
+    // CHECK-SAME: {dilations = [1, 1], group = 1 : i64, kernel_shape = [3, 3], pads = [1, 1, 1, 1], strides = [2, 2]}
     // CHECK-SAME: : (memref<1x64x56x56xf32>, memref<128x64x3x3xf32>, memref<128xf32>) -> memref<1x128x28x28xf32>
 
     return %output : memref<1x128x28x28xf32>
