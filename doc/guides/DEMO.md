@@ -103,6 +103,24 @@ This section walks through each compilation stage with real compiler output.
 
 ### Stage 1: ONNX → HIP Dialect
 
+**Input (ONNX-MLIR model):**
+```mlir
+// Two-layer convolution network (ResNet-style)
+func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
+  // ❌ Constants inline in function
+  %weights1 = "onnx.Constant"() {value = dense<1.0> : tensor<64x3x3x3xf32>} : () -> tensor<64x3x3x3xf32>
+  %bias1 = "onnx.Constant"() {value = dense<0.5> : tensor<64xf32>} : () -> tensor<64xf32>
+
+  // ❌ ONNX dialect operations (high-level)
+  %conv1 = "onnx.Conv"(%input, %weights1, %bias1) {kernel_shape = [3, 3], strides = [1, 1], ...}
+    : (tensor<1x3x224x224xf32>, tensor<64x3x3x3xf32>, tensor<64xf32>) -> tensor<1x64x224x224xf32>
+  %relu1 = "onnx.Relu"(%conv1) : (tensor<1x64x224x224xf32>) -> tensor<1x64x224x224xf32>
+
+  // Layer 2 similar...
+  return %relu2 : tensor<1x64x112x112xf32>
+}
+```
+
 **Command:**
 ```bash
 ../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
@@ -120,27 +138,34 @@ This section walks through each compilation stage with real compiler output.
 
 **Key transformations (excerpt from real output):**
 ```mlir
-module attributes {hipdnn.input_count = 1 : i64, hipdnn.output_count = 1 : i64, ...} {
-  // ✅ Constants hoisted to LLVM globals
-  llvm.mlir.global internal constant @constant_0(...) : !llvm.array<1728 x f32>
-  llvm.mlir.global internal constant @constant_1(...) : !llvm.array<64 x f32>
-  llvm.mlir.global internal constant @constant_2(...) : !llvm.array<36864 x f32>
-  llvm.mlir.global internal constant @constant_3(...) : !llvm.array<64 x f32>
+// ✅ Module metadata added
+module attributes {hipdnn.input_count = 1 : i64, hipdnn.output_count = 1 : i64,
+                   hipdnn.input_ranks = array<i64: 4>, hipdnn.output_ranks = array<i64: 4>} {
 
-  // ✅ Main computation uses HIP dialect operations
-  func.func @main(%arg0: !hip.context, %arg1: memref<1x3x224x224xf32, 1>,
-                   %arg2: memref<1x64x112x112xf32, 1>) -> i32 {
-    // ✅ Retrieve constants from runtime state (zero-copy)
+  // ✅ Constants hoisted to module-level LLVM globals (will be embedded in DLL .data section)
+  llvm.mlir.global internal constant @constant_0(dense<1.0> : tensor<64x3x3x3xf32>) : !llvm.array<1728 x f32>
+  llvm.mlir.global internal constant @constant_1(dense<0.5> : tensor<64xf32>) : !llvm.array<64 x f32>
+  llvm.mlir.global internal constant @constant_2(dense<2.0> : tensor<64x64x3x3xf32>) : !llvm.array<36864 x f32>
+  llvm.mlir.global internal constant @constant_3(dense<0.1> : tensor<64xf32>) : !llvm.array<64 x f32>
+
+  // ✅ Signature changed: context + memref inputs/outputs → i32 status
+  func.func @main(%arg0: !hip.context,                     // NEW: runtime state
+                   %arg1: memref<1x3x224x224xf32, 1>,      // input (GPU memory)
+                   %arg2: memref<1x64x112x112xf32, 1>) -> i32 {  // output (GPU memory)
+
+    // ✅ Retrieve constants from runtime state (uploaded during inference_init)
     %0 = hip.get_constant(%arg0, %c0_i64) : memref<64x3x3x3xf32, 1>
     %1 = hip.get_constant(%arg0, %c1_i64) : memref<64xf32, 1>
 
-    // ✅ Direct HIP operations (GPU memory types, in-place semantics)
+    // ✅ HIP dialect operations (in-place, GPU memory types)
     %2 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
-    hip.conv(%arg0, %arg1, %0, %1, %2) {...}  // Layer 1 convolution
+    hip.conv(%arg0, %arg1, %0, %1, %2) {dilations = [1, 1], group = 1, ...}
 
     %3 = hip.alloc(%arg0) : memref<1x64x224x224xf32, 1>
-    hip.relu(%arg0, %2, %3) {...}              // ReLU activation
+    hip.relu(%arg0, %2, %3) : (!hip.context, memref<...>, memref<...>)
     // ... (layer 2 similar)
+
+    return %c0_i32 : i32  // ✅ Return status code instead of tensors
   }
 
   // ✅ Constant registry for runtime initialization
