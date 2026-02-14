@@ -186,7 +186,7 @@ After OnnxToHip creates `hip.alloc` operations, MLIR's BufferDeallocation pipeli
 1. **BufferLoopHoisting**: Moves allocations out of loops when safe
 2. **BufferDeallocation**: Inserts `hip.free` after last use of `hip.alloc` buffers
 3. **OptimizeAllocationLiveness**: Optimizes buffer lifetimes
-4. **Canonicalizer**: Simplifies and cleans up IR
+4. **Canonicalizer**: Standard MLIR pass that simplifies IR (constant folding, dead code elimination, algebraic simplifications like `x + 0 = x`)
 
 **Key capability:**
 - Automatically determines buffer ownership (function-owned vs caller-owned)
