@@ -1,0 +1,249 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
+# Buffer Lifetime Management Design
+
+**Date:** 2026-02-13
+**Document Type:** Design
+**Status:** Draft
+**Related:** [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md), [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md)
+
+---
+
+## Overview
+
+HIP dialect operations allocate GPU buffers (`hip.alloc`) but don't specify when to free them. Without explicit deallocation points, memory pooling optimizations (Phase 3) cannot determine buffer lifetimes for reuse analysis.
+
+MLIR provides a standard BufferDeallocation pipeline that automatically inserts deallocation operations based on liveness analysis. This design adopts that approach.
+
+---
+
+## Design
+
+### Pipeline Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ OnnxToHip Pass                                          │
+│ - Creates hip.alloc operations                          │
+│ - Does NOT insert hip.free                              │
+└────────────────────┬────────────────────────────────────┘
+                     ↓
+┌─────────────────────────────────────────────────────────┐
+│ BufferDeallocation Pipeline (MLIR standard)             │
+│ - Performs ownership analysis                           │
+│ - Performs liveness analysis                            │
+│ - Automatically inserts hip.free after last use         │
+└────────────────────┬────────────────────────────────────┘
+                     ↓
+┌─────────────────────────────────────────────────────────┐
+│ OptimizeAllocationLiveness (MLIR standard)              │
+│ - Moves hip.free to minimize lifetime overlap           │
+│ - Enables memory reuse analysis                         │
+└────────────────────┬────────────────────────────────────┘
+                     ↓
+┌─────────────────────────────────────────────────────────┐
+│ HipToLLVM Pass                                          │
+│ - Phase 1: hip.alloc → hipMalloc, hip.free → hipFree    │
+│ - Phase 2: hip.alloc → load from state, hip.free → nop  │
+│ - Phase 3: hip.alloc → pool+offset, hip.free → nop      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Separation of Concerns
+
+| Concern | Handler | Responsibility |
+|---------|---------|----------------|
+| **Allocation semantics** | OnnxToHip | Create `hip.alloc` for intermediate buffers |
+| **Deallocation placement** | BufferDeallocation | Insert `hip.free` after last use |
+| **Implementation strategy** | HipToLLVM | Inline malloc/free, hoisting, or pooling |
+
+### Example Transformation
+
+**After OnnxToHip:**
+```mlir
+func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
+  %buf1 = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.conv(%ctx, %input, %weights, %bias, %buf1)
+
+  %buf2 = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.relu(%ctx, %buf1, %buf2)
+
+  memref.copy %buf2, %output
+
+  return %c0 : i32
+}
+```
+
+**After BufferDeallocation + OptimizeAllocationLiveness:**
+```mlir
+func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -> i32 {
+  %buf1 = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.conv(%ctx, %input, %weights, %bias, %buf1)
+
+  %buf2 = hip.alloc(%ctx) : memref<1x64x224x224xf32, 1>
+  hip.relu(%ctx, %buf1, %buf2)
+  hip.free(%ctx, %buf1)  // Inserted: buf1 last used by relu
+
+  memref.copy %buf2, %output
+  hip.free(%ctx, %buf2)  // Inserted: buf2 last used by copy
+
+  return %c0 : i32
+}
+```
+
+Liveness intervals: `buf1=[conv, relu)`, `buf2=[relu, copy)`. Overlap at relu operation (peak memory = 2 buffers).
+
+---
+
+## Interface Requirements
+
+HIP operations must declare memory effects for BufferDeallocation to analyze lifetimes:
+
+### AllocationOpInterface
+
+```tablegen
+// HipOps.td
+include "mlir/Dialect/Bufferization/IR/AllocationOpInterface.td"
+
+def Hip_AllocOp : Hip_Op<"alloc", [
+  DeclareOpInterfaceMethods<AllocationOpInterface>
+]> {
+  let results = (outs AnyMemRef:$result);
+}
+```
+
+Implementation declares ownership:
+```cpp
+// HipOps.cpp
+bufferization::AllocationInfo HipAllocOp::getAllocationInfo() {
+  return {
+    .ownership = bufferization::Ownership::Owned,  // We own this buffer
+    .hoistable = true  // Can move out of loops
+  };
+}
+```
+
+### Memory Effects
+
+Declare effects on operations:
+```tablegen
+def Hip_AllocOp : Hip_Op<"alloc", [MemAlloc]>;
+def Hip_FreeOp : Hip_Op<"free", [MemFree]>;
+def Hip_ConvOp : Hip_Op<"conv", [MemRead, MemWrite]>;
+```
+
+BufferDeallocation uses these to determine:
+- Which operations allocate (creates lifetime start)
+- Which operations use buffers (extends lifetime)
+- Where last use occurs (lifetime end point)
+
+---
+
+## Ownership Analysis
+
+BufferDeallocation determines which buffers the function owns:
+
+| Buffer Source | Ownership | Action |
+|---------------|-----------|--------|
+| Function argument | Caller owns | Do not insert `hip.free` |
+| `hip.alloc` result | Function owns | Insert `hip.free` after last use |
+| Constant (global) | Nobody owns | Do not insert `hip.free` |
+
+Example with function argument:
+```mlir
+func.func @main(%ctx: !hip.context, %input: memref<...>) {
+  // %input is argument → caller owns → no free inserted
+
+  %temp = hip.alloc(%ctx) : memref<...>
+  // %temp is allocated → function owns → free inserted
+  hip.conv(%ctx, %input, %weights, %bias, %temp)
+  hip.free(%ctx, %temp)  // Inserted by BufferDeallocation
+}
+```
+
+---
+
+## Memory Management Phases
+
+HipToLLVM lowering strategy determines implementation:
+
+### Phase 1: Inline Allocation
+```mlir
+// hip.alloc lowering
+hip.alloc(%ctx) → hipMalloc(&ptr, size)
+
+// hip.free lowering
+hip.free(%ctx, %buf) → hipFree(ptr)
+```
+
+Allocate and free in `inference_compute`. Simple but slow (~20-65ms overhead per inference).
+
+### Phase 2: Allocation Hoisting
+```mlir
+// hip.alloc lowering
+hip.alloc(%ctx) → hipdnn_ep_get_buffer(state, index)
+
+// hip.free lowering
+hip.free(%ctx, %buf) → /* nop - buffers freed in cleanup */
+```
+
+Track allocations during lowering. GenerateInterfacePass allocates all buffers in `inference_init`, frees in `inference_cleanup`. Reuse across calls (4-12x speedup).
+
+### Phase 3: Memory Pooling
+```mlir
+// Before HipToLLVM: Analyze liveness intervals
+buf1: [alloc1, free1) = 3MB, lines 10-30
+buf2: [alloc2, free2) = 1.5MB, lines 25-50
+buf3: [alloc3, free3) = 784KB, lines 45-80
+
+// Graph coloring assigns pool offsets:
+buf1 → offset 0
+buf2 → offset 3MB
+buf3 → offset 0 (reuses buf1, no overlap)
+
+// hip.alloc lowering
+hip.alloc(%ctx) → poolBase + offsets[index]
+
+// hip.free lowering
+hip.free(%ctx, %buf) → /* nop */
+```
+
+Single pool allocation in `inference_init` (size = 4.5MB instead of 5.3MB, 15% savings). For ResNet50: 200MB → 55MB (73% savings).
+
+---
+
+## Compiler Pipeline Integration
+
+```cpp
+void buildHipDnnPipeline(PassManager &pm) {
+  // Conversion
+  pm.addPass(createConvertOnnxToHipPass());
+
+  // Buffer lifetime management (MLIR standard)
+  pm.addPass(bufferization::createBufferLoopHoistingPass());
+  bufferization::BufferDeallocationPipelineOptions opts;
+  bufferization::buildBufferDeallocationPipeline(pm, opts);
+  pm.addPass(bufferization::createOptimizeAllocationLivenessPass());
+
+  // Phase 3: Memory pooling (future)
+  // pm.addPass(createHipMemoryPoolingPass());
+
+  // Lowering
+  pm.addPass(createConvertHipToLLVMPass());
+  pm.addPass(createGenerateInterfacePass());
+}
+```
+
+BufferDeallocation runs on HIP dialect IR before lowering to LLVM. This preserves type information needed for size calculation and ownership analysis.
+
+---
+
+## Related Documents
+
+- [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) - Three-phase optimization strategy
+- [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Overall transformation pipeline
+- [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) - HIP dialect operations
+- [mlir/passes/OnnxToHip.md](mlir/passes/OnnxToHip.md) - Allocation insertion pass
+- [mlir/passes/HipToLLVM.md](mlir/passes/HipToLLVM.md) - Lowering strategies

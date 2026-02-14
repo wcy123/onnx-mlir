@@ -17,6 +17,7 @@ All documents in this directory (including subdirectories) have **Document Type:
 | [RUNTIME-ARCHITECTURE.md](RUNTIME-ARCHITECTURE.md) | Self-Reviewed | 2026-02-12 | Runtime state and context design |
 | [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) | Self-Reviewed | 2026-02-13 | Model constants (weights, biases) |
 | [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) | Draft | 2026-02-09 | GPU memory allocation strategy |
+| [BUFFER-LIFETIME-DESIGN.md](BUFFER-LIFETIME-DESIGN.md) | Draft | 2026-02-13 | Buffer deallocation using MLIR standard pipeline |
 | [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) | Draft | 2026-02-10 | Runtime-determined tensor dimensions |
 | [EPCONTEXT-MEMORY-OPTIMIZATION.md](EPCONTEXT-MEMORY-OPTIMIZATION.md) | Draft | 2026-02-13 | EP context memory optimization |
 | [alternatives/NATIVE-VS-IR-COMPARISON.md](alternatives/NATIVE-VS-IR-COMPARISON.md) | Self-Reviewed | 2026-02-13 | Native DLL vs LLVM IR storage |
