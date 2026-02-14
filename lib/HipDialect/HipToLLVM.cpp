@@ -143,13 +143,17 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     // Check if memory pooling is enabled (module has pool metadata)
     auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
     if (poolSizeAttr) {
+      llvm::errs() << "[HipToLLVM] Pool metadata found, using pool-based allocation\n";
       // Phase 3: Pool-based allocation
-      // Get buffer index for this allocation
-      int64_t bufferIndex = getBufferIndexForAlloc(module, op);
-      if (bufferIndex < 0) {
+      // Get buffer index from the operation's attribute (set by MemoryPoolingPass)
+      auto bufferIndexAttr = op->getAttrOfType<IntegerAttr>("hipdnn.buffer_index");
+      if (!bufferIndexAttr) {
+        llvm::errs() << "[HipToLLVM] ERROR: hip.alloc missing hipdnn.buffer_index attribute!\n";
         return rewriter.notifyMatchFailure(
-            op, "Could not find buffer index for allocation");
+            op, "hip.alloc operation missing hipdnn.buffer_index attribute");
       }
+      int64_t bufferIndex = bufferIndexAttr.getInt();
+      llvm::errs() << "[HipToLLVM] Buffer index for this alloc: " << bufferIndex << "\n";
 
       // Call hipdnn_ep_get_buffer_from_pool(state, index)
       FailureOr<LLVM::LLVMFuncOp> getBufferFn = LLVM::lookupOrCreateFn(

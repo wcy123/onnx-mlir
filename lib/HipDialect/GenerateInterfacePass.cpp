@@ -488,11 +488,15 @@ private:
 
       // Create blocks for conditional pool init
       Block *poolInitBlock = funcOp.addBlock();
-      Block *returnBlock = funcOp.addBlock();
+      Block *returnErrorBlock = funcOp.addBlock();
 
-      // If state init failed, skip pool init and return error
-      builder.create<LLVM::CondBrOp>(loc, initFailed, returnBlock,
+      // If state init failed, return error immediately
+      builder.create<LLVM::CondBrOp>(loc, initFailed, returnErrorBlock,
                                      poolInitBlock);
+
+      // Error return block
+      builder.setInsertionPointToStart(returnErrorBlock);
+      builder.create<LLVM::ReturnOp>(loc, initCall.getResult());
 
       // Pool initialization block
       builder.setInsertionPointToStart(poolInitBlock);
@@ -501,8 +505,6 @@ private:
       Value statePtr = builder.create<LLVM::LoadOp>(loc, ptrType, outStatePtr);
 
       // Create constant array of buffer offsets
-      Value one = builder.create<LLVM::ConstantOp>(
-          loc, i64Type, builder.getI64IntegerAttr(1));
       Value numBuffersVal = builder.create<LLVM::ConstantOp>(
           loc, i64Type, builder.getI64IntegerAttr(numBuffers));
 
@@ -531,17 +533,8 @@ private:
           loc, poolInitFunc,
           ValueRange{statePtr, poolSizeVal, offsetsArrayPtr, numBuffersVal});
 
-      // Branch to return block
-      builder.create<LLVM::BrOp>(loc, returnBlock);
-
-      // Return block
-      builder.setInsertionPointToStart(returnBlock);
-
-      // PHI node to select correct return value
-      Value retVal = builder.create<LLVM::SelectOp>(
-          loc, initFailed, initCall.getResult(), poolInitCall.getResult());
-
-      builder.create<LLVM::ReturnOp>(loc, retVal);
+      // Return pool init result
+      builder.create<LLVM::ReturnOp>(loc, poolInitCall.getResult());
     } else {
       // Phase 1: No pooling - return init result directly
       builder.create<LLVM::ReturnOp>(loc, initCall.getResult());

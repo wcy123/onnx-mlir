@@ -30,6 +30,18 @@
 using namespace mlir;
 using namespace mlir::hip;
 
+// Static initializer to verify this file is being compiled and linked
+namespace {
+struct MemoryPoolingPassDebugInit {
+  MemoryPoolingPassDebugInit() {
+    llvm::errs() << "========================================\n";
+    llvm::errs() << "MemoryPoolingPass.cpp loaded into binary!\n";
+    llvm::errs() << "========================================\n";
+  }
+};
+static MemoryPoolingPassDebugInit debugInit;
+} // namespace
+
 namespace {
 
 // Buffer metadata for pooling analysis
@@ -54,15 +66,22 @@ public:
   void runOnOperation() override {
     ModuleOp module = getOperation();
 
+    llvm::errs() << "[MemoryPooling] ========================================\n";
+    llvm::errs() << "[MemoryPooling] Pass started\n";
+
     // Step 1: Collect all hip.alloc operations
     SmallVector<BufferInfo> buffers;
     if (failed(collectAllocations(module, buffers))) {
+      llvm::errs() << "[MemoryPooling] ERROR: Failed to collect allocations\n";
       signalPassFailure();
       return;
     }
 
+    llvm::errs() << "[MemoryPooling] Found " << buffers.size() << " allocations\n";
+
     if (buffers.empty()) {
       llvm::errs() << "[MemoryPooling] No allocations found, skipping\n";
+      llvm::errs() << "[MemoryPooling] ========================================\n";
       return;
     }
 
@@ -105,10 +124,17 @@ private:
                                    SmallVector<BufferInfo> &buffers) {
     size_t index = 0;
 
+    llvm::errs() << "[MemoryPooling] Collecting allocations from module\n";
+
     // Walk all functions in the module
+    size_t funcCount = 0;
     for (auto funcOp : module.getOps<func::FuncOp>()) {
+      funcCount++;
+      llvm::errs() << "[MemoryPooling]   Scanning function: " << funcOp.getName() << "\n";
+
       // Walk all hip.alloc operations in deterministic order
       funcOp.walk([&](AllocOp allocOp) {
+        llvm::errs() << "[MemoryPooling]     Found hip.alloc operation\n";
         MemRefType memrefType = allocOp.getMemref().getType();
 
         // Compute buffer size
@@ -319,7 +345,7 @@ private:
     return success();
   }
 
-  /// Attach metadata to module
+  /// Attach metadata to module and operations
   void attachMetadata(ModuleOp module, const SmallVector<BufferInfo> &buffers,
                       const SmallVector<size_t> &offsets, size_t poolSize) {
     OpBuilder builder(module.getContext());
@@ -346,13 +372,12 @@ private:
     }
     module->setAttr("hipdnn.buffer_offsets", builder.getArrayAttr(offsetAttrs));
 
-    // Store a map from AllocOp to buffer index for later use in lowering
-    // We'll use operation names/locations for this mapping
-    SmallVector<Attribute> allocIndexAttrs;
+    // CRITICAL: Attach buffer index as attribute to each hip.alloc operation
+    // This allows HipToLLVM to find the index even if the operation is cloned/replaced by later passes
     for (const auto &buf : buffers) {
-      allocIndexAttrs.push_back(builder.getI64IntegerAttr(buf.index));
+      buf.allocOp->setAttr("hipdnn.buffer_index",
+                           builder.getI64IntegerAttr(buf.index));
     }
-    module->setAttr("hipdnn.alloc_indices", builder.getArrayAttr(allocIndexAttrs));
   }
 };
 
@@ -362,6 +387,7 @@ namespace mlir {
 namespace hip {
 
 std::unique_ptr<Pass> createMemoryPoolingPass() {
+  llvm::errs() << "[DEBUG] createMemoryPoolingPass() called!\n";
   return std::make_unique<MemoryPoolingPass>();
 }
 

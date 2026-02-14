@@ -123,6 +123,11 @@ int main(int argc, char **argv) {
 
   InitLLVM X(argc, argv);
 
+  // Register HIP passes (MUST be done before creating PassManager)
+  llvm::errs() << "[DEBUG] Registering HIP passes\n";
+  mlir::hip::registerHipPasses();
+  llvm::errs() << "[DEBUG] HIP passes registered\n";
+
   if (opts.verbose) {
     std::cout << "=== MLIR to HIP DLL Compiler ===\n";
     std::cout << "Input: " << opts.inputFilename << "\n";
@@ -134,19 +139,15 @@ int main(int argc, char **argv) {
   // Initialize MLIR context and register dialects
   mlir::MLIRContext context;
 
-  // Register base dialects
+  // Register all dialects (loading unused dialects is cheap and makes the tool more flexible)
   context.loadDialect<mlir::BuiltinDialect>();
   context.loadDialect<mlir::LLVM::LLVMDialect>();
   context.loadDialect<mlir::func::FuncDialect>();
-
-  // If processing ONNX-MLIR, register additional dialects
-  if (opts.fromOnnxMlir) {
-    context.loadDialect<mlir::arith::ArithDialect>();
-    context.loadDialect<mlir::memref::MemRefDialect>();
-    context.loadDialect<mlir::bufferization::BufferizationDialect>();
-    context.loadDialect<mlir::hip::HipDialect>();
-    context.loadDialect<mlir::ONNXDialect>();
-  }
+  context.loadDialect<mlir::arith::ArithDialect>();
+  context.loadDialect<mlir::memref::MemRefDialect>();
+  context.loadDialect<mlir::bufferization::BufferizationDialect>();
+  context.loadDialect<mlir::hip::HipDialect>();
+  context.loadDialect<mlir::ONNXDialect>();
 
   mlir::registerLLVMDialectTranslation(context);
 
@@ -186,16 +187,18 @@ int main(int argc, char **argv) {
     pm.addPass(mlir::hip::createConvertOnnxToHipPass());
 
     // BufferDeallocation pipeline (MLIR standard)
-    pm.addPass(mlir::bufferization::createBufferLoopHoistingPass());
-
-    mlir::bufferization::BufferDeallocationPipelineOptions bufferDeallocOpts;
-    mlir::bufferization::buildBufferDeallocationPipeline(pm, bufferDeallocOpts);
-
-    pm.addPass(mlir::bufferization::createOptimizeAllocationLivenessPass());
+    // Note: API changed in newer MLIR - use individual passes instead of pipeline builder
+    // These are function-level passes, so use pm.nest<func::FuncOp>()
+    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createBufferLoopHoistingPass());
+    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createOwnershipBasedBufferDeallocationPass());
+    pm.nest<mlir::func::FuncOp>().addPass(mlir::bufferization::createOptimizeAllocationLivenessPass());
     pm.addPass(mlir::createCanonicalizerPass());
 
     // Memory pooling optimization (Phase 3)
+    // IMPORTANT: Must run AFTER BufferDeallocation, since BufferDeallocation creates the final hip.alloc/hip.free ops
+    llvm::errs() << "[DEBUG] About to call createMemoryPoolingPass()\n";
     pm.addPass(mlir::hip::createMemoryPoolingPass());
+    llvm::errs() << "[DEBUG] createMemoryPoolingPass() returned, pass added to PM\n";
 
     // HIP → LLVM conversion
     pm.addPass(mlir::hip::createConvertHipToLLVMPass());
@@ -213,6 +216,12 @@ int main(int argc, char **argv) {
 
   if (mlir::failed(pm.run(*module))) {
     std::cerr << "Error running MLIR passes\n";
+    // Print the module IR to help debug
+    if (opts.verbose) {
+      llvm::errs() << "\n=== Failed Module IR ===\n";
+      module->print(llvm::errs());
+      llvm::errs() << "\n========================\n";
+    }
     return 1;
   }
 
@@ -318,11 +327,11 @@ int main(int argc, char **argv) {
   std::vector<std::string> exports = {"inference_init", "inference_compute",
                                       "inference_cleanup"};
 
-  // NOTE: No need to link HipDnnRuntime.lib
-  // Runtime functions were merged at IR level (Step 3.5) and inlined during
-  // optimization (Step 4) The object file already contains all runtime code
-  std::vector<std::string> libraries;    // Empty - no runtime lib needed
-  std::vector<std::string> libraryPaths; // Empty
+  // Link HipDnnEpRuntime.lib for pool init functions and MIOpen wrappers
+  // Note: Simple accessor functions are inlined, but library wrappers are not
+  std::vector<std::string> libraries = {"HipDnnEpRuntime.lib"};
+  std::vector<std::string> libraryPaths = {
+      RUNTIME_LIB_DIR}; // From CMake compile definition
 
   if (!linker.linkDLL(objFilename, opts.outputFilename, libraries, libraryPaths,
                       exports)) {

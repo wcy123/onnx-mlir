@@ -375,6 +375,23 @@ int wrap_miopenConvolutionForward(
   return 0;
 }
 
+// Mock implementation for ReLU activation
+extern "C" int wrap_miopenActivationForward_relu(RuntimeState *state,
+                                                   void *input_memref_ptr,
+                                                   void *output_memref_ptr) {
+  if (!state || !input_memref_ptr || !output_memref_ptr) {
+    fprintf(stderr, "Invalid arguments to wrap_miopenActivationForward_relu\n");
+    return -1;
+  }
+
+  MOCK_PRINT("[MOCK] wrap_miopenActivationForward_relu(input=%p, output=%p)\n",
+             input_memref_ptr, output_memref_ptr);
+
+  // Mock: In a real implementation, this would call MIOpen to compute ReLU
+  // For now, just log and return success
+  return 0;
+}
+
 int wrap_hipblasLtGemm(void *handle, void *stream, int64_t m, int64_t n,
                        int64_t k, const void *alpha, const void *A,
                        const void *B, const void *beta, void *C) {
