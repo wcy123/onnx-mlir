@@ -302,6 +302,44 @@ This diagram shows the complete pipeline from Runtime development to model infer
 4. **Packaging**: Final DLL embedded in EPContext for single-file deployment
 5. **Inference**: CustomOp loads DLL from memory, calls exported functions
 
+### Pool Allocation Integration
+
+Memory pooling is optional. If MemoryPoolingPass runs during compilation, the flow includes pool allocation:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  inference_init (generated code)                            │
+│    ↓                                                         │
+│  Call hipdnn_ep_state_init(out_state, registry)             │
+│    ↓ (creates stream, handles, uploads constants)           │
+│  IF pool metadata present:                                  │
+│    Call hipdnn_ep_pool_init(state, pool_size, offsets, n)   │
+│    ↓ (allocates pool, stores offsets in RuntimeState)       │
+│  Return 0 (success)                                         │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  inference_compute (generated code)                         │
+│    ↓                                                         │
+│  @main calls hip.alloc (lowered by HipToLLVM):              │
+│    buffer_ptr = hipdnn_ep_get_buffer_from_pool(state, idx)  │
+│    ↓ (returns pool_base + buffer_offsets[idx])              │
+│  Use buffer_ptr for computation                             │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  inference_cleanup (generated code)                         │
+│    ↓                                                         │
+│  Call hipdnn_ep_state_cleanup(state)                        │
+│    ↓ (frees pool via hipFree(state->pool_base))             │
+│  Return 0 (success)                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Pool metadata**: [MemoryPoolingPass.md](../mlir/passes/MemoryPoolingPass.md) computes pool size and offsets using graph coloring.
+
+**Generated code**: [GenerateInterfacePass.md - Pool Allocation](../mlir/passes/GenerateInterfacePass.md#pool-allocation) shows how pool_init call is generated.
+
 ---
 
 ## 4. API Contract
@@ -354,13 +392,26 @@ See [mlir/INTERFACE-DESIGN.md - Section 4: Design Decisions](mlir/INTERFACE-DESI
 
 ```cpp
 struct RuntimeState {
+  // GPU execution context
   hipStream_t stream;                    // GPU execution stream
   miopenHandle_t miopen_handle;          // MIOpen library handle for DNN ops
   hipblasLtHandle_t hipblas_handle;      // hipBLAS handle for GEMM
+
+  // Model constants (weights, biases)
   void** gpu_constants;                  // Array of GPU pointers to constants
   size_t num_constants;                  // Array size (compile-time known)
+
+  // Memory pool for intermediate buffers (optional - if pooling enabled)
+  void* pool_base;                       // Base pointer to single allocated pool (GPU memory)
+  size_t pool_size;                      // Total pool size in bytes
+  size_t* buffer_offsets;                // Array of buffer offsets within pool
+  size_t num_buffers;                    // Number of buffers in pool
 };
 ```
+
+**Pool allocation**: If model was compiled with memory pooling (MemoryPoolingPass), `inference_init` allocates single pool via `hipdnn_ep_pool_init`. Individual buffers retrieved via `hipdnn_ep_get_buffer_from_pool(state, index)` which returns `pool_base + buffer_offsets[index]`.
+
+**Memory savings**: Demo model achieves 60% reduction (12.8MB vs 32.1MB) using graph coloring algorithm. See [MemoryPoolingPass.md](../mlir/passes/MemoryPoolingPass.md) for algorithm details.
 
 ### Design Properties
 

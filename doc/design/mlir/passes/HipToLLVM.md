@@ -149,6 +149,53 @@ The runtime functions handle all MIOpen complexity: descriptor creation, algorit
 
 ---
 
+### Pool-Based Allocation
+
+If MemoryPoolingPass attached pool metadata, `hip.alloc` operations are lowered to pool-based allocation instead of individual `hipMalloc` calls.
+
+**Metadata check:**
+```cpp
+auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
+if (poolSizeAttr) {
+    // Pool-based allocation enabled
+    auto bufferIndexAttr = op->getAttrOfType<IntegerAttr>("hipdnn.buffer_index");
+    size_t bufferIndex = bufferIndexAttr.getInt();
+
+    // Generate call to runtime accessor
+    Value indexValue = rewriter.create<LLVM::ConstantOp>(
+        loc, i64Type, rewriter.getI64IntegerAttr(bufferIndex));
+    allocatedPtr = rewriter.create<LLVM::CallOp>(
+        loc, "hipdnn_ep_get_buffer_from_pool",
+        ValueRange{statePtr, indexValue}).getResult();
+}
+```
+
+**Generated LLVM IR:**
+```mlir
+// Buffer 0: offset = 0
+%c0 = llvm.mlir.constant(0 : i64) : i64
+%buf0_ptr = llvm.call @hipdnn_ep_get_buffer_from_pool(%state, %c0)
+    : (!llvm.ptr, i64) -> !llvm.ptr
+
+// Buffer 1: offset = 3211264
+%c1 = llvm.mlir.constant(1 : i64) : i64
+%buf1_ptr = llvm.call @hipdnn_ep_get_buffer_from_pool(%state, %c1)
+    : (!llvm.ptr, i64) -> !llvm.ptr
+```
+
+**Runtime implementation:**
+```cpp
+void* hipdnn_ep_get_buffer_from_pool(RuntimeState* state, size_t index) {
+    return (char*)state->pool_base + state->buffer_offsets[index];
+}
+```
+
+**Metadata origin**: [MemoryPoolingPass.md](MemoryPoolingPass.md) computes `buffer_index` for each `hip.alloc` via graph coloring algorithm.
+
+**Without pooling**: Falls back to individual allocation (not implemented in current version - pooling is always used if metadata present).
+
+---
+
 ### Key Transformations
 
 #### 1. Transform @main Signature

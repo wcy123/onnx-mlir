@@ -72,7 +72,51 @@ module attributes {
 - `hipdnn.buffer_offsets`: Array of offsets for each buffer (indexed by buffer creation order)
 - `hipdnn.buffer_count`: Number of buffers (length of buffer_offsets array)
 
-**Consumer**: HipToLLVM lowering pass reads this metadata and allocates single pool in `inference_init()`. See [HipToLLVM.md](HipToLLVM.md) for lowering details and [RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) for runtime state structure.
+---
+
+## Metadata Consumers
+
+MemoryPoolingPass computes pool strategy at compile-time and attaches metadata. Two passes consume this metadata:
+
+### GenerateInterfacePass
+
+Generates code in `inference_init()` to allocate pool at runtime:
+
+```mlir
+%pool_result = call i32 @hipdnn_ep_pool_init(
+    ptr %state,
+    i64 12845056,            // pool_size (from hipdnn.pool_size)
+    ptr %offsets_array,      // [0, 3211264, 6422528, 9633792]
+    i64 4                    // num_buffers
+)
+```
+
+See [GenerateInterfacePass.md - Pool Allocation](GenerateInterfacePass.md#pool-allocation) for code generation details.
+
+### HipToLLVM
+
+Lowers `hip.alloc` operations to pool-based allocation:
+
+```mlir
+// Uses buffer_index from hipdnn.buffer_index attribute
+%buffer_ptr = call ptr @hipdnn_ep_get_buffer_from_pool(ptr %state, i64 %buffer_index)
+```
+
+See [HipToLLVM.md - Pool-based Allocation](HipToLLVM.md#pool-based-allocation) for lowering details.
+
+### Design Separation
+
+**Compile-time** (MemoryPoolingPass):
+- Computes pool size via graph coloring
+- Assigns buffer offsets
+- Attaches metadata to module
+
+**Runtime** (Generated code + Runtime library):
+- Allocates pool in `inference_init` (single `hipMalloc` call)
+- Retrieves buffer pointers in `inference_compute` (pool_base + offset[index])
+- Frees pool in `inference_cleanup`
+
+This separation allows changing allocation strategy (graph coloring → bin packing) without modifying runtime code.
 
 ---
 

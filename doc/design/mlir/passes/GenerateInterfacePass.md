@@ -422,6 +422,39 @@ llvm.func @inference_init(%out_state: !llvm.ptr) -> i32
 
 **For runtime implementation details:** See [../../RUNTIME-ARCHITECTURE.md](../../RUNTIME-ARCHITECTURE.md) and `lib/Runtime/hipdnn_ep_runtime.cpp`.
 
+#### Pool Allocation (Optional - if metadata present)
+
+If `hipdnn.pool_size` metadata exists, `inference_init` allocates memory pool for intermediate buffers.
+
+**Generated code structure:**
+1. Check for pool metadata (pool_size, buffer_offsets, buffer_count)
+2. Create offsets array on stack
+3. Call `hipdnn_ep_pool_init(state, pool_size, offsets, num_buffers)`
+
+**What hipdnn_ep_pool_init does** (runtime implementation):
+- Allocates single pool via `hipMalloc(&state->pool_base, pool_size)`
+- Stores pool size in `state->pool_size`
+- Copies buffer offsets to `state->buffer_offsets` array
+- Returns 0 on success, 2 on allocation failure
+
+**Pool metadata source**: [MemoryPoolingPass.md](MemoryPoolingPass.md) - Graph coloring algorithm computes pool size and offsets at compile-time.
+
+**RuntimeState fields**: See [RUNTIME-ARCHITECTURE.md - RuntimeState with Pool](../../RUNTIME-ARCHITECTURE.md#runtimestate-with-memory-pool) for pool field definitions.
+
+#### Memory Management Strategy: Compile-Time Decision
+
+Pool size (12845056) and buffer offsets ([0, 3211264, 6422528, 9633792]) are **hardcoded as LLVM constants** in generated `inference_init()` code.
+
+**Implications:**
+- ✅ Zero runtime overhead (no dynamic pool sizing logic)
+- ✅ Optimal packing via graph coloring (60% savings for demo model)
+- ❌ Cannot change pool strategy without model recompilation
+- ❌ Cannot disable pooling at runtime
+
+**Design rationale**: Memory allocation pattern is model-specific and known at compile-time. Hardcoding enables aggressive optimization (LLVM can constant-fold pool calculations).
+
+**Future flexibility**: If runtime pool configuration is needed, GenerateInterfacePass could generate both pooled and non-pooled paths selected via runtime flag.
+
 ### Function 2: inference_compute
 
 **C Signature:**
