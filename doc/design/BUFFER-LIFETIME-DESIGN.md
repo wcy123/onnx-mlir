@@ -4,7 +4,7 @@ Licensed under the MIT License.
 -->
 # Buffer Lifetime Management Design
 
-**Date:** 2026-02-13
+**Date:** 2026-02-14
 **Document Type:** Design
 **Status:** Draft
 **Related:** [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md), [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md)
@@ -13,9 +13,9 @@ Licensed under the MIT License.
 
 ## Overview
 
-HIP dialect operations allocate GPU buffers (`hip.alloc`) but don't specify when to free them. Without explicit deallocation points, memory pooling optimizations (Phase 3) cannot determine buffer lifetimes for reuse analysis.
+HIP dialect operations allocate GPU buffers (`hip.alloc`) but don't specify when to free them. Without explicit deallocation points, memory pooling optimizations cannot determine buffer lifetimes for reuse analysis.
 
-MLIR provides a standard BufferDeallocation pipeline that automatically inserts deallocation operations based on liveness analysis. This design adopts that approach.
+MLIR provides a standard BufferDeallocation pipeline that automatically inserts deallocation operations based on liveness analysis.
 
 ---
 
@@ -39,17 +39,29 @@ MLIR provides a standard BufferDeallocation pipeline that automatically inserts 
                      ↓
 ┌─────────────────────────────────────────────────────────┐
 │ OptimizeAllocationLiveness (MLIR standard)              │
-│ - Moves hip.free to minimize lifetime overlap           │
-│ - Enables memory reuse analysis                         │
+│ - Temporal optimization: Minimize peak memory usage     │
+│ - Moves hip.free earlier to reduce lifetime overlap     │
+└────────────────────┬────────────────────────────────────┘
+                     ↓
+┌─────────────────────────────────────────────────────────┐
+│ MemoryPoolingPass                                       │
+│ - Spatial optimization: Reuse memory for non-overlapping│
+│   buffers by assigning them to same pool location       │
+│ - Attaches pool metadata to module                      │
 └────────────────────┬────────────────────────────────────┘
                      ↓
 ┌─────────────────────────────────────────────────────────┐
 │ HipToLLVM Pass                                          │
-│ - Phase 1: hip.alloc → hipMalloc, hip.free → hipFree    │
-│ - Phase 2: hip.alloc → load from state, hip.free → nop  │
-│ - Phase 3: hip.alloc → pool+offset, hip.free → nop      │
+│ - hip.alloc → pool_ptr + offset[i]                      │
+│ - hip.free → nop                                        │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Key distinction:**
+- **OptimizeAllocationLiveness**: Temporal optimization - when to free buffers (minimizes peak memory)
+- **[MemoryPoolingPass](mlir/passes/MemoryPoolingPass.md)**: Spatial optimization - where to place buffers (enables memory reuse)
+
+Without pooling, each `hip.alloc` → separate `hipMalloc()` → different memory regions. With pooling, non-overlapping buffers → same memory location.
 
 ### Separation of Concerns
 
@@ -57,7 +69,9 @@ MLIR provides a standard BufferDeallocation pipeline that automatically inserts 
 |---------|---------|----------------|
 | **Allocation semantics** | OnnxToHip | Create `hip.alloc` for intermediate buffers |
 | **Deallocation placement** | BufferDeallocation | Insert `hip.free` after last use |
-| **Implementation strategy** | HipToLLVM | Inline malloc/free, hoisting, or pooling |
+| **Lifetime optimization** | OptimizeAllocationLiveness | Minimize peak memory (temporal) |
+| **Pool assignment** | MemoryPoolingPass | Assign offsets for reuse (spatial) |
+| **Lowering** | HipToLLVM | Lower to pool-based allocation |
 
 ### Example Transformation
 
@@ -93,7 +107,16 @@ func.func @main(%ctx: !hip.context, %input: memref<...>, %output: memref<...>) -
 }
 ```
 
-Liveness intervals: `buf1=[conv, relu)`, `buf2=[relu, copy)`. Overlap at relu operation (peak memory = 2 buffers).
+**Liveness visualization:**
+```
+Operations:  [conv]  [relu]  [copy]
+             ─────────────────────────────▶ time
+buf1:        [████████████)
+buf2:                [████████████)
+                     ↑
+                  overlap
+                  peak: 2 buffers
+```
 
 ---
 
@@ -165,55 +188,6 @@ func.func @main(%ctx: !hip.context, %input: memref<...>) {
 
 ---
 
-## Memory Management Phases
-
-HipToLLVM lowering strategy determines implementation:
-
-### Phase 1: Inline Allocation
-```mlir
-// hip.alloc lowering
-hip.alloc(%ctx) → hipMalloc(&ptr, size)
-
-// hip.free lowering
-hip.free(%ctx, %buf) → hipFree(ptr)
-```
-
-Allocate and free in `inference_compute`. Simple but slow (~20-65ms overhead per inference).
-
-### Phase 2: Allocation Hoisting
-```mlir
-// hip.alloc lowering
-hip.alloc(%ctx) → hipdnn_ep_get_buffer(state, index)
-
-// hip.free lowering
-hip.free(%ctx, %buf) → /* nop - buffers freed in cleanup */
-```
-
-Track allocations during lowering. GenerateInterfacePass allocates all buffers in `inference_init`, frees in `inference_cleanup`. Reuse across calls (4-12x speedup).
-
-### Phase 3: Memory Pooling
-```mlir
-// Before HipToLLVM: Analyze liveness intervals
-buf1: [alloc1, free1) = 3MB, lines 10-30
-buf2: [alloc2, free2) = 1.5MB, lines 25-50
-buf3: [alloc3, free3) = 784KB, lines 45-80
-
-// Graph coloring assigns pool offsets:
-buf1 → offset 0
-buf2 → offset 3MB
-buf3 → offset 0 (reuses buf1, no overlap)
-
-// hip.alloc lowering
-hip.alloc(%ctx) → poolBase + offsets[index]
-
-// hip.free lowering
-hip.free(%ctx, %buf) → /* nop */
-```
-
-Single pool allocation in `inference_init` (size = 4.5MB instead of 5.3MB, 15% savings). For ResNet50: 200MB → 55MB (73% savings).
-
----
-
 ## Compiler Pipeline Integration
 
 ```cpp
@@ -227,8 +201,8 @@ void buildHipDnnPipeline(PassManager &pm) {
   bufferization::buildBufferDeallocationPipeline(pm, opts);
   pm.addPass(bufferization::createOptimizeAllocationLivenessPass());
 
-  // Phase 3: Memory pooling (future)
-  // pm.addPass(createHipMemoryPoolingPass());
+  // Memory pooling
+  pm.addPass(createHipMemoryPoolingPass());
 
   // Lowering
   pm.addPass(createConvertHipToLLVMPass());
@@ -242,8 +216,9 @@ BufferDeallocation runs on HIP dialect IR before lowering to LLVM. This preserve
 
 ## Related Documents
 
-- [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) - Three-phase optimization strategy
-- [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Overall transformation pipeline
+- [MEMORY-MANAGEMENT.md](MEMORY-MANAGEMENT.md) - Memory allocation strategy
+- [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) - Transformation pipeline
 - [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) - HIP dialect operations
-- [mlir/passes/OnnxToHip.md](mlir/passes/OnnxToHip.md) - Allocation insertion pass
-- [mlir/passes/HipToLLVM.md](mlir/passes/HipToLLVM.md) - Lowering strategies
+- [mlir/passes/OnnxToHip.md](mlir/passes/OnnxToHip.md) - ONNX to HIP conversion
+- [mlir/passes/MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md) - Memory pooling
+- [mlir/passes/HipToLLVM.md](mlir/passes/HipToLLVM.md) - HIP to LLVM lowering

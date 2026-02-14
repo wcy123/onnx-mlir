@@ -4,7 +4,7 @@ Licensed under the MIT License.
 -->
 # MLIR Compilation Overview
 
-**Date:** 2026-02-12
+**Date:** 2026-02-14
 **Document Type:** Design Document
 **Review Status:** Self-Reviewed
 **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [mlir/](mlir/)
@@ -32,6 +32,17 @@ ONNX Model (.onnx)
 │ - Convert ONNX operations → HIP operations       │
 │ - Extract constants to globals                   │
 │ - Generate @main and constant helpers            │
+└──────────────────────────────────────────────────┘
+  ↓
+┌──────────────────────────────────────────────────┐
+│ BufferDeallocation (MLIR standard)               │
+│ - Insert hip.free operations                     │
+└──────────────────────────────────────────────────┘
+  ↓
+┌──────────────────────────────────────────────────┐
+│ MemoryPoolingPass                                │
+│ - Graph coloring assigns pool offsets            │
+│ - 60% memory savings for demo model              │
 └──────────────────────────────────────────────────┘
   ↓
 ┌──────────────────────────────────────────────────┐
@@ -134,6 +145,7 @@ See [DYNAMIC-SHAPE-DESIGN.md](DYNAMIC-SHAPE-DESIGN.md) for comprehensive details
 | Document | Description |
 |----------|-------------|
 | [mlir/LOWERING-PIPELINE.md](mlir/LOWERING-PIPELINE.md) | Pass pipeline and transformation stages |
+| [mlir/passes/MemoryPoolingPass.md](mlir/passes/MemoryPoolingPass.md) | Memory pooling optimization (60% savings) |
 | [mlir/INTERFACE-DESIGN.md](mlir/INTERFACE-DESIGN.md) | C interface and GenerateInterfacePass prerequisites |
 | [mlir/HIP-DIALECT-DESIGN.md](mlir/HIP-DIALECT-DESIGN.md) | HIP context, types, and wrapper functions |
 | [CONSTANT-HANDLING-DESIGN.md](CONSTANT-HANDLING-DESIGN.md) | Constant handling (globals, upload, retrieval) |

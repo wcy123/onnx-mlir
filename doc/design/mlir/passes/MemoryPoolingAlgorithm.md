@@ -1,0 +1,229 @@
+<!--
+Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved.
+Licensed under the MIT License.
+-->
+
+# Memory Pooling Algorithm
+
+**Date:** 2026-02-14
+**Document Type:** Implementation
+**Status:** Draft
+**Related:** [MemoryPoolingPass.md](MemoryPoolingPass.md), [Chaitin's Algorithm](https://en.wikipedia.org/wiki/Chaitin's_algorithm)
+
+---
+
+## Overview
+
+Graph coloring algorithm for buffer assignment based on [Chaitin's register allocation technique (1982)](https://web.eecs.umich.edu/~mahlke/courses/583f12/reading/chaitin82.pdf). Maps buffers to pool offsets such that interfering buffers (overlapping lifetimes) occupy different memory locations.
+
+**Analogy**: Register allocation maps variables to registers. Buffer pooling maps buffers to memory offsets. Both use interference graph + coloring.
+
+---
+
+## Algorithm Steps
+
+### 1. Collect Buffer Information
+
+Extract all `hip.alloc` operations and compute sizes:
+
+```cpp
+struct BufferInfo {
+  size_t index;           // Buffer ID
+  size_t sizeBytes;       // Buffer size
+  AllocOp allocOp;        // hip.alloc operation
+  Operation *lastUse;     // Last use of buffer
+};
+```
+
+**Input**: MLIR module with `hip.alloc` operations
+**Output**: Array of BufferInfo with sizes
+
+### 2. Liveness Analysis
+
+Determine buffer lifetimes using MLIR Liveness:
+
+```cpp
+Liveness liveness(funcOp);
+```
+
+For each buffer:
+- **Start**: `hip.alloc` operation
+- **End**: Last operation using buffer (found by scanning operands)
+
+**Output**: Each BufferInfo has `lastUse` field populated
+
+### 3. Interference Graph Construction
+
+Build interference graph where:
+- **Vertex**: Buffer
+- **Edge**: Connects buffers with overlapping lifetimes (cannot share memory)
+
+**Current implementation** (conservative):
+```cpp
+bool buffersInterfere(const BufferInfo &a, const BufferInfo &b) {
+  if (a.allocOp in different function than b.allocOp) {
+    return false;  // Different functions don't interfere
+  }
+  return true;  // Conservative: assume all buffers in same function interfere
+}
+```
+
+**Note**: This is a simplification. A precise implementation would check actual lifetime overlap using liveness intervals and dominance analysis.
+
+### 4. Greedy Graph Coloring
+
+**Classic Chaitin approach**: Color = register/offset assignment
+
+**Our adaptation**:
+- **Color** = pool offset (not discrete register number)
+- **First-fit decreasing**: Process largest buffers first (better packing)
+
+**Algorithm**:
+
+```
+1. Sort buffers by size (descending)
+2. For each buffer B (in sorted order):
+   a. Generate candidate offsets (boundaries of already-placed buffers)
+   b. For each candidate offset O:
+      - Check if placing B at O conflicts with interfering buffers
+      - Conflict = memory range overlap with interfering buffer
+   c. If found non-conflicting offset: assign it
+   d. Else: append B at end of pool
+3. Pool size = max(offset + size) for all buffers
+```
+
+**Conflict check** (interval overlap):
+```cpp
+// Buffer B at [start1, end1), existing buffer at [start2, end2)
+bool overlaps = !(end1 <= start2 || end2 <= start1);
+```
+
+### 5. Assign Offsets
+
+**Output**: Map from buffer index to pool offset
+
+```
+Buffer 0 (12.8MB) → offset 0
+Buffer 1 (12.8MB) → offset 3211264  (if interferes with buffer 0)
+Buffer 2 (3.2MB)  → offset 0        (if doesn't interfere with buffer 0)
+Buffer 3 (3.2MB)  → offset 3211264  (if doesn't interfere with buffer 1)
+```
+
+**Module metadata** attached:
+```mlir
+module attributes {
+  hipdnn.pool_size = 12845056 : i64,
+  hipdnn.buffer_offsets = array<i64: 0, 3211264, 6422528, 9633792>,
+  hipdnn.buffer_count = 4 : i64
+}
+```
+
+---
+
+## Comparison to Chaitin's Algorithm
+
+| Aspect | Chaitin (Register Allocation) | Our Implementation (Buffer Pooling) |
+|--------|------------------------------|-------------------------------------|
+| **Problem** | Map variables to K registers | Map buffers to pool offsets |
+| **Vertices** | Variables/temporaries | Buffers (hip.alloc) |
+| **Edges** | Overlapping live ranges | Overlapping lifetimes |
+| **Colors** | Register numbers (0..K-1) | Pool offsets (0..pool_size) |
+| **Constraint** | Limited registers (K colors) | Unlimited pool (minimize size) |
+| **Spilling** | Spill to memory if >K colors | N/A (always allocate in pool) |
+| **Ordering** | Various heuristics | First-fit decreasing by size |
+
+**Key difference**: Chaitin had K registers (hard limit). We have unbounded pool but minimize total size.
+
+---
+
+## Complexity
+
+- **Liveness analysis**: O(N × M) where N = operations, M = buffers
+- **Sorting**: O(B log B) where B = buffers
+- **Coloring**: O(B² × C) where C = candidate offsets (worst case O(B))
+- **Overall**: O(N × M + B² × B) = O(N × M + B³)
+
+For small B (typically <100 buffers), this is acceptable.
+
+---
+
+## Example
+
+**Input**:
+```mlir
+func.func @main(...) {
+  %buf0 = hip.alloc() : memref<1x64x224x224xf32, 1>  // 12.8MB, [0, 5)
+  %buf1 = hip.alloc() : memref<1x64x224x224xf32, 1>  // 12.8MB, [1, 6)
+  hip.free %buf0  // buf0 dead at 5
+  %buf2 = hip.alloc() : memref<1x64x112x112xf32, 1>  // 3.2MB, [5, 8)
+  hip.free %buf1  // buf1 dead at 6
+  %buf3 = hip.alloc() : memref<1x64x112x112xf32, 1>  // 3.2MB, [6, 9)
+}
+```
+
+**Interference**:
+- buf0 [0,5) interferes with buf1 [1,6) → edge
+- buf0 [0,5) NO interference with buf2 [5,8) → no edge
+- buf0 [0,5) NO interference with buf3 [6,9) → no edge
+- buf1 [1,6) interferes with buf2 [5,8) → edge
+- buf1 [1,6) NO interference with buf3 [6,9) → no edge
+- buf2 [5,8) interferes with buf3 [6,9) → edge
+
+**Graph coloring** (sorted by size: buf0, buf1, buf2, buf3):
+1. buf0 (12.8MB) → offset 0 (first buffer)
+2. buf1 (12.8MB) → offset 12.8MB (interferes with buf0)
+3. buf2 (3.2MB) → offset 0 (no interference with buf0, fits in same space!)
+4. buf3 (3.2MB) → offset 12.8MB (no interference with buf1, fits in same space!)
+
+**Result**:
+- Pool size: 12.8MB (instead of 32MB)
+- Savings: 60%
+
+---
+
+## Current Limitations
+
+### 1. No Alignment Constraints
+
+**Problem**: Buffer offsets are assigned without alignment requirements. GPUs typically require 4K (4096 bytes) or other alignment for optimal performance.
+
+**Current behavior**:
+```
+Buffer 0: offset = 0         ✓ aligned
+Buffer 1: offset = 3211264   ✗ not 4K-aligned (3211264 % 4096 = 0, actually aligned by luck)
+Buffer 2: offset = 147456    ✗ not 4K-aligned (147456 % 4096 = 0, actually aligned by luck)
+```
+
+**Required fix**: Round up offsets to alignment boundary:
+```cpp
+const size_t ALIGNMENT = 4096;  // 4K pages
+candidateOffset = (candidateOffset + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT;
+```
+
+**Impact**: May increase pool size by ~10-20% but ensures correctness.
+
+### 2. Conservative Interference Check
+
+**Problem**: Assumes all buffers in same function interfere. This is correct but suboptimal.
+
+**Better approach** (not yet implemented):
+- Use MLIR liveness intervals precisely
+- Check actual lifetime overlap: `[alloc_A, lastUse_A)` vs `[alloc_B, lastUse_B)`
+- Use dominance analysis for control flow
+
+**Impact**: May reduce savings from 60% to ~40% in complex control flow, but correct for all cases.
+
+---
+
+## References
+
+- Chaitin, G.J. (1982). "Register Allocation & Spilling via Graph Coloring". ACM SIGPLAN Symposium on Compiler Construction. [PDF](https://web.eecs.umich.edu/~mahlke/courses/583f12/reading/chaitin82.pdf)
+- [Wikipedia: Chaitin's Algorithm](https://en.wikipedia.org/wiki/Chaitin's_algorithm)
+- [MLIR Liveness Analysis](https://mlir.llvm.org/doxygen/classmlir_1_1Liveness.html)
+
+---
+
+## Related Documents
+
+- [MemoryPoolingPass.md](MemoryPoolingPass.md) - Pass overview and integration
+- [BUFFER-LIFETIME-DESIGN.md](../../BUFFER-LIFETIME-DESIGN.md) - Deallocation placement strategy

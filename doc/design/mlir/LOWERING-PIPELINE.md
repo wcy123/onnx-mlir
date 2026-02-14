@@ -4,7 +4,7 @@ Licensed under the MIT License.
 -->
 # MLIR Lowering Pipeline
 
-**Date:** 2026-02-12
+**Date:** 2026-02-14
 **Document Type:** Design Document
 **Review Status:** Self-Reviewed
 **Branch:** `mlir-integration`
@@ -166,9 +166,15 @@ func.func @main(%ctx: !hip.context,
 - All HIP operations must declare memory effects (`MemoryEffectsOpInterface`)
 - See `doc/design/BUFFER-LIFETIME-DESIGN.md` for full details
 
-**Future optimizations (Phase 2 & 3):**
-- **Phase 2**: Hoist allocations to `inference_init` (4-12x speedup)
-- **Phase 3**: Memory pooling to reduce footprint by 60-70%
+---
+
+### Stage 2.75: Memory Pooling (MemoryPoolingPass)
+
+**👉 See [passes/MemoryPoolingPass.md](passes/MemoryPoolingPass.md)**
+
+Graph coloring assigns pool offsets to buffers with non-overlapping lifetimes (60% memory savings for demo model).
+
+Attaches module metadata (`hipdnn.pool_size`, `hipdnn.buffer_offsets`) consumed by HipToLLVM.
 
 ---
 

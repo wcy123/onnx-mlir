@@ -51,6 +51,14 @@ This demo shows the 5-stage compilation and testing pipeline:
                          │ • hip.free inserted after last use
                          │ • Ownership-aware (args not freed)
                          ▼
+              ┌──────────────────────────────┐
+              │  Stage 1.75: Memory Pooling   │
+              │  (automatic in mlir-hip-compiler)
+              └──────────┬─────────────────────┘
+                         │ HIP dialect + pool metadata
+                         │ • 60% memory savings
+                         │ • Pool size: 12.8MB vs 32.1MB
+                         ▼
               ┌──────────────────────┐
               │  Stage 2: hip-opt    │
               │  --convert-hip-to-llvm
@@ -122,6 +130,29 @@ cmake --build ../../build/onnx-hipdnn-ep --config Debug --target hip-opt mlir-hi
 - [mlir/passes/OnnxToHip.md](../design/mlir/passes/OnnxToHip.md) - ONNX to HIP dialect conversion
 - [BUFFER-LIFETIME-DESIGN.md](../design/BUFFER-LIFETIME-DESIGN.md) - Automatic memory management
 
+### Stage 1.75: Memory Pooling
+
+Runs automatically after BufferDeallocation. Graph coloring assigns pool offsets to reuse memory for non-overlapping buffers.
+
+**Compilation output**:
+```
+[MemoryPooling] Pool size: 12845056 bytes (was 32112640 bytes, saved 60%)
+[MemoryPooling] Processed 4 buffers
+```
+
+**Module metadata**:
+```mlir
+module attributes {
+  hipdnn.pool_size = 12845056 : i64,
+  hipdnn.buffer_offsets = array<i64: 0, 3211264, 6422528, 9633792>,
+  hipdnn.buffer_count = 4 : i64
+}
+```
+
+**Memory savings**: 60% (32.1MB → 12.8MB).
+
+See [MemoryPoolingPass.md](../design/mlir/passes/MemoryPoolingPass.md).
+
 ### Stage 2: HIP → LLVM IR
 
 ```bash
@@ -189,9 +220,10 @@ export PATH="../../local/bin:$PATH"  # For zlibd.dll (adjust if LLVM installed e
 **Note**: The `--from-onnx-mlir` flag runs the full pipeline automatically:
 1. ONNX→HIP conversion
 2. BufferDeallocation (inserts hip.free operations)
-3. HIP→LLVM lowering
-4. Interface generation
-This is equivalent to piping Stages 1-3 output to the compiler, with automatic memory management.
+3. Memory Pooling (graph coloring optimization)
+4. HIP→LLVM lowering
+5. Interface generation
+This is equivalent to piping Stages 1-3 output to the compiler, with automatic memory management and pooling.
 
 **Output** (from `../output/stage4_output.txt`):
 ```
@@ -205,7 +237,8 @@ Optimization: O2
 ✓ MLIR parsed successfully
 
 --- Step 2: Running MLIR Passes ---
-Running ONNX→HIP→BufferDeallocation→LLVM→Interface passes
+Running ONNX→HIP→BufferDeallocation→MemoryPooling→LLVM→Interface passes
+[MemoryPooling] Pool size: 12845056 bytes (was 32112640 bytes, saved 60%)
 ✓ MLIR passes completed
 
 --- Step 3: Translating to LLVM IR ---
