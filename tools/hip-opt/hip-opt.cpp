@@ -3,6 +3,8 @@
  * Licensed under the MIT License.
  */
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -20,11 +22,16 @@ int main(int argc, char **argv) {
   registry.insert<mlir::arith::ArithDialect>();
   registry.insert<mlir::func::FuncDialect>();
   registry.insert<mlir::memref::MemRefDialect>();
+  registry.insert<mlir::bufferization::BufferizationDialect>();
   registry.insert<mlir::hip::HipDialect>();
   registry.insert<mlir::ONNXDialect>(); // Register ONNX dialect for ONNX→HIP
                                         // lowering
 
+  // Register HIP passes
   mlir::hip::registerHipPasses();
+
+  // Register MLIR standard buffer deallocation passes
+  mlir::bufferization::registerBufferizationPasses();
 
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "hip-opt: custom compiler driver\n", registry));
