@@ -33,6 +33,7 @@ config.test_exec_root = os.path.join(config.onnx_hip_obj_root, "test")
 
 # Initialize llvm_config for tool management
 import lit.llvm
+
 lit.llvm.initialize(lit_config, config)
 llvm_config = lit.llvm.llvm_config
 
