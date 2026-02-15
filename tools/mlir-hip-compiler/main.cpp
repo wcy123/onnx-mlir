@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
         mlir::bufferization::createOptimizeAllocationLivenessPass());
     pm.addPass(mlir::createCanonicalizerPass());
 
-    // Memory pooling optimization (Phase 3)
+    // Memory pooling optimization
     // IMPORTANT: Must run AFTER BufferDeallocation, since BufferDeallocation
     // creates the final hip.alloc/hip.free ops
     llvm::errs() << "[DEBUG] About to call createMemoryPoolingPass()\n";

@@ -145,7 +145,7 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
     if (poolSizeAttr) {
       llvm::errs()
           << "[HipToLLVM] Pool metadata found, using pool-based allocation\n";
-      // Phase 3: Pool-based allocation
+      // Pool-based allocation
       // Get buffer index from the operation's attribute (set by
       // MemoryPoolingPass)
       auto bufferIndexAttr =
@@ -174,7 +174,7 @@ struct AllocOpLowering : public ConvertOpToLLVMPattern<AllocOp> {
                                           {statePtr, indexValue})
                          .getResult();
     } else {
-      // Phase 1: Direct allocation (fallback)
+      // Direct allocation (fallback)
       // Declare hipMalloc with CORRECT signature: (ptr, i64) -> i32
       FailureOr<LLVM::LLVMFuncOp> mallocFn = LLVM::lookupOrCreateFn(
           rewriter, module, kHipMalloc, {ptrType, indexType}, i32Type);
@@ -234,12 +234,12 @@ struct FreeOpLowering : public ConvertOpToLLVMPattern<FreeOp> {
     // Check if memory pooling is enabled
     auto poolSizeAttr = module->getAttrOfType<IntegerAttr>("hipdnn.pool_size");
     if (poolSizeAttr) {
-      // Phase 3: Pooling enabled - free is a nop (pool freed in cleanup)
+      // Pooling enabled - free is a nop (pool freed in cleanup)
       rewriter.eraseOp(op);
       return success();
     }
 
-    // Phase 1: Direct allocation - call hipFree
+    // Direct allocation - call hipFree
     Type voidType = getVoidType();
     Type ptrType = getPtrType();
 
@@ -740,11 +740,11 @@ private:
     OpBuilder builder(module.getContext());
     Location loc = mainFunc.getLoc();
 
-    // Phase 1: Rename @main → @main_internal (make private)
+    // Rename @main → @main_internal (make private)
     mainFunc.setName("main_internal");
     mainFunc.setLinkage(LLVM::Linkage::Private);
 
-    // Phase 2: Create new @main with array-based interface
+    // Create new @main with array-based interface
     Type ptrType = LLVM::LLVMPointerType::get(builder.getContext(), 0);
     Type i32Type = builder.getI32Type();
     SmallVector<Type> newParamTypes = {ptrType, ptrType, ptrType};
@@ -766,7 +766,7 @@ private:
     SmallVector<Value> mainInternalArgs;
     mainInternalArgs.push_back(ctxArg); // arg0: context
 
-    // Phase 3: Unpack inputs
+    // Unpack inputs
     for (int64_t i = 0; i < inputCount; i++) {
       int64_t rank = inputRanks[i];
 
@@ -786,7 +786,7 @@ private:
       unpackMemRefStruct(builder, loc, inputMemref, rank, mainInternalArgs);
     }
 
-    // Phase 4: Unpack outputs
+    // Unpack outputs
     for (int64_t i = 0; i < outputCount; i++) {
       int64_t rank = outputRanks[i];
 
@@ -802,7 +802,7 @@ private:
       unpackMemRefStruct(builder, loc, outputMemref, rank, mainInternalArgs);
     }
 
-    // Phase 5: Call @main_internal with unpacked arguments
+    // Call @main_internal with unpacked arguments
     auto callOp = builder.create<LLVM::CallOp>(loc, mainFunc, mainInternalArgs);
     Value result = callOp.getResult();
 

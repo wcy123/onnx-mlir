@@ -35,7 +35,7 @@ struct RuntimeState {
   size_t num_constants;
 };
 
-// Tensor element size (Phase 1: assume float32)
+// Tensor element size (assumes float32)
 static constexpr size_t kElementSize = 4; // float32 = 4 bytes
 
 // Helper: Calculate total size in bytes for a tensor
@@ -133,7 +133,7 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
     return HIPDNN_EP_ERR_INVALID_DIMENSION;
   }
 
-  // Phase 1: Allocate GPU buffer (Phase 2: reuse from pool)
+  // Allocate GPU buffer
   void *gpu_ptr = nullptr;
   if (hipMalloc(&gpu_ptr, size_bytes) != hipSuccess) {
     fprintf(stderr,
@@ -156,7 +156,7 @@ int hipdnn_ep_tensor_prepare_input(RuntimeState *state, span_t *inputs,
   out_buffer->shape_ptr = tensor->shape;
   out_buffer->rank = tensor->rank;
   out_buffer->size_bytes = size_bytes;
-  out_buffer->is_pooled = false; // Phase 1: always allocated, not pooled
+  out_buffer->is_pooled = false; // Always allocated, not pooled
 
   return HIPDNN_EP_SUCCESS;
 }
@@ -220,7 +220,7 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
     return HIPDNN_EP_ERR_INVALID_DIMENSION;
   }
 
-  // Phase 1: Allocate GPU buffer (Phase 2: reuse from pool)
+  // Allocate GPU buffer
   void *gpu_ptr = nullptr;
   if (hipMalloc(&gpu_ptr, size_bytes) != hipSuccess) {
     fprintf(stderr,
@@ -237,7 +237,7 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
   out_buffer->shape_ptr = tensor->shape;
   out_buffer->rank = tensor->rank;
   out_buffer->size_bytes = size_bytes;
-  out_buffer->is_pooled = false; // Phase 1: always allocated, not pooled
+  out_buffer->is_pooled = false; // Always allocated, not pooled
 
   return HIPDNN_EP_SUCCESS;
 }
@@ -275,7 +275,7 @@ int hipdnn_ep_tensor_finalize_output(RuntimeState *state,
     // Continue to cleanup even on error (best-effort)
   }
 
-  // Phase 1: Free buffer (Phase 2: return to pool or keep if hoisted)
+  // Free buffer if not pooled
   if (!buffer->is_pooled && buffer->gpu_ptr) {
     hipFree(buffer->gpu_ptr);
     buffer->gpu_ptr = nullptr;
@@ -291,7 +291,7 @@ void hipdnn_ep_tensor_free_input(RuntimeState *state, TensorBuffer *buffer) {
     return;
   }
 
-  // Phase 1: Free buffer (Phase 2: return to pool or keep if hoisted)
+  // Free buffer if not pooled
   if (!buffer->is_pooled && buffer->gpu_ptr) {
     hipFree(buffer->gpu_ptr);
     buffer->gpu_ptr = nullptr;

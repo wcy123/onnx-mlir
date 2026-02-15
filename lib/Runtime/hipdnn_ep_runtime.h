@@ -144,10 +144,8 @@ int hipdnn_ep_constant_release(RuntimeState *state, int64_t index);
 // These helpers abstract tensor preparation logic (parsing, validation,
 // GPU allocation, H2D/D2H transfer) from the generated code.
 //
-// Design principle: The runtime decides internally whether to use Phase 1
-// (per-call allocation) or Phase 2 (hoisted buffers/pool) by changing
-// implementation, not interface. Generated code is allocation-strategy
-// agnostic.
+// Design principle: The runtime handles allocation strategy internally.
+// Generated code is allocation-strategy agnostic.
 //
 // Element size: Currently assumes float32 (4 bytes). Future: add data_type
 // field to tensor_t for multi-dtype support.
@@ -155,9 +153,8 @@ int hipdnn_ep_constant_release(RuntimeState *state, int64_t index);
 
 // Prepare input tensor: parse, validate, get/allocate GPU buffer, H2D transfer
 //
-// The runtime decides internally whether to:
-//   - Allocate fresh buffer (Phase 1: per-call allocation)
-//   - Reuse pre-allocated buffer from state (Phase 2: hoisting)
+// The runtime decides internally whether to allocate fresh buffer or reuse
+// pre-allocated buffer from state.
 //
 // Parameters:
 //   state: Runtime state (provides stream, may contain pre-allocated buffers)
@@ -190,10 +187,8 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
 
 // Finalize output tensor: D2H transfer, sync, release buffer
 //
-// The runtime decides internally whether to:
-//   - Free buffer immediately (Phase 1)
-//   - Return buffer to pool for reuse (Phase 2)
-//   - Do nothing if buffer is pre-allocated (Phase 2, keep in state)
+// The runtime handles buffer release internally (free, return to pool, or keep
+// if pre-allocated).
 //
 // Parameters:
 //   state: Runtime state
@@ -208,8 +203,6 @@ int hipdnn_ep_tensor_prepare_output(RuntimeState *state, span_t *outputs,
 int hipdnn_ep_tensor_finalize_output(RuntimeState *state, TensorBuffer *buffer);
 
 // Release input tensor buffer (no D2H transfer needed)
-//
-// The runtime decides whether to free or return to pool
 //
 // Parameters:
 //   state: Runtime state

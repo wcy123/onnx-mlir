@@ -52,7 +52,7 @@ struct RuntimeState {
   void **gpu_constants;
   size_t num_constants;
 
-  // Memory pooling support (Phase 3)
+  // Memory pooling support
   void *pool_base;        // Single large memory pool
   size_t pool_size;       // Total pool size in bytes
   size_t *buffer_offsets; // Offset for each buffer in the pool
@@ -245,49 +245,41 @@ void *hipdnn_ep_state_get_stream(RuntimeState *state) {
 }
 
 //==============================================================================
-// Backward Compatibility Wrappers (for old test MLIR)
+// Backward Compatibility Wrappers
 //==============================================================================
-// These wrappers support test MLIR that uses old function names.
-// Production code should use the hipdnn_ep_* API directly.
 
 extern "C" {
 
-// Legacy wrapper: runtime_state_init -> hipdnn_ep_state_init
+// Legacy: runtime_state_init
 int runtime_state_init(void **out_state) {
-  // Legacy interface assumes 0 constants (old test MLIR doesn't use constants)
   return hipdnn_ep_state_init(reinterpret_cast<RuntimeState **>(out_state),
                               nullptr);
 }
 
-// Legacy wrapper: runtime_state_cleanup -> hipdnn_ep_state_cleanup
+// Legacy: runtime_state_cleanup
 int runtime_state_cleanup(void *state) {
   return hipdnn_ep_state_cleanup(static_cast<RuntimeState *>(state));
 }
 
-// Legacy wrapper: runtime_prepare_inference
-// Simple implementation: allocates temporary inference data structure
+// Legacy: runtime_prepare_inference
 int runtime_prepare_inference(void *state, void *inputs_ptr, void *outputs_ptr,
                               void **out_data) {
-  // For now, just return a dummy pointer
-  // Real implementation would allocate InferenceData and prepare GPU buffers
   *out_data = malloc(8); // Dummy allocation
-  return 0;              // Success
+  return 0;
 }
 
-// Legacy wrapper: runtime_cleanup_inference
-// Simple implementation: frees temporary inference data
+// Legacy: runtime_cleanup_inference
 int runtime_cleanup_inference(void *state, void *data, void *outputs_ptr) {
-  // Free the dummy allocation
   if (data) {
     free(data);
   }
-  return 0; // Success
+  return 0;
 }
 
 } // extern "C"
 
 //==============================================================================
-// Memory Pooling Support (Phase 3)
+// Memory Pooling Support
 //==============================================================================
 
 extern "C" {

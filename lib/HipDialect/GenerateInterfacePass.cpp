@@ -477,7 +477,7 @@ private:
         module->getAttrOfType<IntegerAttr>("hipdnn.buffer_count");
 
     if (poolSizeAttr && bufferOffsetsAttr && bufferCountAttr) {
-      // Phase 3: Initialize memory pool
+      // Initialize memory pool
       size_t poolSize = poolSizeAttr.getInt();
       size_t numBuffers = bufferCountAttr.getInt();
       auto offsetsAttrArray = bufferOffsetsAttr.getValue();
@@ -538,7 +538,7 @@ private:
       // Return pool init result
       builder.create<LLVM::ReturnOp>(loc, poolInitCall.getResult());
     } else {
-      // Phase 1: No pooling - return init result directly
+      // No pooling - return init result directly
       builder.create<LLVM::ReturnOp>(loc, initCall.getResult());
     }
   }
@@ -637,7 +637,7 @@ private:
     Block *errorCleanupBlock = funcOp.addBlock();
 
     // ========================================================================
-    // Phase 1: Prepare all input tensors
+    // Prepare all input tensors
     // ========================================================================
     SmallVector<Value> inputMemrefs;
 
@@ -683,7 +683,7 @@ private:
     }
 
     // ========================================================================
-    // Phase 2: Prepare all output tensors
+    // Prepare all output tensors
     // ========================================================================
     SmallVector<Value> outputMemrefs;
 
@@ -728,7 +728,7 @@ private:
     }
 
     // ========================================================================
-    // Phase 3: Build memref structs for @main call
+    // Build memref structs for @main call
     // ========================================================================
     // Since different tensors may have different ranks, we can't use a
     // homogeneous array. Use array of pointers instead.
@@ -924,7 +924,7 @@ private:
     }
 
     // ========================================================================
-    // Phase 4: Call @main with arrays of pointers
+    // Call @main with arrays of pointers
     // ========================================================================
     Block *mainSuccessBlock = funcOp.addBlock();
 
@@ -954,7 +954,7 @@ private:
     }
 
     // ========================================================================
-    // Phase 5: Finalize output tensors (D2H, sync, cleanup)
+    // Finalize output tensors (D2H, sync, cleanup)
     // ========================================================================
     builder.setInsertionPointToStart(mainSuccessBlock);
 
@@ -986,7 +986,7 @@ private:
     }
 
     // ========================================================================
-    // Phase 6: Free input tensors
+    // Free input tensors
     // ========================================================================
     for (size_t i = 0; i < numInputs; i++) {
       Value bufferPtr = inputBuffers[i];
@@ -1012,8 +1012,8 @@ private:
     }
 
     // NOTE: Do NOT call finalize_output here to avoid double-finalize bug.
-    // If we reached Phase 5 (finalize), it was already attempted there.
-    // If we failed before Phase 5, outputs aren't ready to finalize.
+    // If we reached finalization, it was already attempted there.
+    // If we failed before finalization, outputs aren't ready to finalize.
     // finalize_output should only be called once per output in the success
     // path.
 

@@ -78,9 +78,8 @@ struct ConstantToHipPattern : public OpConversionPattern<ONNXConstantOp> {
     // Look up this constant in the registry
     auto it = constantRegistry.find(constantOp.getResult());
     if (it == constantRegistry.end()) {
-      return rewriter.notifyMatchFailure(
-          constantOp,
-          "Constant not found in registry (not discovered during Phase 2)");
+      return rewriter.notifyMatchFailure(constantOp,
+                                         "Constant not found in registry");
     }
 
     const auto &info = it->second;
@@ -189,25 +188,9 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     //   func @inference_compute(%state: !hip.context, %inputs: !llvm.ptr,
     //   %outputs: !llvm.ptr) -> i32
     //
-    // Phase 1 Design:
-    // - We use !hip.context type for state parameter (simple, type-safe at HIP
-    // dialect level)
-    // - The !hip.context actually points to the State struct (documented
-    // semantic)
-    // - Handle extraction (to get miopenHandle/hipblasHandle) happens in
-    // HIP→LLVM lowering
-    //
-    // State struct layout (used by HipToLLVM.cpp):
-    //   struct State {
-    //     hipStream_t stream;              // offset 0 (8 bytes)
-    //     miopenHandle_t miopenHandle;     // offset 8 (8 bytes)  ← used by
-    //     hip.conv hipblasLtHandle_t hipblasHandle; // offset 16 (8 bytes) ←
-    //     used by hip.gemm void** gpu_weights;              // offset 24 (8
-    //     bytes)
-    //   };
-    //
-    // Phase 2 TODO: Define high-level state type: !hip.state<...> for better
-    // type safety
+    // The !hip.context type represents the runtime state pointer.
+    // Handle extraction (miopenHandle/hipblasHandle) happens in HIP→LLVM
+    // lowering.
     auto funcOp = convOp->getParentOfType<func::FuncOp>();
     if (!funcOp) {
       return rewriter.notifyMatchFailure(convOp, "Not inside a function");
@@ -233,10 +216,7 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
     // during HIP→LLVM lowering
     Value handle = context;
 
-    // ⭐ IN-PLACE SEMANTICS (Phase 1: Naive inline allocation)
     // Allocate output buffer on GPU using hip.alloc
-    // Phase 2 TODO: Hoist this allocation to inference_init() for 4-12x speedup
-    // Phase 3 TODO: Use memory pooling to reduce memory footprint by 60-70%
 
     // Extract dynamic sizes if the output memref has dynamic dimensions
     SmallVector<Value> dynamicSizes;
@@ -279,10 +259,9 @@ struct ConvToHipPattern : public OpConversionPattern<ONNXConvOp> {
 
     rewriter.create(opState);
 
-    // ⭐ Replace ONNX Conv result with the allocated output buffer
-    // Phase 1: Allocate intermediate buffer inline (this buffer will be copied
-    // to the function's output argument by ReturnOpConversion)
-    // Phase 2 TODO: Use pre-allocated buffers from state instead
+    // Replace ONNX Conv result with the allocated output buffer
+    // This buffer will be copied to the function's output argument by
+    // ReturnOpConversion
     rewriter.replaceOp(convOp, outputBuffer.getResult());
 
     return success();
@@ -611,32 +590,32 @@ public:
     ModuleOp module = getOperation();
     MLIRContext *context = &getContext();
 
-    // Phase 2: Discover constants and assign global indices
+    // Discover constants and assign global indices
     if (failed(discoverConstants(module))) {
       signalPassFailure();
       return;
     }
 
-    // Phase 3: Generate LLVM globals for constants
+    // Generate LLVM globals for constants
     if (failed(generateConstantGlobals(module))) {
       signalPassFailure();
       return;
     }
 
-    // Phase 4: Generate initialization functions
+    // Generate initialization functions
     if (failed(generateConstantRegistry(module))) {
       signalPassFailure();
       return;
     }
 
-    // Phase 4.5: Generate module metadata (BEFORE processing functions)
+    // Generate module metadata (BEFORE processing functions)
     // CRITICAL: Must capture original function signature before transformation
     if (failed(generateModuleMetadata(module))) {
       signalPassFailure();
       return;
     }
 
-    // Phase 1: Process each ONNX function
+    // Process each ONNX function
 
     for (auto func : module.getOps<func::FuncOp>()) {
       // Skip non-ONNX functions

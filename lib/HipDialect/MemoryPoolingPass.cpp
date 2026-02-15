@@ -6,7 +6,7 @@
 //===----------------------------------------------------------------------===//
 // Memory Pooling Pass - Optimize buffer allocation with graph coloring
 //===----------------------------------------------------------------------===//
-// This pass implements Phase 3 of buffer lifetime management:
+// This pass implements buffer lifetime management:
 // - Tracks all hip.alloc operations and assigns buffer indices
 // - Analyzes buffer lifetimes using liveness analysis
 // - Builds interference graph for overlapping lifetimes
@@ -192,7 +192,8 @@ private:
     if (!memrefType.hasStaticShape()) {
       // Memory pooling requires compile-time known buffer sizes for:
       // - Graph coloring algorithm (computes static offsets)
-      // - Module metadata (hipdnn.pool_size, hipdnn.buffer_offsets are constants)
+      // - Module metadata (hipdnn.pool_size, hipdnn.buffer_offsets are
+      // constants)
       // - Runtime pool allocation (single fixed-size pool)
       // See doc/design/DYNAMIC-SHAPE-DESIGN.md for design challenges
       return failure();
