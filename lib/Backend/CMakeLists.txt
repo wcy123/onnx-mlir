@@ -29,7 +29,7 @@ add_custom_command(
 
     # Convert runtime.bc to C array
     COMMAND ${Python3_EXECUTABLE}
-            ${PROJECT_SOURCE_DIR}/3rd-party/morphizen/tools/xxd.py
+            ${PROJECT_SOURCE_DIR}/3rd-party/morphizen/cmake/scripts/xxd.py
             --var runtime_bc_data
             --output ${CMAKE_CURRENT_BINARY_DIR}/runtime_ir_data.cpp.tmp
             ${RUNTIME_BC_PATH}

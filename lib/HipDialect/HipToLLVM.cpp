@@ -755,6 +755,12 @@ private:
         builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
     newMainFunc.setLinkage(LLVM::Linkage::Private);
 
+    // CRITICAL: Prevent aggressive inlining that breaks memref dataflow
+    // The noinline attribute ensures LLVM preserves the function call,
+    // maintaining the memref unpacking code that extracts GPU pointers
+    newMainFunc->setAttr("passthrough",
+                         builder.getArrayAttr({builder.getStringAttr("noinline")}));
+
     Block *entryBlock = newMainFunc.addEntryBlock(builder);
     builder.setInsertionPointToStart(entryBlock);
 

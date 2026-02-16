@@ -139,12 +139,12 @@ llvm::TargetMachine *LLVMBackend::createTargetMachine() {
   initializeTarget();
 
   // Get target triple for current platform
-  std::string target_triple = llvm::sys::getDefaultTargetTriple();
+  llvm::Triple target_triple(llvm::sys::getDefaultTargetTriple());
 
   // Look up target
   std::string error_msg;
   const llvm::Target *target =
-      llvm::TargetRegistry::lookupTarget(target_triple, error_msg);
+      llvm::TargetRegistry::lookupTarget(target_triple.str(), error_msg);
   if (!target) {
     std::cerr << "Failed to lookup target: " << error_msg << "\n";
     return nullptr;

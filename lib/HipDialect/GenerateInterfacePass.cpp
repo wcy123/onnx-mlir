@@ -747,7 +747,7 @@ private:
       // Load TensorBuffer fields
       Value bufferPtr = inputBuffers[i];
 
-      // Load gpu_ptr (field 0)
+      // Load gpu_ptr (field 0) - CRITICAL: This is the actual GPU memory pointer
       Value gpuPtrFieldPtr =
           builder.create<LLVM::GEPOp>(loc, ptrType, tensorBufferType, bufferPtr,
                                       ArrayRef<LLVM::GEPArg>{0, 0});
@@ -766,7 +766,7 @@ private:
       Value shapePtr =
           builder.create<LLVM::LoadOp>(loc, ptrType, shapePtrFieldPtr);
 
-      // Build memref struct
+      // Build memref struct using the GPU pointer we extracted
       Value memref = builder.create<LLVM::UndefOp>(loc, memrefType);
 
       // Set allocated pointer (field 0)
@@ -831,6 +831,9 @@ private:
           builder.create<LLVM::GEPOp>(loc, ptrType, ptrType, inputMemrefArray,
                                       ArrayRef<LLVM::GEPArg>{indexVal});
       builder.create<LLVM::StoreOp>(loc, memrefPtr, arraySlot);
+
+      llvm::errs() << "[GenerateInterface] Built input memref " << i
+                   << " with gpu_ptr extracted from TensorBuffer\n";
     }
 
     // Build output memref array similarly
