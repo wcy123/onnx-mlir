@@ -520,7 +520,7 @@ private:
         Value offset = builder.create<LLVM::ConstantOp>(
             loc, i64Type, builder.getI64IntegerAttr(offsetAttr.getInt()));
         Value idx = builder.create<LLVM::ConstantOp>(
-            loc, i32Type, builder.getI32IntegerAttr(i));
+            loc, i64Type, builder.getI64IntegerAttr(i));
         Value elemPtr = builder.create<LLVM::GEPOp>(
             loc, ptrType, i64Type, offsetsArrayPtr, ValueRange{idx});
         builder.create<LLVM::StoreOp>(loc, offset, elemPtr);

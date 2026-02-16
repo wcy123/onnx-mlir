@@ -299,6 +299,9 @@ private:
                 return buffers[a].sizeBytes > buffers[b].sizeBytes;
               });
 
+    // Track which buffers have been assigned
+    SmallVector<bool> assigned(numBuffers, false);
+
     // Greedy first-fit allocation
     for (size_t idx : sortedIndices) {
       const auto &buffer = buffers[idx];
@@ -310,7 +313,7 @@ private:
       // Try offsets at every existing allocation boundary
       SmallVector<size_t> boundaries = {0};
       for (size_t j = 0; j < numBuffers; j++) {
-        if (offsets[j] > 0 || j == idx) {
+        if (!assigned[j] || j == idx) {
           continue;
         }
         boundaries.push_back(offsets[j]);
@@ -327,7 +330,7 @@ private:
 
         // Check if this offset conflicts with any interfering buffer
         for (size_t j = 0; j < numBuffers; j++) {
-          if (j == idx || offsets[j] == 0) {
+          if (j == idx || !assigned[j]) {
             continue;
           }
 
@@ -362,6 +365,7 @@ private:
 
       // Assign offset
       offsets[idx] = candidateOffset;
+      assigned[idx] = true;
       poolSize = std::max(poolSize, candidateOffset + buffer.sizeBytes);
     }
 
