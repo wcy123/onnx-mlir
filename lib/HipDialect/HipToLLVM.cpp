@@ -755,9 +755,22 @@ private:
         builder.create<LLVM::LLVMFuncOp>(loc, "main", newFuncType);
     newMainFunc.setLinkage(LLVM::Linkage::Private);
 
-    // CRITICAL: Prevent aggressive inlining that breaks memref dataflow
-    // The noinline attribute ensures LLVM preserves the function call,
-    // maintaining the memref unpacking code that extracts GPU pointers
+    // CRITICAL WORKAROUND: Prevent LLVM SROA optimizer bug
+    //
+    // Without noinline, LLVM inlines @main into inference_compute, then SROA
+    // (Scalar Replacement of Aggregates) tries to optimize memref structures.
+    // SROA fails to track GPU pointers through double indirection pattern:
+    //   array (AS0) → struct (AS0) → GPU pointer (AS1)
+    // and produces 'undef' instead, causing segfault at runtime.
+    //
+    // This is a known LLVM limitation that persists even in LLVM 22 with
+    // opaque pointers. The noinline attribute prevents inlining, so SROA
+    // never sees the full pattern and doesn't attempt the broken optimization.
+    //
+    // Performance impact: One function call overhead (~5-10 cycles), negligible
+    // compared to GPU operations (millions of cycles).
+    //
+    // See: doc/design/mlir/passes/LLVM-SROA-WORKAROUND.md for full explanation
     newMainFunc->setAttr("passthrough",
                          builder.getArrayAttr({builder.getStringAttr("noinline")}));
 
