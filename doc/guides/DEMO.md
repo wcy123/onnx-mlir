@@ -123,7 +123,7 @@ func.func @main(%input: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   tools/hip-opt/demos/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
   > ../output/stage1.mlir
@@ -179,7 +179,7 @@ module attributes {hipdnn.input_count = 1 : i64, hipdnn.output_count = 1 : i64,
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   ../output/stage1.mlir \
   --ownership-based-buffer-deallocation \
   > ../output/stage2.mlir
@@ -228,7 +228,7 @@ func.func @main(%arg0: !hip.context,
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   ../output/stage2.mlir \
   --memory-pooling \
   > ../output/stage3.mlir
@@ -284,7 +284,7 @@ module attributes {
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   ../output/stage3.mlir \
   --convert-hip-to-llvm \
   > ../output/stage4.mlir
@@ -352,7 +352,7 @@ module {
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   ../output/stage4.mlir \
   --generate-interface \
   > ../output/stage5.mlir
@@ -420,7 +420,7 @@ module {
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/mlir-hip-compiler.exe \
+../../build/$(basename $PWD)/bin/mlir-hip-compiler.exe \
   tools/hip-opt/demos/demo_two_layer_conv.mlir \
   --from-onnx-mlir \
   -o ../output/demo_two_layer.dll \
@@ -475,7 +475,7 @@ Output: ../output/demo_two_layer.dll
 
 **Command:**
 ```bash
-../../build/$(basename $PWD)/bin/Debug/test-model-dll.exe \
+../../build/$(basename $PWD)/bin/test-model-dll.exe \
   ../output/demo_two_layer.dll
 ```
 
@@ -529,13 +529,13 @@ cmake --build ../../build/$(basename $PWD) --config Debug --target hip-opt mlir-
 
 ```bash
 # Stage 1: ONNX → HIP Dialect (redirect stderr to filter debug output)
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   tools/hip-opt/demos/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
   2>/dev/null > ../output/stage1.mlir
 
 # Stage 2-5: Complete pipeline (easiest approach - avoids debug output issues)
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe \
+../../build/$(basename $PWD)/bin/hip-opt.exe \
   tools/hip-opt/demos/demo_two_layer_conv.mlir \
   --convert-onnx-to-hip \
   --ownership-based-buffer-deallocation \
@@ -545,7 +545,7 @@ cmake --build ../../build/$(basename $PWD) --config Debug --target hip-opt mlir-
   2>/dev/null > ../output/stage5.mlir
 
 # Stage 6: Native DLL Compilation (runs full pipeline automatically)
-../../build/$(basename $PWD)/bin/Debug/mlir-hip-compiler.exe \
+../../build/$(basename $PWD)/bin/mlir-hip-compiler.exe \
   tools/hip-opt/demos/demo_two_layer_conv.mlir \
   --from-onnx-mlir \
   -o ../output/demo_two_layer.dll \
@@ -554,7 +554,7 @@ cmake --build ../../build/$(basename $PWD) --config Debug --target hip-opt mlir-
   --keep
 
 # Stage 7: End-to-End Testing
-../../build/$(basename $PWD)/bin/Debug/test-model-dll.exe \
+../../build/$(basename $PWD)/bin/test-model-dll.exe \
   ../output/demo_two_layer.dll
 ```
 
@@ -658,7 +658,7 @@ Full intermediate outputs available in `../output/` directory.
 ```bash
 cd /path/to/onnx-hipdnn-ep
 # Run all stages, save to ../output/
-../../build/$(basename $PWD)/bin/Debug/hip-opt.exe tools/hip-opt/demos/demo_two_layer_conv.mlir --convert-onnx-to-hip > ../output/stage1_onnx_to_hip.mlir
+../../build/$(basename $PWD)/bin/hip-opt.exe tools/hip-opt/demos/demo_two_layer_conv.mlir --convert-onnx-to-hip > ../output/stage1_onnx_to_hip.mlir
 # ... (all stages)
 ```
 Copy actual output into this document. Never fabricate examples.
@@ -669,8 +669,8 @@ Copy actual output into this document. Never fabricate examples.
 - Exception: One concrete example per concept with "(demo model)" note
 
 **Rule 3: Use Relative Paths**
-- ❌ `C:/Develop/m/build/onnx-hipdnn-ep/bin/Debug/hip-opt.exe`
-- ✅ `../../build/$(basename $PWD)/bin/Debug/hip-opt.exe`
+- ❌ `C:/Develop/m/build/onnx-hipdnn-ep/bin/hip-opt.exe`
+- ✅ `../../build/$(basename $PWD)/bin/hip-opt.exe`
 
 **Rule 4: Make Commands Reproducible**
 - Use `$(basename $PWD)` - works on any checkout
