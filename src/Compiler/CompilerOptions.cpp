@@ -1445,10 +1445,12 @@ void removeUnrelatedOptions(
   optCategories.push_back(&llvm::cl::getGeneralCategory());
   llvm::cl::HideUnrelatedOptions(optCategories);
 
-  llvm::StringMap<llvm::cl::Option *> &optMap =
-      llvm::cl::getRegisteredOptions();
-  for (auto n = optMap.begin(); n != optMap.end(); n++) {
-    llvm::cl::Option *opt = n->getValue();
+  // Use auto& to support both LLVM 22.0 (StringMap) and 22.1+ (DenseMap)
+  // return types for getRegisteredOptions(). Both map entry types expose
+  // .second for the value.
+  auto &optMap = llvm::cl::getRegisteredOptions();
+  for (auto &entry : optMap) {
+    llvm::cl::Option *opt = entry.second;
     if (opt->getOptionHiddenFlag() == llvm::cl::ReallyHidden)
       opt->removeArgument();
   }
